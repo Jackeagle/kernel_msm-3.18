@@ -39,6 +39,9 @@
 #include <net/route.h>
 #include <net/xfrm.h>
 
+int sysctl_ip_use_legacy_tos __read_mostly = 1;
+EXPORT_SYMBOL(sysctl_ip_use_legacy_tos);
+
 static bool ip_may_fragment(const struct sk_buff *skb)
 {
 	return unlikely((ip_hdr(skb)->frag_off & htons(IP_DF)) == 0) ||
@@ -182,7 +185,11 @@ int ip_forward(struct sk_buff *skb)
 	    !skb_sec_path(skb))
 		ip_rt_send_redirect(skb);
 
-	skb->priority = rt_tos2priority(iph->tos);
+	/*
+	 * Set skb priority using legacy ToS method if required
+	 */
+	if (sysctl_ip_use_legacy_tos != 0)
+		skb->priority = rt_tos2priority(iph->tos);
 
 	return NF_HOOK(NFPROTO_IPV4, NF_INET_FORWARD, skb, skb->dev,
 		       rt->dst.dev, ip_forward_finish);
