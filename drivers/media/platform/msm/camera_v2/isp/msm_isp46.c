@@ -50,7 +50,7 @@
 #define VFE46_XBAR_BASE(idx) (0x90 + 0x4 * (idx / 2))
 #define VFE46_XBAR_SHIFT(idx) ((idx%2) ? 16 : 0)
 #define VFE46_PING_PONG_BASE(wm, ping_pong) \
-	(VFE46_WM_BASE(wm) + 0x4 * (1 + (~(ping_pong >> wm) & 0x1)))
+	(VFE46_WM_BASE(wm) + 0x4 * (1 + ((~ping_pong) & 0x1)))
 #define SHIFT_BF_SCALE_BIT 1
 #define VFE46_NUM_STATS_COMP 2
 #define VFE46_BUS_RD_CGC_OVERRIDE_BIT 16
@@ -236,6 +236,11 @@ bus_scale_register_failed:
 
 static void msm_vfe46_release_hardware(struct vfe_device *vfe_dev)
 {
+	/* when closing node, disable all irq */
+	msm_camera_io_w_mb(0x0, vfe_dev->vfe_base + 0x5C);
+	msm_camera_io_w_mb(0x0, vfe_dev->vfe_base + 0x60);
+
+	disable_irq(vfe_dev->vfe_irq->start);
 	free_irq(vfe_dev->vfe_irq->start, vfe_dev);
 	tasklet_kill(&vfe_dev->vfe_tasklet);
 	iounmap(vfe_dev->vfe_vbif_base);
@@ -467,6 +472,10 @@ static void msm_vfe46_process_reg_update(struct vfe_device *vfe_dev,
 				if (atomic_read(
 					&vfe_dev->stats_data.stats_update))
 					msm_isp_stats_stream_update(vfe_dev);
+				if (vfe_dev->axi_data.camif_state ==
+					CAMIF_STOPPING)
+					vfe_dev->hw_info->vfe_ops.core_ops.
+						reg_update(vfe_dev, i);
 				break;
 			case VFE_RAW_0:
 			case VFE_RAW_1:
@@ -567,6 +576,8 @@ static void msm_vfe46_reg_update(struct vfe_device *vfe_dev,
 		msm_camera_io_w_mb(update_mask,
 			vfe_dev->vfe_base + 0x3D8);
 	} else if (!vfe_dev->is_split ||
+		((frame_src == VFE_PIX_0) &&
+		(vfe_dev->axi_data.camif_state == CAMIF_STOPPING)) ||
 		(frame_src >= VFE_RAW_0 && frame_src <= VFE_SRC_MAX)) {
 		msm_camera_io_w_mb(update_mask,
 			vfe_dev->vfe_base + 0x3D8);
@@ -1453,12 +1464,12 @@ static void msm_vfe46_read_wm_ping_pong_addr(
 
 static void msm_vfe46_update_ping_pong_addr(
 	void __iomem *vfe_base,
-	uint8_t wm_idx, uint32_t pingpong_status, dma_addr_t paddr)
+	uint8_t wm_idx, uint32_t pingpong_bit, dma_addr_t paddr)
 {
 	uint32_t paddr32 = (paddr & 0xFFFFFFFF);
 
 	msm_camera_io_w(paddr32, vfe_base +
-		VFE46_PING_PONG_BASE(wm_idx, pingpong_status));
+		VFE46_PING_PONG_BASE(wm_idx, pingpong_bit));
 }
 
 static int msm_vfe46_axi_halt(struct vfe_device *vfe_dev,

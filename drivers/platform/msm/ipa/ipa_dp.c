@@ -246,6 +246,7 @@ static void ipa_handle_tx(struct ipa_sys_context *sys)
 	int cnt;
 
 	ipa_inc_client_enable_clks();
+	pm_stay_awake(ipa_ctx->pdev);
 	do {
 		cnt = ipa_handle_tx_core(sys, true, true);
 		if (cnt == 0) {
@@ -258,6 +259,7 @@ static void ipa_handle_tx(struct ipa_sys_context *sys)
 	} while (inactive_cycles <= POLLING_INACTIVITY_TX);
 
 	ipa_tx_switch_to_intr_mode(sys);
+	pm_relax(ipa_ctx->pdev);
 	ipa_dec_client_disable_clks();
 }
 
@@ -649,6 +651,8 @@ static void ipa_sps_irq_tx_notify(struct sps_event_notify *notify)
 
 	switch (notify->event_id) {
 	case SPS_EVENT_EOT:
+		if (IPA_CLIENT_IS_APPS_CONS(sys->ep->client))
+			atomic_set(&ipa_ctx->sps_pm.eot_activity, 1);
 		if (!atomic_read(&sys->curr_polling_state)) {
 			ret = sps_get_config(sys->ep->ep_hdl,
 					&sys->ep->connect);
@@ -691,6 +695,8 @@ static void ipa_sps_irq_tx_no_aggr_notify(struct sps_event_notify *notify)
 	switch (notify->event_id) {
 	case SPS_EVENT_EOT:
 		tx_pkt = notify->data.transfer.user;
+		if (IPA_CLIENT_IS_APPS_CONS(tx_pkt->sys->ep->client))
+			atomic_set(&ipa_ctx->sps_pm.eot_activity, 1);
 		queue_work(tx_pkt->sys->wq, &tx_pkt->work);
 		break;
 	default:
@@ -806,6 +812,8 @@ static void ipa_sps_irq_rx_notify(struct sps_event_notify *notify)
 
 	switch (notify->event_id) {
 	case SPS_EVENT_EOT:
+		if (IPA_CLIENT_IS_APPS_CONS(sys->ep->client))
+			atomic_set(&ipa_ctx->sps_pm.eot_activity, 1);
 		if (!atomic_read(&sys->curr_polling_state)) {
 			ret = sps_get_config(sys->ep->ep_hdl,
 					&sys->ep->connect);
@@ -853,6 +861,7 @@ static void ipa_handle_rx(struct ipa_sys_context *sys)
 	int cnt;
 
 	ipa_inc_client_enable_clks();
+	pm_stay_awake(ipa_ctx->pdev);
 	do {
 		cnt = ipa_handle_rx_core(sys, true, true);
 		if (cnt == 0) {
@@ -865,6 +874,7 @@ static void ipa_handle_rx(struct ipa_sys_context *sys)
 	} while (inactive_cycles <= POLLING_INACTIVITY_RX);
 
 	ipa_rx_switch_to_intr_mode(sys);
+	pm_relax(ipa_ctx->pdev);
 	ipa_dec_client_disable_clks();
 }
 
@@ -875,6 +885,36 @@ static void switch_to_intr_rx_work_func(struct work_struct *work)
 	dwork = container_of(work, struct delayed_work, work);
 	sys = container_of(dwork, struct ipa_sys_context, switch_to_intr_work);
 	ipa_handle_rx(sys);
+}
+
+/**
+ * ipa_update_repl_threshold()- Update the repl_threshold for the client.
+ *
+ * Return value: None.
+ */
+void ipa_update_repl_threshold(enum ipa_client_type ipa_client)
+{
+	int ep_idx;
+	struct ipa_ep_context *ep;
+
+	/* Check if ep is valid. */
+	ep_idx = ipa_get_ep_mapping(ipa_client);
+	if (ep_idx == -1) {
+		IPADBG("Invalid IPA client\n");
+		return;
+	}
+
+	ep = &ipa_ctx->ep[ep_idx];
+	if (!ep->valid) {
+		IPADBG("EP not valid/Not applicable for client.\n");
+		return;
+	}
+	/*
+	 * Determine how many buffers/descriptors remaining will
+	 * cause to drop below the yellow WM bar.
+	 */
+	ep->rx_replenish_threshold = ipa_get_sys_yellow_wm()
+					/ ep->sys->rx_buff_sz;
 }
 
 /**
@@ -1059,6 +1099,12 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 		 */
 		ep->rx_replenish_threshold = ipa_get_sys_yellow_wm()
 						/ ep->sys->rx_buff_sz;
+		/* Only when the WAN pipes are setup, actual threshold will
+		 * be read from the register. So update LAN_CONS ep again with
+		 * right value.
+		 */
+		if (sys_in->client == IPA_CLIENT_APPS_WAN_CONS)
+			ipa_update_repl_threshold(IPA_CLIENT_APPS_LAN_CONS);
 	} else {
 		ep->connect.mode = SPS_MODE_DEST;
 		ep->connect.source = SPS_DEV_HANDLE_MEM;
@@ -1233,11 +1279,13 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 	if (IPA_CLIENT_IS_CONS(ep->client))
 		ipa_cleanup_rx(ep->sys);
 
-	if (ipa_ctx->modem_cfg_emb_pipe_flt &&
-		ep->client == IPA_CLIENT_APPS_LAN_WAN_PROD)
-		IPADBG("modem cfg emb pipe flt\n");
-	else
-		ipa_delete_dflt_flt_rules(clnt_hdl);
+	if (!ep->skip_ep_cfg && IPA_CLIENT_IS_PROD(ep->client)) {
+		if (ipa_ctx->modem_cfg_emb_pipe_flt &&
+			ep->client == IPA_CLIENT_APPS_LAN_WAN_PROD)
+			IPADBG("modem cfg emb pipe flt\n");
+		else
+			ipa_delete_dflt_flt_rules(clnt_hdl);
+	}
 
 	if (IPA_CLIENT_IS_WLAN_CONS(ep->client))
 		atomic_dec(&ipa_ctx->wc_memb.active_clnt_cnt);
@@ -2316,13 +2364,13 @@ static int ipa_rx_pyld_hdlr(struct sk_buff *rx_skb, struct ipa_sys_context *sys)
 		src_pipe = WLAN_PROD_TX_EP;
 
 	ep = &ipa_ctx->ep[src_pipe];
-	spin_lock(&ipa_ctx->lan_rx_clnt_notify_lock);
+	spin_lock(&ipa_ctx->disconnect_lock);
 	if (unlikely(src_pipe >= ipa_ctx->ipa_num_pipes ||
 		!ep->valid || !ep->client_notify)) {
 		IPAERR("drop pipe=%d ep_valid=%d client_notify=%p\n",
 		  src_pipe, ep->valid, ep->client_notify);
 		dev_kfree_skb_any(rx_skb);
-		spin_unlock(&ipa_ctx->lan_rx_clnt_notify_lock);
+		spin_unlock(&ipa_ctx->disconnect_lock);
 		return 0;
 	}
 
@@ -2341,7 +2389,7 @@ static int ipa_rx_pyld_hdlr(struct sk_buff *rx_skb, struct ipa_sys_context *sys)
 	skb_pull(rx_skb, pull_len);
 	ep->client_notify(ep->priv, IPA_RECEIVE,
 			(unsigned long)(rx_skb));
-	spin_unlock(&ipa_ctx->lan_rx_clnt_notify_lock);
+	spin_unlock(&ipa_ctx->disconnect_lock);
 	return 0;
 }
 
@@ -2504,6 +2552,8 @@ void ipa_sps_irq_rx_no_aggr_notify(struct sps_event_notify *notify)
 	switch (notify->event_id) {
 	case SPS_EVENT_EOT:
 		rx_pkt = notify->data.transfer.user;
+		if (IPA_CLIENT_IS_APPS_CONS(rx_pkt->sys->ep->client))
+			atomic_set(&ipa_ctx->sps_pm.eot_activity, 1);
 		rx_pkt->len = notify->data.transfer.iovec.size;
 		IPADBG("event %d notified sys=%p len=%u\n", notify->event_id,
 				notify->user, rx_pkt->len);

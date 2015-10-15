@@ -65,6 +65,19 @@
 	};
 };
 
+&i2c_2 {
+	pericom-type-c@3d {
+		compatible = "pericom,usb-type-c";
+		reg = <0x3d>;
+		vdd_io-supply = <&pm8950_l5>;
+		interrupt-parent = <&msm_gpio>;
+		interrupts = <93 2>;    /* MSM GPIO 93, TRIGGER_FALLING */
+		pericom,enb-gpio = <&msm_gpio 133 0x1>;	/* active low ENB */
+		pinctrl-names = "default";
+		pinctrl-0 = <&usbc_int_default>;
+	};
+};
+
 &pm8950_gpios {
 	gpio@c000 {
 		status = "ok";
@@ -405,6 +418,7 @@
 &dsi_sharp_1080_cmd {
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
 	qcom,partial-update-enabled;
+	qcom,panel-roi-alignment = <2 2 4 2 1080 2>;
 };
 
 &pmx_mdss {

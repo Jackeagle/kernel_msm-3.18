@@ -68,7 +68,7 @@
 		modem_mem: modem_region@0 {
 			linux,reserve-contiguous-region;
 			linux,reserve-region;
-			linux,remove-completely;
+			linux,fixup-reserve-region;
 			reg = <0x0 0x86800000 0x0 0x05A00000>;
 			label = "modem_mem";
 		};
@@ -334,7 +334,8 @@
 			< 1190400000 5>,
 			< 1305600000 6>,
 			< 1382400000 7>,
-			< 1401600000 8>;
+			< 1401600000 8>,
+			< 1440000000 9>;
 		qcom,speed1-bin-v0-c1 =
 			<          0 0>,
 			<  400000000 1>,
@@ -363,6 +364,12 @@
 		};
 	};
 
+	qcom,mpm2-sleep-counter@4a3000 {
+		compatible = "qcom,mpm2-sleep-counter";
+		reg = <0x4a3000 0x1000>;
+		clock-frequency = <32768>;
+	};
+
 	cci_cache: qcom,cci {
 		compatible = "devfreq-simple-dev";
 		clock-names = "devfreq_clk";
@@ -382,6 +389,8 @@
 		qcom,src-dst-ports = <1 512>;
 		qcom,active-only;
 		qcom,bw-tbl =
+			<   805 /*   52.8 MHz */ >,
+			<  1244 /*   81.6 MHz */ >,
 			<  1611 /*  105.6 MHz */ >,
 			<  2929 /*  192   MHz */ >,	/* SVS	 */
 			<  4101 /*  268.8 MHz */ >,     /* SVS+ */
@@ -397,6 +406,8 @@
 		qcom,src-dst-ports = <1 512>;
 		qcom,active-only;
 		qcom,bw-tbl =
+			<   805 /*   52.8 MHz */ >,
+			<  1244 /*   81.6 MHz */ >,
 			<  1611 /*  105.6 MHz */ >,
 			<  2929 /*  192   MHz */ >,	/* SVS	 */
 			<  4101 /*  268.8 MHz */ >,     /* SVS+ */
@@ -429,13 +440,13 @@
 		cpubw-cpufreq {
 			target-dev = <&cpubw>;
 			cpu-to-dev-map-0 =
-				<  691200  2929 >,	/* SVS   */
+				<  691200   805 >,	/* SVS   */
 				<  806400  4101 >,	/* SVS+  */
 				< 1017600  5712 >,	/* NOM   */
 				< 1190400  6152 >,	/* TURBO */
 				< 1440000  7104 >;
 			cpu-to-dev-map-4 =
-				<  883200  2929 >,	/* SVS   */
+				<  883200   805 >,	/* SVS   */
 				< 1190400  4101 >,	/* SVS+  */
 				< 1382400  5712 >,	/* NOM   */
 				< 1612800  6152 >,	/* TURBO */
@@ -445,9 +456,11 @@
 		mincpubw-cpufreq {
 			target-dev = <&mincpubw>;
 			cpu-to-dev-map-0 =
-				<  902400 2929 >,
+				<  691200  805 >,
+				< 1017600 2929 >,
 				< 1401600 4101 >;
 			cpu-to-dev-map-4 =
+				<  883200  805 >,
 				< 1382400 2929 >,
 				< 1747200 4101 >;
 		};
@@ -497,7 +510,13 @@
 		qcom,cpufreq-table-4 =
 			<  400000 >,
 			<  883200 >,
+			<  940800 >,
+			<  998400 >,
+			< 1056000 >,
+			< 1113600 >,
 			< 1190400 >,
+			< 1248000 >,
+			< 1305600 >,
 			< 1382400 >,
 			< 1612800 >,
 			< 1747200 >,
@@ -851,9 +870,9 @@
 			label = "modem";
 		};
 
-		qcom,client_3 {
+		mem_client_3_size: qcom,client_3 {
 			compatible = "qcom,memshare-peripheral";
-			qcom,peripheral-size = <0>;
+			qcom,peripheral-size = <0x0>;
 			qcom,client-id = <1>;
 			label = "modem";
 		};
@@ -934,6 +953,11 @@
 			 <&clock_gcc clk_gcc_sdcc1_apps_clk>,
 			 <&clock_gcc clk_gcc_sdcc1_ice_core_clk>;
 		clock-names = "iface_clk", "core_clk", "ice_core_clk";
+
+		qcom,clk-rates = <400000 25000000 50000000 100000000
+						177777778 342850000>;
+		qcom,bus-speed-mode = "HS400_1p8v", "HS200_1p8v", "DDR_1p8v";
+
 		qcom,ice-clk-rates = <200000000 100000000>;
 		qcom,scaling-lower-bus-speed-mode = "DDR52";
 
@@ -1152,7 +1176,7 @@
 					RPM_SMD_REGULATOR_LEVEL_TURBO>;
 
 		qcom,hsusb-otg-phy-init-seq =
-			<0x38 0x81 0x1b 0x82 0xffffffff>;
+			<0x73 0x80 0x38 0x81 0x1b 0x82 0xffffffff>;
 		qcom,hsusb-otg-phy-type = <3>; /* SNPS Femto PHY */
 		qcom,hsusb-otg-mode = <3>; /* OTG */
 		qcom,hsusb-otg-otg-control = <2>; /* PMIC */
@@ -1191,7 +1215,7 @@
 	android_usb: android_usb@086000c8 {
 		compatible = "qcom,android-usb";
 		reg = <0x086000c8 0xc8>;
-		qcom,pm-qos-latency = <2 1001 12701>;
+		qcom,pm-qos-latency = <59 150 10741>;
 	};
 
 	slim_msm: slim@c140000{
@@ -1331,6 +1355,7 @@
 			qcom,smd-irq-bitmask = <0x1000>;
 			interrupts = <0 25 1>;
 			label = "modem";
+			qcom,not-loadable;
 		};
 
 		qcom,smsm-modem {
@@ -1454,12 +1479,13 @@
 		qcom,ce-hw-instance = <0>;
 		qcom,ce-device = <0>;
 		qcom,ce-hw-shared;
+		qcom,clk-mgmt-sus-res;
 		qcom,msm-bus,name = "qcrypto-noc";
 		qcom,msm-bus,num-cases = <2>;
 		qcom,msm-bus,num-paths = <1>;
 		qcom,msm-bus,vectors-KBps =
 			<55 512 0 0>,
-			<55 512 393600 800000>;
+			<55 512 393600 393600>;
 		clocks = <&clock_gcc clk_crypto_clk_src>,
 			 <&clock_gcc clk_gcc_crypto_clk>,
 			 <&clock_gcc clk_gcc_crypto_ahb_clk>,
@@ -1488,7 +1514,7 @@
 		qcom,msm-bus,num-paths = <1>;
 		qcom,msm-bus,vectors-KBps =
 			<55 512 0 0>,
-			<55 512 393600 800000>;
+			<55 512 393600 393600>;
 		clocks = <&clock_gcc clk_crypto_clk_src>,
 			 <&clock_gcc clk_gcc_crypto_clk>,
 			 <&clock_gcc clk_gcc_crypto_ahb_clk>,
@@ -1537,6 +1563,7 @@
 		qcom,xprt-linkid = <1>;
 		qcom,xprt-version = <1>;
 		qcom,fragmented-data;
+		qcom,disable-pil-loading;
 	};
 
 	qcom,ipc_router_q6_xprt {
@@ -1732,6 +1759,8 @@
 		qcom,has-autodetect-xo;
 		qcom,is-pronto-v3;
 		qcom,has-pronto-hw;
+		qcom,has-vsys-adc-channel;
+		qcom,wcnss-adc_tm = <&pm8950_adc_tm>;
 	};
 
 	qcom,vidc@1d00000 {
@@ -1763,9 +1792,9 @@
 			<734400 360000000 0xffffffff>, /* NOM  , 1080p90D */
 			<734400 400000000 0x55555555>, /* NOM+ , 1080p90E */
 			<489600 228570000 0xffffffff>, /* SVS  , 1080p60D */
-			<489600 400000000 0x55555555>, /* NOM+ , 1080p60E */
+			<489600 466000000 0x55555555>, /* TURBO, 1080p60E */
 			<432000 228570000 0xffffffff>, /* SVS  , 720p120D */
-			<432000 360000000 0x55555555>, /* NOM  , 720p120E */
+			<432000 400000000 0x55555555>, /* NOM+ , 720p120E */
 			<244800 133333333 0xffffffff>, /* SVS- , 1080p30D */
 			<244800 228570000 0x55555555>, /* SVS  , 1080p30E */
 			<216000 100000000 0xffffffff>, /* SVS- , 720p60D  */
@@ -1829,15 +1858,15 @@
 				qcom,msm-bus,num-paths = <1>;
 				qcom,msm-bus,vectors-KBps =
 					<63 512 0 0>,
-					<63 512 342000 0>,  /* 640  x 480  @ 30 fps */
-					<63 512 342000 0>,  /* 640  x 480  @ 60 fps */
-					<63 512 342000 0>,  /* 1280 x 736  @ 30 fps */
-					<63 512 677000 0>,  /* 1280 x 736  @ 60 fps */
-					<63 512 775000 0>,  /* 1920 x 1088 @ 30 fps */
-					<63 512 1529000 0>, /* 1920 x 1088 @ 60 fps */
-					<63 512 1571000 0>, /* 3840 x 2176 @ 24 fps */
-					<63 512 1964000 0>, /* 4096 x 2176 @ 24 fps */
-					<63 512 1964000 0>; /* 3840 x 2176 @ 30 fps */
+					<63 512 342000 0>,  /* 480p  30 fps */
+					<63 512 342000 0>,  /* 480p  60 fps */
+					<63 512 342000 0>,  /* 720p  30 fps */
+					<63 512 677000 0>,  /* 720p  60 fps */
+					<63 512 775000 0>,  /* 1080p 30 fps */
+					<63 512 1530000 0>, /* 1080p 60 fps */
+					<63 512 1562000 0>, /* UHD   24 fps */
+					<63 512 1669000 0>, /* 4K    24 fps */
+					<63 512 1964000 0>; /* UHD   30 fps */
 				qcom,bus-configs = <0x55555555>; /* all encoders */
 			};
 
@@ -1847,16 +1876,35 @@
 				qcom,msm-bus,num-paths = <1>;
 				qcom,msm-bus,vectors-KBps =
 					<63 512 0 0>,
-					<63 512 252000 0>,  /* 640  x 480  @ 30 fps */
-					<63 512 252000 0>,  /* 640  x 480  @ 60 fps */
-					<63 512 252000 0>,  /* 1280 x 736  @ 30 fps */
-					<63 512 496000 0>,  /* 1280 x 736  @ 60 fps */
-					<63 512 574000 0>,  /* 1920 x 1088 @ 30 fps */
-					<63 512 1076000 0>, /* 1920 x 1088 @ 60 fps */
-					<63 512 1967000 0>, /* 3840 x 2176 @ 24 fps */
-					<63 512 2458000 0>, /* 4096 x 2176 @ 24 fps */
-					<63 512 2458000 0>; /* 3840 x 2176 @ 30 fps */
+					<63 512 252000 0>,  /* 480p  30 fps */
+					<63 512 252000 0>,  /* 480p  60 fps */
+					<63 512 252000 0>,  /* 720p  30 fps */
+					<63 512 496000 0>,  /* 720p  60 fps */
+					<63 512 574000 0>,  /* 1080p 30 fps */
+					<63 512 1148000 0>, /* 1080p 60 fps */
+					<63 512 1967000 0>, /* UHD   24 fps */
+					<63 512 2458000 0>, /* 4K    24 fps */
+					<63 512 2458000 0>; /* UHD   30 fps */
 				qcom,bus-configs = <0xffffffff>; /* all decoders */
+			};
+
+			qcom,msm-bus-client@2 {
+				qcom,msm-bus,name = "venc-ddr-lowlatency";
+				qcom,msm-bus,num-cases = <10>;
+				qcom,msm-bus,num-paths = <1>;
+				qcom,msm-bus,vectors-KBps =
+					<63 512 0 0>,
+					<63 512 450000 0>,  /* 480p  30 fps */
+					<63 512 450000 0>,  /* 480p  60 fps */
+					<63 512 508000 0>,  /* 720p  30 fps */
+					<63 512 1010000 0>, /* 720p  60 fps */
+					<63 512 1149000 0>, /* 1080p 30 fps */
+					<63 512 2276000 0>, /* 1080p 60 fps */
+					<63 512 2159000 0>, /* UHD   24 fps */
+					<63 512 2306000 0>, /* 4K    24 fps */
+					<63 512 2688000 0>; /* UHD   30 fps */
+				qcom,bus-configs = <0x55555555>; /* all encs */
+				qcom,bus-low-latency;
 			};
 
 			qcom,msm-bus-client@3 {
@@ -2103,7 +2151,7 @@
 		qcom,save-reg;
 	};
 
-	sound-9335 {
+	ext_codec: sound-9335 {
 		compatible = "qcom,msm8952-audio-slim-codec";
 		qcom,model = "msm8976-tasha-snd-card";
 
@@ -2707,7 +2755,7 @@
 		status = "ok";
 		qcom,mode = <1>;
 		qcom,pull = <5>;
-		qcom,vin-sel = <2>;
+		qcom,vin-sel = <0>;
 		qcom,src-sel = <2>;
 		qcom,master-en = <1>;
 		qcom,out-strength = <2>;
@@ -2721,12 +2769,10 @@
 		qcom,master-en = <1>;
 	};
 	gpio@c400 {
-		qcom,mode = <1>;
-		qcom,output-type = <0>;
-		qcom,pull = <0>;
+		qcom,mode = <0>;
+		qcom,pull = <5>;
 		qcom,vin-sel = <2>;
-		qcom,out-strength = <3>;
-		qcom,src-sel = <0>;
+		qcom,src-sel = <2>;
 		qcom,master-en = <1>;
 		status = "okay";
 	};

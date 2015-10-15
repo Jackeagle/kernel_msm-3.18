@@ -41,7 +41,7 @@
 #define VFE47_XBAR_SHIFT(idx) ((idx%2) ? 16 : 0)
 /*add ping MAX and Pong MAX*/
 #define VFE47_PING_PONG_BASE(wm, ping_pong) \
-	(VFE47_WM_BASE(wm) + 0x4 * (1 + ((~(ping_pong >> wm) & 0x1) * 2)))
+	(VFE47_WM_BASE(wm) + 0x4 * (1 + (((~ping_pong) & 0x1) * 2)))
 #define SHIFT_BF_SCALE_BIT 1
 #define VFE47_NUM_STATS_COMP 2
 
@@ -278,6 +278,11 @@ bus_scale_register_failed:
 
 static void msm_vfe47_release_hardware(struct vfe_device *vfe_dev)
 {
+	/* when closing node, disable all irq */
+	msm_camera_io_w_mb(0x0, vfe_dev->vfe_base + 0x5C);
+	msm_camera_io_w_mb(0x0, vfe_dev->vfe_base + 0x60);
+
+	disable_irq(vfe_dev->vfe_irq->start);
 	free_irq(vfe_dev->vfe_irq->start, vfe_dev);
 	tasklet_kill(&vfe_dev->vfe_tasklet);
 	iounmap(vfe_dev->vfe_vbif_base);
@@ -501,6 +506,10 @@ static void msm_vfe47_process_reg_update(struct vfe_device *vfe_dev,
 				if (atomic_read(
 					&vfe_dev->stats_data.stats_update))
 					msm_isp_stats_stream_update(vfe_dev);
+				if (vfe_dev->axi_data.camif_state ==
+					CAMIF_STOPPING)
+					vfe_dev->hw_info->vfe_ops.core_ops.
+						reg_update(vfe_dev, i);
 				break;
 			case VFE_RAW_0:
 			case VFE_RAW_1:
@@ -601,6 +610,8 @@ static void msm_vfe47_reg_update(struct vfe_device *vfe_dev,
 		msm_camera_io_w_mb(update_mask,
 			vfe_dev->vfe_base + 0x4AC);
 	} else if (!vfe_dev->is_split ||
+		((frame_src == VFE_PIX_0) &&
+		(vfe_dev->axi_data.camif_state == CAMIF_STOPPING)) ||
 		(frame_src >= VFE_RAW_0 && frame_src <= VFE_SRC_MAX)) {
 		msm_camera_io_w_mb(update_mask,
 			vfe_dev->vfe_base + 0x4AC);
@@ -1386,12 +1397,12 @@ static void msm_vfe47_read_wm_ping_pong_addr(
 
 static void msm_vfe47_update_ping_pong_addr(
 	void __iomem *vfe_base,
-	uint8_t wm_idx, uint32_t pingpong_status, dma_addr_t paddr)
+	uint8_t wm_idx, uint32_t pingpong_bit, dma_addr_t paddr)
 {
 	uint32_t paddr32 = (paddr & 0xFFFFFFFF);
 
 	msm_camera_io_w(paddr32, vfe_base +
-		VFE47_PING_PONG_BASE(wm_idx, pingpong_status));
+		VFE47_PING_PONG_BASE(wm_idx, pingpong_bit));
 }
 
 static int msm_vfe47_axi_halt(struct vfe_device *vfe_dev,
@@ -1423,6 +1434,11 @@ static int msm_vfe47_axi_halt(struct vfe_device *vfe_dev,
 		/* Halt AXI Bus Bridge */
 		msm_camera_io_w_mb(0x1, vfe_dev->vfe_base + 0x400);
 	}
+
+	if (atomic_read(&vfe_dev->error_info.overflow_state)
+		== OVERFLOW_DETECTED)
+		pr_err_ratelimited("%s: VFE%d halt recovery in process, HALT AXI\n",
+			__func__, vfe_dev->pdev->id);
 
 	for (i = VFE_PIX_0; i <= VFE_RAW_2; i++) {
 		/* if any stream is waiting for update, signal complete */
