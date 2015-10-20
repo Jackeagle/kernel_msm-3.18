@@ -4422,7 +4422,6 @@ wait:
 		goto no_profile;
 	}
 
-	fg_batt_type = "qrd_skua_4v35_4450mAh";
 	profile_node = of_batterydata_get_best_profile(batt_node, "bms",
 							fg_batt_type);
 	if (!profile_node) {
