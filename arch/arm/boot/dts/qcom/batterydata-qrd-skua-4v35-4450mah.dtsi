@@ -12,7 +12,7 @@
 
 qcom,qrd-skua-4v35-4450mAh-data {
 	qcom,battery-type = "qrd_skua_4v35_4450mAh";
-	qcom,batt-id-kohm = <28>;
+	qcom,batt-id-kohm = <56>;
 	qcom,chg-term-ua = <100000>;
 	qcom,default-rbatt-mohm = <146>;
 	qcom,fcc-mah = <4450>;
