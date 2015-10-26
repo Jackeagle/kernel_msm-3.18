@@ -1446,7 +1446,7 @@ static long msm_ispif_subdev_ioctl(struct v4l2_subdev *sd,
 		return 0;
 	}
 	case MSM_SD_SHUTDOWN: {
-		struct ispif_device *ispif =
+		 struct ispif_device *ispif =
 			(struct ispif_device *)v4l2_get_subdevdata(sd);
 		if (ispif && ispif->base) {
 			mutex_lock(&ispif->mutex);

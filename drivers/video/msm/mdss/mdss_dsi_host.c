@@ -276,6 +276,20 @@ void mdss_dsi_get_hw_revision(struct mdss_dsi_ctrl_pdata *ctrl)
 				ctrl->ndx, ctrl->shared_data->hw_rev);
 }
 
+void mdss_dsi_get_phy_revision(struct mdss_dsi_ctrl_pdata *ctrl)
+{
+	if (ctrl->shared_data->phy_rev)
+		return;
+
+	mdss_dsi_clk_ctrl(ctrl, DSI_CORE_CLKS, 1);
+	ctrl->shared_data->phy_rev =
+			(MIPI_INP(ctrl->phy_io.base + 0x20c) >> 4) & 0xf;
+	mdss_dsi_clk_ctrl(ctrl, DSI_CORE_CLKS, 0);
+
+	pr_debug("%s: ndx=%d phy_rev=%x\n", __func__,
+				ctrl->ndx, ctrl->shared_data->phy_rev);
+}
+
 void mdss_dsi_host_init(struct mdss_panel_data *pdata)
 {
 	u32 dsi_ctrl, intr_ctrl;
@@ -1012,6 +1026,7 @@ static int mdss_dsi_read_status(struct mdss_dsi_ctrl_pdata *ctrl)
 int mdss_dsi_reg_status_check(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
 	int ret = 0;
+	struct mdss_dsi_ctrl_pdata *sctrl_pdata = NULL;
 
 	if (ctrl_pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
@@ -1022,7 +1037,28 @@ int mdss_dsi_reg_status_check(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 
 	mdss_dsi_clk_ctrl(ctrl_pdata, DSI_ALL_CLKS, 1);
 
-	ret = mdss_dsi_read_status(ctrl_pdata);
+	sctrl_pdata = mdss_dsi_get_other_ctrl(ctrl_pdata);
+	if (!mdss_dsi_sync_wait_enable(ctrl_pdata)) {
+		ret = mdss_dsi_read_status(ctrl_pdata);
+	} else {
+		/*
+		 * Read commands to check ESD status are usually sent at
+		 * the same time to both the controllers. However, if
+		 * sync_wait is enabled, we need to ensure that the
+		 * dcs commands are first sent to the non-trigger
+		 * controller so that when the commands are triggered,
+		 * both controllers receive it at the same time.
+		 */
+		if (mdss_dsi_sync_wait_trigger(ctrl_pdata)) {
+			if (sctrl_pdata)
+				ret = mdss_dsi_read_status(sctrl_pdata);
+			ret = mdss_dsi_read_status(ctrl_pdata);
+		} else {
+			ret = mdss_dsi_read_status(ctrl_pdata);
+			if (sctrl_pdata)
+				ret = mdss_dsi_read_status(sctrl_pdata);
+		}
+	}
 
 	/*
 	 * mdss_dsi_read_status returns the number of bytes returned
@@ -1030,7 +1066,11 @@ int mdss_dsi_reg_status_check(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 	 * case returns zero.
 	 */
 	if (ret > 0) {
-		ret = ctrl_pdata->check_read_status(ctrl_pdata);
+		if (!mdss_dsi_sync_wait_enable(ctrl_pdata) ||
+			mdss_dsi_sync_wait_trigger(ctrl_pdata))
+			ret = ctrl_pdata->check_read_status(ctrl_pdata);
+		else if (sctrl_pdata)
+			ret = ctrl_pdata->check_read_status(sctrl_pdata);
 	} else {
 		pr_err("%s: Read status register returned error\n", __func__);
 	}
