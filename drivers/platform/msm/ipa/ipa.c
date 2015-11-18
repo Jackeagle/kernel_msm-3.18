@@ -1361,6 +1361,26 @@ static int ipa_q6_pipe_delay(bool zip_pipes)
 	return 0;
 }
 
+int ipa_q6_monitor_holb_mitigation(bool enable)
+{
+	int ep_idx;
+	int client_idx;
+
+	for (client_idx = 0; client_idx < IPA_CLIENT_MAX; client_idx++) {
+		if (IPA_CLIENT_IS_Q6_NON_ZIP_CONS(client_idx)) {
+			ep_idx = ipa_get_ep_mapping(client_idx);
+			if (ep_idx == -1)
+				continue;
+			/* Send a command to Uc to enable/disable
+			 * holb monitoring.
+			 */
+			ipa_uc_monitor_holb(client_idx, enable);
+		}
+	}
+
+	return 0;
+}
+
 static int ipa_q6_avoid_holb(bool zip_pipes)
 {
 	u32 reg_val;
@@ -1699,6 +1719,12 @@ int ipa_q6_pre_shutdown_cleanup(void)
 		IPAERR("Failed to delay Q6 pipes\n");
 		BUG();
 	}
+
+	if (ipa_q6_monitor_holb_mitigation(false)) {
+		IPAERR("Failed to disable HOLB monitroing on Q6 pipes\n");
+		BUG();
+	}
+
 	if (ipa_q6_avoid_holb(false)) {
 		IPAERR("Failed to set HOLB on Q6 pipes\n");
 		BUG();
@@ -2566,6 +2592,8 @@ void _ipa_enable_clks_v2_0(void)
 
 	if (smmu_clk)
 		clk_prepare_enable(smmu_clk);
+	/* Enable the BAM IRQ. */
+	ipa_sps_irq_control_all(true);
 	ipa_suspend_apps_pipes(false);
 }
 
@@ -2689,6 +2717,7 @@ void _ipa_disable_clks_v2_0(void)
 {
 	IPADBG("disabling gcc_ipa_clk\n");
 	ipa_suspend_apps_pipes(true);
+	ipa_sps_irq_control_all(false);
 	ipa_uc_notify_clk_state(false);
 	if (ipa_clk)
 		clk_disable_unprepare(ipa_clk);
@@ -3003,9 +3032,9 @@ static int ipa_init_flt_block(void)
 	return result;
 }
 
-static void ipa_sps_process_irq_schedule_rel(void)
+static int ipa_sps_process_irq_schedule_rel(void)
 {
-	queue_delayed_work(ipa_ctx->sps_power_mgmt_wq,
+	return queue_delayed_work(ipa_ctx->sps_power_mgmt_wq,
 		&ipa_sps_release_resource_work,
 		msecs_to_jiffies(IPA_SPS_PROD_TIMEOUT_MSEC));
 }
@@ -3040,9 +3069,17 @@ void ipa_suspend_handler(enum ipa_irq_type interrupt,
 				 * pipe will be unsuspended as part of
 				 * enabling IPA clocks
 				 */
-				ipa_inc_client_enable_clks();
-				ipa_ctx->sps_pm.dec_clients = true;
-				ipa_sps_process_irq_schedule_rel();
+				if (!atomic_read(
+					&ipa_ctx->sps_pm.dec_clients)
+					) {
+					ipa_inc_client_enable_clks();
+					IPADBG("Pipes un-suspended.\n");
+					IPADBG("Enter poll mode.\n");
+					atomic_set(
+						&ipa_ctx->sps_pm.dec_clients,
+						1);
+					ipa_sps_process_irq_schedule_rel();
+				}
 			} else {
 				resource = ipa_get_rm_resource_from_ep(i);
 				res = ipa_rm_request_resource_with_timer(
@@ -3078,11 +3115,12 @@ static int apps_cons_request_resource(void)
 static void ipa_sps_release_resource(struct work_struct *work)
 {
 	/* check whether still need to decrease client usage */
-	if (ipa_ctx->sps_pm.dec_clients) {
+	if (atomic_read(&ipa_ctx->sps_pm.dec_clients)) {
 		if (atomic_read(&ipa_ctx->sps_pm.eot_activity)) {
+			IPADBG("EOT pending Re-scheduling\n");
 			ipa_sps_process_irq_schedule_rel();
 		} else {
-			ipa_ctx->sps_pm.dec_clients = false;
+			atomic_set(&ipa_ctx->sps_pm.dec_clients, 0);
 			ipa_dec_client_disable_clks();
 		}
 	}
@@ -3569,7 +3607,7 @@ static int ipa_init(const struct ipa_plat_drv_res *resource_p,
 
 	/*add handler for suspend interrupt*/
 	result = ipa_add_interrupt_handler(IPA_TX_SUSPEND_IRQ,
-			ipa_suspend_handler, true, NULL);
+			ipa_suspend_handler, false, NULL);
 	if (result) {
 		IPAERR("register handler for suspend interrupt failed\n");
 		result = -ENODEV;

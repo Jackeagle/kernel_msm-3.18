@@ -95,6 +95,9 @@
 #define SLIMBUS_QMI_SVC_V1 1
 #define SLIMBUS_QMI_INS_ID 0
 
+/* QMI response timeout of 500ms */
+#define SLIM_QMI_RESP_TOUT 500
+
 #define PGD_THIS_EE(r, v) ((v) ? PGD_THIS_EE_V2(r) : PGD_THIS_EE_V1(r))
 #define PGD_PORT(r, p, v) ((v) ? PGD_PORT_V2(r, p) : PGD_PORT_V1(r, p))
 #define CFG_PORT(r, v) ((v) ? CFG_PORT_V2(r) : CFG_PORT_V1(r))
@@ -303,6 +306,8 @@ struct msm_slim_ctrl {
 	bool			sysfs_created;
 	void			*ipc_slimbus_log;
 	void (*rx_slim)(struct msm_slim_ctrl *dev, u8 *buf);
+	u32			current_rx_buf[10];
+	int			current_count;
 };
 
 struct msm_sat_chan {

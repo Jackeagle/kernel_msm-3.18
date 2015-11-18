@@ -1058,7 +1058,7 @@ struct ipa_uc_wdi_ctx {
  *  the inactivity timer
  */
 struct ipa_sps_pm {
-	bool dec_clients;
+	atomic_t dec_clients;
 	atomic_t eot_activity;
 };
 
@@ -1581,6 +1581,7 @@ int ipa_tag_process(struct ipa_desc *desc, int num_descs,
 int ipa_q6_pre_shutdown_cleanup(void);
 int ipa_q6_post_shutdown_cleanup(void);
 int ipa_init_q6_smem(void);
+int ipa_q6_monitor_holb_mitigation(bool enable);
 
 int ipa_sps_connect_safe(struct sps_pipe *h, struct sps_connect *connect,
 			 enum ipa_client_type ipa_client);
@@ -1627,4 +1628,5 @@ void ipa_suspend_apps_pipes(bool suspend);
 void ipa_update_repl_threshold(enum ipa_client_type ipa_client);
 void ipa_flow_control(enum ipa_client_type ipa_client, bool enable,
 			uint32_t qmap_id);
+void ipa_sps_irq_control_all(bool enable);
 #endif /* _IPA_I_H_ */

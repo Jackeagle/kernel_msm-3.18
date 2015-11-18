@@ -375,6 +375,18 @@ static inline u32 msm_isp_evt_mask_to_isp_event(u32 evt_mask)
 	case ISP_EVENT_MASK_INDEX_MASK_FE_READ_DONE:
 		evt_id = ISP_EVENT_FE_READ_DONE;
 		break;
+	case ISP_EVENT_MASK_INDEX_HW_FATAL_ERROR:
+		evt_id = ISP_EVENT_HW_FATAL_ERROR;
+		break;
+	case ISP_EVENT_MASK_INDEX_PING_PONG_MISMATCH:
+		evt_id = ISP_EVENT_PING_PONG_MISMATCH;
+		break;
+	case ISP_EVENT_MASK_INDEX_REG_UPDATE_MISSING:
+		evt_id = ISP_EVENT_REG_UPDATE_MISSING;
+		break;
+	case ISP_EVENT_MASK_INDEX_BUF_FATAL_ERROR:
+		evt_id = ISP_EVENT_BUF_FATAL_ERROR;
+		break;
 	default:
 		evt_id = ISP_EVENT_SUBS_MASK_NONE;
 		break;
@@ -449,7 +461,7 @@ static inline int msm_isp_process_event_subscription(struct v4l2_fh *fh,
 	}
 
 	for (evt_mask_index = ISP_EVENT_MASK_INDEX_STATS_NOTIFY;
-		evt_mask_index <= ISP_EVENT_MASK_INDEX_MASK_FE_READ_DONE;
+		evt_mask_index <= ISP_EVENT_MASK_INDEX_MAX;
 		evt_mask_index++) {
 		if (evt_mask & (1<<evt_mask_index)) {
 			evt_id = msm_isp_evt_mask_to_isp_event(evt_mask_index);
@@ -519,7 +531,7 @@ static int msm_isp_get_clk_rates(struct vfe_device *vfe_dev,
 {
 	struct device_node *of_node;
 	int32_t  rc = 0;
-	uint32_t nominal = 0, turbo = 0;
+	uint32_t svs = 0, nominal = 0, turbo = 0;
 	if (!vfe_dev || !rates) {
 		pr_err("%s:%d failed: vfe_dev %p rates %p\n", __func__,
 			__LINE__, vfe_dev, rates);
@@ -539,6 +551,16 @@ static int msm_isp_get_clk_rates(struct vfe_device *vfe_dev,
 		 __LINE__, of_node);
 		return -EINVAL;
 	}
+
+	/*
+	 * Many older targets dont define svs.
+	 * return svs=0 for older targets.
+	 */
+	rc = of_property_read_u32(of_node, "max-clk-svs",
+		&svs);
+	if (rc < 0)
+		svs = 0;
+
 	rc = of_property_read_u32(of_node, "max-clk-nominal",
 		&nominal);
 	if (rc < 0 || !nominal) {
@@ -552,6 +574,7 @@ static int msm_isp_get_clk_rates(struct vfe_device *vfe_dev,
 		pr_err("%s: turbo rate error\n", __func__);
 			return -EINVAL;
 	}
+	rates->svs_rate = svs;
 	rates->nominal_rate = nominal;
 	rates->high_rate = turbo;
 	return 0;
@@ -578,6 +601,21 @@ static int msm_isp_set_clk_rate(struct vfe_device *vfe_dev, long *rate)
 	return 0;
 }
 
+
+static int msm_isp_start_fetch_engine(struct vfe_device *vfe_dev,
+	void *arg)
+{
+	struct msm_vfe_fetch_eng_start *fe_cfg = arg;
+	/*
+	 * For Offline VFE, HAL expects same frame id
+	 * for offline output which it requested in do_reprocess.
+	 */
+	vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id =
+		fe_cfg->frame_id;
+	return vfe_dev->hw_info->vfe_ops.core_ops.
+		start_fetch_eng(vfe_dev, arg);
+}
+
 void msm_isp_fetch_engine_done_notify(struct vfe_device *vfe_dev,
 	struct msm_vfe_fetch_engine_info *fetch_engine_info)
 {
@@ -585,17 +623,18 @@ void msm_isp_fetch_engine_done_notify(struct vfe_device *vfe_dev,
 	if (!fetch_engine_info->is_busy)
 		return;
 
-	vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id++;
-	if (vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id == 0)
-		vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id = 1;
-
 	memset(&fe_rd_done_event, 0, sizeof(struct msm_isp_event_data));
 	fe_rd_done_event.frame_id =
 		vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id;
-	fe_rd_done_event.u.buf_done.session_id = fetch_engine_info->session_id;
-	fe_rd_done_event.u.buf_done.stream_id = fetch_engine_info->stream_id;
-	fe_rd_done_event.u.buf_done.handle = fetch_engine_info->bufq_handle;
-	fe_rd_done_event.u.buf_done.buf_idx = fetch_engine_info->buf_idx;
+	fe_rd_done_event.u.fetch_done.session_id =
+		fetch_engine_info->session_id;
+	fe_rd_done_event.u.fetch_done.stream_id = fetch_engine_info->stream_id;
+	fe_rd_done_event.u.fetch_done.handle = fetch_engine_info->bufq_handle;
+	fe_rd_done_event.u.fetch_done.buf_idx = fetch_engine_info->buf_idx;
+	fe_rd_done_event.u.fetch_done.fd = fetch_engine_info->fd;
+	fe_rd_done_event.u.fetch_done.offline_mode =
+		fetch_engine_info->offline_mode;
+
 	ISP_DBG("%s:VFE%d ISP_EVENT_FE_READ_DONE buf_idx %d\n",
 		__func__, vfe_dev->pdev->id, fetch_engine_info->buf_idx);
 	fetch_engine_info->is_busy = 0;
@@ -987,6 +1026,8 @@ static long msm_isp_ioctl_unlocked(struct v4l2_subdev *sd,
 		/* fallthrough */
 	case VIDIOC_MSM_ISP_DEQUEUE_BUF:
 		/* fallthrough */
+	case VIDIOC_MSM_ISP_UNMAP_BUF:
+		/* fallthrough */
 	case VIDIOC_MSM_ISP_RELEASE_BUF: {
 		mutex_lock(&vfe_dev->buf_mgr_mutex);
 		rc = msm_isp_proc_buf_cmd(vfe_dev->buf_mgr, cmd, arg);
@@ -1051,9 +1092,9 @@ static long msm_isp_ioctl_unlocked(struct v4l2_subdev *sd,
 		mutex_unlock(&vfe_dev->core_mutex);
 		break;
 	case VIDIOC_MSM_ISP_FETCH_ENG_START:
+	case VIDIOC_MSM_ISP_MAP_BUF_START_FE:
 		mutex_lock(&vfe_dev->core_mutex);
-		rc = vfe_dev->hw_info->vfe_ops.core_ops.
-			start_fetch_eng(vfe_dev, arg);
+		rc = msm_isp_start_fetch_engine(vfe_dev, arg);
 		mutex_unlock(&vfe_dev->core_mutex);
 		break;
 	case VIDIOC_MSM_ISP_REG_UPDATE_CMD:
@@ -1469,6 +1510,7 @@ static int msm_isp_send_hw_cmd(struct vfe_device *vfe_dev,
 			pr_err("%s:%d failed: rc %d\n", __func__, __LINE__, rc);
 			return -EINVAL;
 		}
+		user_data->svs_rate = rates.svs_rate;
 		user_data->nominal_rate = rates.nominal_rate;
 		user_data->high_rate = rates.high_rate;
 		break;

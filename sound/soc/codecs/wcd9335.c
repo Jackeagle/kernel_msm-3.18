@@ -3092,7 +3092,7 @@ static void tasha_realign_anc_coeff(struct snd_soc_codec *codec,
 		snd_soc_write(codec, reg1, 0x01);
 		snd_soc_write(codec, reg2, tmpval1);
 	} else if (val1 == 0xFF && val2 == 0x0F) {
-		dev_dbg(codec->dev, "%s: ANC0 co-eff index already aligned\n",
+		dev_dbg(codec->dev, "%s: ANC1 co-eff index already aligned\n",
 			__func__);
 		snd_soc_write(codec, reg1, 0x00);
 		snd_soc_write(codec, reg2, tmpval1);
@@ -3203,22 +3203,22 @@ static int tasha_codec_enable_anc(struct snd_soc_dapm_widget *w,
 			goto err;
 		}
 
-		tasha_realign_anc_coeff(codec,
-					WCD9335_CDC_ANC0_IIR_COEFF_1_CTL,
-					WCD9335_CDC_ANC0_IIR_COEFF_2_CTL);
-		tasha_realign_anc_coeff(codec,
-					WCD9335_CDC_ANC1_IIR_COEFF_1_CTL,
-					WCD9335_CDC_ANC1_IIR_COEFF_2_CTL);
 		i = 0;
 		anc_cal_size = anc_writes_size;
 
 		if (!strcmp(w->name, "RX INT1 DAC") ||
 			!strcmp(w->name, "RX INT3 DAC")) {
+			tasha_realign_anc_coeff(codec,
+					WCD9335_CDC_ANC0_IIR_COEFF_1_CTL,
+					WCD9335_CDC_ANC0_IIR_COEFF_2_CTL);
 			anc_writes_size = anc_cal_size / 2;
 			snd_soc_update_bits(codec,
 			WCD9335_CDC_ANC0_CLK_RESET_CTL, 0x38, 0x38);
 		} else if (!strcmp(w->name, "RX INT2 DAC") ||
 				!strcmp(w->name, "RX INT4 DAC")) {
+			tasha_realign_anc_coeff(codec,
+					WCD9335_CDC_ANC1_IIR_COEFF_1_CTL,
+					WCD9335_CDC_ANC1_IIR_COEFF_2_CTL);
 			i = anc_cal_size / 2;
 			snd_soc_update_bits(codec,
 			WCD9335_CDC_ANC1_CLK_RESET_CTL, 0x38, 0x38);
@@ -3577,8 +3577,11 @@ static int tasha_codec_hphr_dac_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
-		if (tasha->anc_func)
+		if (tasha->anc_func) {
 			ret = tasha_codec_enable_anc(w, kcontrol, event);
+			/* 40 msec delay is needed to avoid click and pop */
+			msleep(40);
+		}
 
 		/* Read DEM INP Select */
 		dem_inp = snd_soc_read(codec, WCD9335_CDC_RX2_RX_PATH_SEC0) &
@@ -3653,8 +3656,11 @@ static int tasha_codec_hphl_dac_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
-		if (tasha->anc_func)
+		if (tasha->anc_func) {
 			ret = tasha_codec_enable_anc(w, kcontrol, event);
+			/* 40 msec delay is needed to avoid click and pop */
+			msleep(40);
+		}
 
 		/* Read DEM INP Select */
 		dem_inp = snd_soc_read(codec, WCD9335_CDC_RX1_RX_PATH_SEC0) &
@@ -9830,15 +9836,9 @@ static struct snd_soc_dai_driver tasha_dai[] = {
 	},
 };
 
-static void tasha_codec_power_gate_work(struct work_struct *work)
+static void tasha_codec_power_gate_digital_core(struct tasha_priv *tasha)
 {
-	struct tasha_priv *tasha;
-	struct delayed_work *dwork;
-	struct snd_soc_codec *codec;
-
-	dwork = to_delayed_work(work);
-	tasha = container_of(dwork, struct tasha_priv, power_gate_work);
-	codec = tasha->codec;
+	struct snd_soc_codec *codec = tasha->codec;
 
 	if (!codec)
 		return;
@@ -9867,6 +9867,22 @@ exit:
 	dev_dbg(codec->dev, "%s: Exiting power gating function, %d\n",
 		__func__, tasha->power_active_ref);
 	mutex_unlock(&tasha->power_lock);
+}
+
+static void tasha_codec_power_gate_work(struct work_struct *work)
+{
+	struct tasha_priv *tasha;
+	struct delayed_work *dwork;
+	struct snd_soc_codec *codec;
+
+	dwork = to_delayed_work(work);
+	tasha = container_of(dwork, struct tasha_priv, power_gate_work);
+	codec = tasha->codec;
+
+	if (!codec)
+		return;
+
+	tasha_codec_power_gate_digital_core(tasha);
 }
 
 /* called under power_lock acquisition */
@@ -11126,6 +11142,8 @@ static int tasha_post_reset_cb(struct wcd9xxx *wcd9xxx)
 				    0x03, 0x01);
 	tasha_codec_init_reg(codec);
 
+	wcd_resmgr_post_ssr_v2(tasha->resmgr);
+
 	tasha_enable_efuse_sensing(codec);
 
 	regcache_mark_dirty(codec->control_data);
@@ -11135,8 +11153,6 @@ static int tasha_post_reset_cb(struct wcd9xxx *wcd9xxx)
 	ret = tasha_handle_pdata(tasha, pdata);
 	if (IS_ERR_VALUE(ret))
 		dev_err(codec->dev, "%s: invalid pdata\n", __func__);
-
-	wcd_resmgr_post_ssr_v2(tasha->resmgr);
 
 	/* MBHC Init */
 	wcd_mbhc_deinit(&tasha->mbhc);
@@ -11388,7 +11404,13 @@ static struct snd_soc_codec_driver soc_codec_dev_tasha = {
 #ifdef CONFIG_PM
 static int tasha_suspend(struct device *dev)
 {
+	struct platform_device *pdev = to_platform_device(dev);
+	struct tasha_priv *tasha = platform_get_drvdata(pdev);
+
 	dev_dbg(dev, "%s: system suspend\n", __func__);
+	if (cancel_delayed_work_sync(&tasha->power_gate_work))
+		tasha_codec_power_gate_digital_core(tasha);
+
 	return 0;
 }
 

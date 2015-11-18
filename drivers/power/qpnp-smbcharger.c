@@ -243,6 +243,9 @@ struct smbchg_chip {
 	struct completion		usbin_uv_raised;
 	int				pulse_cnt;
 	struct led_classdev		led_cdev;
+
+	u32				vchg_adc_channel;
+	struct qpnp_vadc_chip		*vchg_vadc_dev;
 };
 
 enum qpnp_schg {
@@ -734,8 +737,7 @@ static void read_usb_type(struct smbchg_chip *chip, char **usb_type_name,
 #define BATT_PRE_CHG_VAL		0x1
 #define BATT_FAST_CHG_VAL		0x2
 #define BATT_TAPER_CHG_VAL		0x3
-#define CHG_EN_BIT			BIT(0)
-#define CHG_INHIBIT_BIT		BIT(1)
+#define CHG_INHIBIT_BIT			BIT(1)
 #define BAT_TCC_REACHED_BIT		BIT(7)
 static int get_prop_batt_status(struct smbchg_chip *chip)
 {
@@ -4950,6 +4952,31 @@ static int smbchg_dp_dm(struct smbchg_chip *chip, int val)
 	return rc;
 }
 
+#define CHARGE_OUTPUT_VTG_RATIO		840
+static int smbchg_get_iusb(struct smbchg_chip *chip)
+{
+	int rc, iusb_ua = -EINVAL;
+	struct qpnp_vadc_result adc_result;
+
+	if (!is_usb_present(chip) && !is_dc_present(chip))
+		return 0;
+
+	if (chip->vchg_vadc_dev && chip->vchg_adc_channel != -EINVAL) {
+		rc = qpnp_vadc_read(chip->vchg_vadc_dev,
+				chip->vchg_adc_channel, &adc_result);
+		if (rc) {
+			pr_smb(PR_STATUS,
+				"error in VCHG (channel-%d) read rc = %d\n",
+						chip->vchg_adc_channel, rc);
+			return 0;
+		}
+		iusb_ua = div_s64(adc_result.physical * 1000,
+						CHARGE_OUTPUT_VTG_RATIO);
+	}
+
+	return iusb_ua;
+}
+
 static enum power_supply_property smbchg_battery_properties[] = {
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_PRESENT,
@@ -4970,6 +4997,7 @@ static enum power_supply_property smbchg_battery_properties[] = {
 	POWER_SUPPLY_PROP_SAFETY_TIMER_ENABLE,
 	POWER_SUPPLY_PROP_INPUT_CURRENT_MAX,
 	POWER_SUPPLY_PROP_INPUT_CURRENT_SETTLED,
+	POWER_SUPPLY_PROP_INPUT_CURRENT_NOW,
 	POWER_SUPPLY_PROP_FLASH_ACTIVE,
 	POWER_SUPPLY_PROP_DP_DM,
 	POWER_SUPPLY_PROP_INPUT_CURRENT_LIMITED,
@@ -5133,6 +5161,9 @@ static int smbchg_battery_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_RERUN_AICL:
 		val->intval = 0;
+		break;
+	case POWER_SUPPLY_PROP_INPUT_CURRENT_NOW:
+		val->intval = smbchg_get_iusb(chip);
 		break;
 	default:
 		return -EINVAL;
@@ -5759,10 +5790,14 @@ static int determine_initial_status(struct smbchg_chip *chip)
 	chip->usb_present = is_usb_present(chip);
 	chip->dc_present = is_dc_present(chip);
 
-	if (chip->usb_present)
+	if (chip->usb_present) {
+		pr_smb(PR_MISC, "setting usb psy dp=f dm=f\n");
+		power_supply_set_dp_dm(chip->usb_psy,
+				POWER_SUPPLY_DP_DM_DPF_DMF);
 		handle_usb_insertion(chip);
-	else
+	} else {
 		handle_usb_removal(chip);
+	}
 
 	return 0;
 }
@@ -5823,7 +5858,7 @@ static inline int get_bpd(const char *name)
 #define USE_REGISTER_FOR_CURRENT	BIT(2)
 #define CHGR_CFG2			0xFC
 #define CHG_EN_SRC_BIT			BIT(7)
-#define CHG_EN_COMMAND_BIT		BIT(6)
+#define CHG_EN_POLARITY_BIT		BIT(6)
 #define P2F_CHG_TRAN			BIT(5)
 #define CHG_BAT_OV_ECC			BIT(4)
 #define I_TERM_BIT			BIT(3)
@@ -5849,6 +5884,8 @@ static inline int get_bpd(const char *name)
 #define PIN_SRC_SHIFT			0
 #define CHGR_CFG			0xFF
 #define RCHG_LVL_BIT			BIT(0)
+#define VCHG_EN_BIT			BIT(1)
+#define VCHG_INPUT_CURRENT_BIT		BIT(3)
 #define CFG_AFVC			0xF6
 #define VFLOAT_COMP_ENABLE_MASK		SMB_MASK(2, 0)
 #define TR_RID_REG			0xFA
@@ -5973,13 +6010,23 @@ static int smbchg_hw_init(struct smbchg_chip *chip)
 	 * the device tree configuration.
 	 */
 	rc = smbchg_sec_masked_write(chip, chip->chgr_base + CHGR_CFG2,
-			CHG_EN_SRC_BIT | CHG_EN_COMMAND_BIT | P2F_CHG_TRAN
+			CHG_EN_SRC_BIT | CHG_EN_POLARITY_BIT | P2F_CHG_TRAN
 			| I_TERM_BIT | AUTO_RECHG_BIT | CHARGER_INHIBIT_BIT,
-			CHG_EN_COMMAND_BIT
+			CHG_EN_POLARITY_BIT
 			| (chip->chg_inhibit_en ? CHARGER_INHIBIT_BIT : 0)
 			| (chip->iterm_disabled ? I_TERM_BIT : 0));
 	if (rc < 0) {
 		dev_err(chip->dev, "Couldn't set chgr_cfg2 rc=%d\n", rc);
+		return rc;
+	}
+
+	/*
+	 * enable battery charging to make sure it hasn't been changed before
+	 * boot.
+	 */
+	rc = smbchg_charging_en(chip, true);
+	if (rc < 0) {
+		dev_err(chip->dev, "Couldn't enable battery charging=%d\n", rc);
 		return rc;
 	}
 	chip->battchg_disabled = 0;
@@ -6167,15 +6214,23 @@ static int smbchg_hw_init(struct smbchg_chip *chip)
 		return rc;
 	}
 
+	if (chip->vchg_adc_channel != -EINVAL) {
+		/* configure and enable VCHG */
+		rc = smbchg_sec_masked_write(chip, chip->chgr_base + CHGR_CFG,
+				VCHG_INPUT_CURRENT_BIT | VCHG_EN_BIT,
+				VCHG_INPUT_CURRENT_BIT | VCHG_EN_BIT);
+		if (rc < 0) {
+			dev_err(chip->dev, "Couldn't set recharge rc = %d\n",
+					rc);
+			return rc;
+		}
+	}
+
 	smbchg_charging_status_change(chip);
 
-	/*
-	 * The charger needs 20 milliseconds to go into battery supplementary
-	 * mode. Sleep here until we are sure it takes into effect.
-	 */
-	msleep(20);
 	smbchg_usb_en(chip, chip->chg_enabled, REASON_USER);
 	smbchg_dc_en(chip, chip->chg_enabled, REASON_USER);
+
 	/* resume threshold */
 	if (chip->resume_delta_mv != -EINVAL) {
 
@@ -6470,6 +6525,8 @@ static int smb_parse_dt(struct smbchg_chip *chip)
 			chip->parallel.min_9v_current_thr_ma);
 	OF_PROP_READ(chip, chip->jeita_temp_hard_limit,
 			"jeita-temp-hard-limit", rc, 1);
+	OF_PROP_READ(chip, chip->vchg_adc_channel,
+				"vchg-adc-channel-id", rc, 1);
 
 	/* read boolean configuration properties */
 	chip->use_vfloat_adjustments = of_property_read_bool(node,
@@ -6988,7 +7045,7 @@ static int smbchg_probe(struct spmi_device *spmi)
 	int rc;
 	struct smbchg_chip *chip;
 	struct power_supply *usb_psy;
-	struct qpnp_vadc_chip *vadc_dev;
+	struct qpnp_vadc_chip *vadc_dev, *vchg_vadc_dev;
 
 	usb_psy = power_supply_get_by_name("usb");
 	if (!usb_psy) {
@@ -7002,6 +7059,17 @@ static int smbchg_probe(struct spmi_device *spmi)
 			rc = PTR_ERR(vadc_dev);
 			if (rc != -EPROBE_DEFER)
 				dev_err(&spmi->dev, "Couldn't get vadc rc=%d\n",
+						rc);
+			return rc;
+		}
+	}
+
+	if (of_find_property(spmi->dev.of_node, "qcom,vchg_sns-vadc", NULL)) {
+		vchg_vadc_dev = qpnp_get_vadc(&spmi->dev, "vchg_sns");
+		if (IS_ERR(vchg_vadc_dev)) {
+			rc = PTR_ERR(vchg_vadc_dev);
+			if (rc != -EPROBE_DEFER)
+				dev_err(&spmi->dev, "Couldn't get vadc 'vchg' rc=%d\n",
 						rc);
 			return rc;
 		}
@@ -7023,6 +7091,7 @@ static int smbchg_probe(struct spmi_device *spmi)
 	init_completion(&chip->usbin_uv_lowered);
 	init_completion(&chip->usbin_uv_raised);
 	chip->vadc_dev = vadc_dev;
+	chip->vchg_vadc_dev = vchg_vadc_dev;
 	chip->spmi = spmi;
 	chip->dev = &spmi->dev;
 	chip->usb_psy = usb_psy;
