@@ -551,6 +551,12 @@
 			<&clock_gcc clk_ce1_clk_src>;
 	};
 
+	cpu-pmu {
+		compatible = "arm,cortex-a7-pmu";
+		qcom,irq-is-percpu;
+		interrupts = <1 7 0xf00>;
+	};
+
 	qcom,qfpfuse@fc4b8000 {
 		compatible = "qcom,qfp-fuse";
 		reg = <0xfc4b8000 0x7000>;
