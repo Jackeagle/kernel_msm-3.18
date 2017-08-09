@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2013,2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -234,14 +234,14 @@ static int perf_setup_init(struct perf_setup_s *p)
 static int perf_setup_read(struct perf_setup_s *p)
 {
 	u64 data[DATA_SIZE];
-	int i, status;
+	int i, status = 0;
 
 	p->totals.values = 0;
 	p->data.values = 0;
 	for (i = 0; i < MAX_NR_CPUS; i++) {
 		if (p->perf_fd[i] == 0)
 			continue;
-		status = read(p->perf_fd[i], &data, sizeof(data));
+		status |= read(p->perf_fd[i], &data, sizeof(data));
 		p->data.values += data[0];
 		p->totals.values += data[0];
 	}
@@ -256,7 +256,7 @@ static int perf_setup_read(struct perf_setup_s *p)
 		p->data.old_value = p->data.values;
 	} else
 		p->output.values = p->totals.values;
-	return 0;
+	return status;
 }
 
 static int perf_setup_show(struct perf_setup_s *p)
