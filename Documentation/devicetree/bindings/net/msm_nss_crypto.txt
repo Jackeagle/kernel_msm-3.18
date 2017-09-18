@@ -7,6 +7,10 @@ Required properties:
 - reg: Physical address and length of the register set for the device.
 - qcom,ee: Number of interrupt lines(Execution Environments) supported by BAM.
 
+Optional properties:
+- qcom,secure-mode-enabled: Enables the HW to store keys securely.
+  If secure-mode is enabled, non-secure mode is fully disabled.
+
 Example:
 
 crypto0: crypto@e8000000 {
@@ -15,4 +19,5 @@ crypto0: crypto@e8000000 {
 	 reg = <0xe8000000 0x20000>,
 	     <0xe8004000 0x22000>;
 	 qcom,ee = <0>;
+	 qcom,secure-mode-enabled;
 };
