@@ -191,6 +191,7 @@ struct dax_device *fs_dax_claim_bdev(struct block_device *bdev, void *owner)
 		return NULL;
 	}
 
+	dev_pagemap_get_ops();
 	pgmap->type = MEMORY_DEVICE_FS_DAX;
 	pgmap->page_free = generic_dax_pagefree;
 	pgmap->data = owner;
@@ -215,6 +216,7 @@ void fs_dax_release(struct dax_device *dax_dev, void *owner)
 	pgmap->type = MEMORY_DEVICE_HOST;
 	pgmap->page_free = NULL;
 	pgmap->data = NULL;
+	dev_pagemap_put_ops();
 	mutex_unlock(&devmap_lock);
 }
 EXPORT_SYMBOL_GPL(fs_dax_release);
