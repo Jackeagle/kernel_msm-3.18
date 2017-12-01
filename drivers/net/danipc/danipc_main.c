@@ -243,8 +243,8 @@ static int parse_resources(struct platform_device *pdev, const char *regs[],
 	struct device_node *node = pdev->dev.of_node;
 	struct danipc_drvr *pdrv = &danipc_driver;
 	struct resource *res;
-	int r;
-	const struct ipc_buf_desc *desc;
+	int r, i, ret = 0;
+	const struct ipc_buf_desc *desc, *desc_dl;
 	uint32_t n, len = 0;
 
 	if (unlikely(node == NULL))
@@ -271,27 +271,38 @@ static int parse_resources(struct platform_device *pdev, const char *regs[],
 			pr_err("could not find ul-bufs property\n");
 			return -EINVAL;
 		}
-		pdrv->res[IPC_BUFS_RES].start = desc->phy_addr;
-		pdrv->res[IPC_BUFS_RES].size = desc->sz;
+		pdrv->res[IPC_BUFS_RES].start = be32_to_cpu(desc->phy_addr);
+		pdrv->res[IPC_BUFS_RES].size = be32_to_cpu(desc->sz);
 	}
 
-	pdrv->region_desc = of_get_property(node, "dl-bufs", &n);
-	pdrv->num_region_desc = (pdrv->region_desc) ?
-		(n/sizeof(struct ipc_buf_desc)) : 0;
+	desc_dl = of_get_property(node, "dl-bufs", &len);
+	if (desc_dl) {
+		pdrv->region_desc = kzalloc(len, GFP_KERNEL);
+		if (pdrv->region_desc == NULL)
+			return -ENOMEM;
+
+		pdrv->num_region_desc = len/sizeof(struct ipc_buf_desc);
+		for (i = 0; i < pdrv->num_region_desc; i++) {
+			pdrv->region_desc[i].phy_addr =
+				be32_to_cpu(desc_dl[i].phy_addr);
+			pdrv->region_desc[i].sz = be32_to_cpu(desc_dl[i].sz);
+		}
+	}
 
 	desc = of_get_property(node, "memory-region", &len);
 	if (desc) {
 		struct danipc_resource *p;
-		int i;
 
 		n = len/sizeof(struct ipc_buf_desc);
 		p = kzalloc((n * sizeof(*p)), GFP_KERNEL);
-		if (p == NULL)
-			return -ENOMEM;
+		if (p == NULL) {
+			ret = -ENOMEM;
+			goto out;
+		}
 
 		for (i = 0; i < n; i++) {
-			p[i].start = desc[i].phy_addr;
-			p[i].size = desc[i].sz;
+			p[i].start = be32_to_cpu(desc[i].phy_addr);
+			p[i].size = be32_to_cpu(desc[i].sz);
 			p[i].base = ioremap_cache(
 				p[i].start, p[i].size);
 			if (p[i].base == NULL) {
@@ -299,7 +310,8 @@ static int parse_resources(struct platform_device *pdev, const char *regs[],
 				while (--i >= 0)
 					iounmap(p[i].base);
 				kfree(p);
-				return -ENOMEM;
+				ret = -ENOMEM;
+				goto out;
 			}
 		}
 		danipc_driver.proc_map = p;
@@ -329,7 +341,13 @@ static int parse_resources(struct platform_device *pdev, const char *regs[],
 			pdrv->shm_res[r].size = n;
 	}
 
-	return 0;
+out:
+	if (ret) {
+		kfree(pdrv->region_desc);
+		pdrv->region_desc = NULL;
+		pdrv->num_region_desc = 0;
+	}
+	return ret;
 }
 
 static int probe_local_fifo(struct platform_device *pdev,
