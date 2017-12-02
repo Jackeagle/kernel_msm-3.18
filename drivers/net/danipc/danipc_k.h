@@ -293,7 +293,7 @@ struct danipc_drvr {
 	struct danipc_resource io_res[PLATFORM_MAX_NUM_OF_NODES];
 	struct danipc_resource shm_res[PLATFORM_MAX_NUM_OF_NODES];
 
-	const struct ipc_buf_desc *region_desc;
+	struct ipc_buf_desc *region_desc;
 	uint32_t num_region_desc;
 
 	/* Interface list */

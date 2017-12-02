@@ -302,4 +302,7 @@ void danipc_ll_cleanup(struct danipc_drvr *drv)
 	danipc_resource_unmap(&drv->res[KRAIT_IPC_MUX_RES]);
 	danipc_resource_unmap(&drv->res[AGENT_TABLE_RES]);
 	danipc_resource_unmap(&drv->res[IPC_BUFS_RES]);
+	kfree(drv->region_desc);
+	drv->region_desc = NULL;
+	drv->num_region_desc = 0;
 }
