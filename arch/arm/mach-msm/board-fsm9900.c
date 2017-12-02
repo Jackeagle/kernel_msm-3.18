@@ -111,6 +111,18 @@ struct mem_map_seg {
 	u32 tag;
 } __attribute__((__packed__));
 
+#define MAX_MEM_TBL_ENTRY	32
+
+struct mem_tbl_entry {
+	u32 addr;
+	u32 size;
+};
+
+struct mem_tbl {
+	struct mem_tbl_entry	entry[MAX_MEM_TBL_ENTRY];
+	u32			num_entry;
+};
+
 static struct of_dev_auxdata fsm9900_auxdata_lookup[] __initdata = {
 	OF_DEV_AUXDATA("qcom,sdhci-msm", 0xF9824900, "msm_sdcc.1", NULL),
 	OF_DEV_AUXDATA("qcom,sdhci-msm", 0xF98A4900, "msm_sdcc.2", NULL),
@@ -390,35 +402,113 @@ int __init fsm9900_emac_dt_update(void)
 	return 0;
 }
 
-static int add_danipc_property(struct device_node *np,
-			       struct mem_map_seg *region,
-			       const char *name)
+static inline int mem_tbl_add_entry(struct mem_tbl *table, u32 addr, u32 sz)
 {
-	u32 buf[2];
-	struct property *pbuf = NULL;
+	int i;
 
-	if (!(region->rd_vmid & VMID_AP_BIT) ||
-	    !(region->wr_vmid & VMID_AP_BIT)) {
-		pr_err("do not have permissions for %s\n", name);
-		return -EPERM;
+	if (unlikely(table->num_entry >= MAX_MEM_TBL_ENTRY)) {
+		pr_err("%s: out of range\n", __func__);
+		return -EINVAL;
 	}
 
-	buf[0] = region->phy_addr;
-	buf[1] = region->sz;
+	for (i = 0; i < table->num_entry; i++) {
+		if ((addr == table->entry[i].addr) &&
+		    (sz == table->entry[i].size))
+			return 0;
+	}
+	table->entry[table->num_entry].addr = addr;
+	table->entry[table->num_entry].size = sz;
+	table->num_entry++;
+	return 0;
+}
 
-	pbuf = kzalloc(sizeof(*pbuf) + sizeof(buf), GFP_KERNEL);
+static int read_danipc_property(struct device_node *np,
+				struct mem_tbl *table,
+				const char *name)
+{
+	int n, m, ret;
 
-	if (pbuf == NULL)
+	if (of_get_property(np, name, &n) == NULL)
+		return 0;
+
+	m = n/sizeof(struct mem_tbl_entry);
+	if ((table->num_entry + m) > MAX_MEM_TBL_ENTRY) {
+		pr_err("%s: out of range\n", __func__);
+		return -EINVAL;
+	}
+	ret = of_property_read_u32_array(np, name,
+		(u32 *)(&table->entry[table->num_entry]),
+		n/sizeof(u32));
+	if (ret) {
+		pr_err("%s: failed to read %s from dt\n", __func__, name);
+		return ret;
+	}
+
+	table->num_entry += m;
+	return 0;
+}
+
+static int update_danipc_property(struct device_node *np,
+				  struct mem_tbl *table,
+				  const char *name)
+{
+	struct property *pprop;
+	struct mem_tbl_entry *entry;
+	int i, ret = 0;
+
+	if (!table->entry)
+		return 0;
+
+	pprop = kzalloc(sizeof(*pprop)+
+			table->num_entry * sizeof(struct mem_tbl_entry),
+			GFP_KERNEL);
+	if (pprop == NULL)
 		return -ENOMEM;
 
-	pbuf->value = pbuf + 1;
-	pbuf->length = sizeof(buf);
-	pbuf->name = (char *)name;
-	memcpy(pbuf->value, buf, sizeof(buf));
+	entry = (struct mem_tbl_entry *)(pprop+1);
+	pprop->name = (char *)name;
+	pprop->length = table->num_entry * sizeof(*entry);
+	pprop->value = entry;
 
-	of_add_property(np, pbuf);
+	for (i = 0; i < table->num_entry; i++, entry++) {
+		entry->addr = cpu_to_be32(table->entry[i].addr);
+		entry->size = cpu_to_be32(table->entry[i].size);
+	}
 
-	return 0;
+	ret = of_update_property(np, pprop);
+	if (ret) {
+		pr_err("%s: failed to update property %s\n", __func__, name);
+		kfree(pprop);
+	}
+
+	return ret;
+}
+
+static int update_danipc_buf_region(struct device_node *np,
+				    struct mem_tbl *table,
+				    const char *name)
+{
+	struct mem_tbl tbl;
+	int ret, dts_entry, i;
+
+	tbl.num_entry = 0;
+	ret = read_danipc_property(np, &tbl, name);
+	if (ret)
+		goto out;
+
+	dts_entry = tbl.num_entry;
+	for (i = 0; i < table->num_entry; i++) {
+		ret = mem_tbl_add_entry(&tbl, table->entry[i].addr,
+					table->entry[i].size);
+		if (ret)
+			goto out;
+	}
+
+	if (tbl.num_entry != dts_entry)
+		ret = update_danipc_property(np, &tbl, name);
+
+out:
+	return ret;
 }
 
 static int __init fsm9900_ipc_buf_region_update(void)
@@ -430,6 +520,7 @@ static int __init fsm9900_ipc_buf_region_update(void)
 	struct mem_map_seg *ul_region;
 	struct mem_map_seg *dl_region;
 	struct mem_map_seg *fapi_region;
+	struct mem_tbl table = {0};
 
 	/* Once node "qcom,danipc" is found in DT, break out of loop */
 	for_each_compatible_node(np, NULL, "qcom,danipc") {
@@ -462,20 +553,25 @@ static int __init fsm9900_ipc_buf_region_update(void)
 		goto out;
 	}
 
-	ret = add_danipc_property(np, dl_region, shm_dl_bufs_prop_name);
-
-	if (ret != 0)
+	mem_tbl_add_entry(&table, dl_region->phy_addr, dl_region->sz);
+	ret = update_danipc_buf_region(np, &table, shm_dl_bufs_prop_name);
+	if (ret)
 		goto out;
 
-	ret = add_danipc_property(np, ul_region, shm_ul_bufs_prop_name);
-
-	if (ret != 0)
+	table.num_entry = 0;
+	mem_tbl_add_entry(&table, ul_region->phy_addr, ul_region->sz);
+	ret = update_danipc_buf_region(np, &table, shm_ul_bufs_prop_name);
+	if (ret)
 		goto out;
 
 	fapi_region = find_mem_map_seg(mem_map_table,
 				       MEM_TAG_SHARED_LTEFAPI_UL);
-	if (fapi_region)
-		ret = add_danipc_property(np, fapi_region, "memory-region");
+	if (fapi_region) {
+		table.num_entry = 0;
+		mem_tbl_add_entry(&table, fapi_region->phy_addr,
+				  fapi_region->sz);
+		ret = update_danipc_buf_region(np, &table, "memory-region");
+	}
 
 out:
 	of_node_put(np);
