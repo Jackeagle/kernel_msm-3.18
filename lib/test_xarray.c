@@ -554,6 +554,37 @@ static void check_move(struct xarray *xa)
 		check_move_small(xa, (1UL << i) - 1);
 }
 
+static void check_create_range_1(struct xarray *xa, unsigned long index,
+		unsigned order)
+{
+	XA_STATE_ORDER(xas, xa, index, order);
+	unsigned int i;
+
+	do {
+		xas_create_range(&xas);
+	} while (xas_nomem(&xas, GFP_KERNEL));
+
+	for (i = 0; i < (1U << order); i++) {
+		xas_store(&xas, xa + i);
+		xas_next(&xas);
+	}
+	XA_BUG_ON(xa, xas_error(&xas));
+	xa_destroy(xa);
+}
+
+static void check_create_range(struct xarray *xa)
+{
+	unsigned int order;
+
+	for (order = 0; order < 12; order++) {
+		check_create_range_1(xa, 0, order);
+		check_create_range_1(xa, 1U << order, order);
+		check_create_range_1(xa, 2U << order, order);
+		check_create_range_1(xa, 3U << order, order);
+		check_create_range_1(xa, 1U << 24, order);
+	}
+}
+
 static int xarray_checks(void)
 {
 	DEFINE_XARRAY(array);
@@ -568,6 +599,7 @@ static int xarray_checks(void)
 	check_multi_store(&array);
 	check_find(&array);
 	check_move(&array);
+	check_create_range(&array);
 	check_store_iter(&array);
 
 	printk("XArray: %u of %u tests passed\n", tests_passed, tests_run);
