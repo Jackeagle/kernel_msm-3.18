@@ -193,6 +193,8 @@ struct orangefs_inode_s {
 
 	unsigned long getattr_time;
 	u32 getattr_mask;
+
+	DECLARE_HASHTABLE(xattr_cache, 4);
 };
 
 /* per superblock private orangefs info */
@@ -215,6 +217,14 @@ struct orangefs_stats {
 	unsigned long cache_misses;
 	unsigned long reads;
 	unsigned long writes;
+};
+
+struct orangefs_cached_xattr {
+	struct hlist_node node;
+	char key[ORANGEFS_MAX_XATTR_NAMELEN];
+	char val[ORANGEFS_MAX_XATTR_VALUELEN];
+	ssize_t length;
+	unsigned long timeout;
 };
 
 extern struct orangefs_stats orangefs_stats;
