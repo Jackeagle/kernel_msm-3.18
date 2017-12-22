@@ -752,6 +752,38 @@ buffered:
 	return ret;
 }
 
+static void
+xfs_wait_var_event(
+	struct inode		*inode,
+	uint			iolock,
+	bool			*did_unlock)
+{
+	struct xfs_inode        *ip = XFS_I(inode);
+
+	*did_unlock = true;
+	xfs_iunlock(ip, iolock);
+	schedule();
+	xfs_ilock(ip, iolock);
+}
+
+static int
+xfs_break_dax_layouts(
+	struct inode		*inode,
+	uint			iolock,
+	bool			*did_unlock)
+{
+	struct page		*page;
+
+	*did_unlock = false;
+	page = dax_layout_busy_page(inode->i_mapping);
+	if (!page)
+		return 0;
+
+	return ___wait_var_event(&page->_refcount,
+			atomic_read(&page->_refcount) == 1, TASK_INTERRUPTIBLE,
+			0, 0, xfs_wait_var_event(inode, iolock, did_unlock));
+}
+
 int
 xfs_break_layouts(
 	struct inode		*inode,
@@ -766,16 +798,23 @@ xfs_break_layouts(
 				| (reason == BREAK_UNMAPI
 					? XFS_MMAPLOCK_EXCL : 0)));
 
-	switch (reason) {
-	case BREAK_UNMAPI:
-		/* fall through */
-	case BREAK_WRITE:
-		error = xfs_break_leased_layouts(inode, iolock, &did_unlock);
-		break;
-	default:
-		error = -EINVAL;
-		break;
-	}
+	do {
+		switch (reason) {
+		case BREAK_UNMAPI:
+			error = xfs_break_dax_layouts(inode, *iolock,
+					&did_unlock);
+			/* fall through */
+		case BREAK_WRITE:
+			if (error || did_unlock)
+				break;
+			error = xfs_break_leased_layouts(inode, iolock,
+					&did_unlock);
+			break;
+		default:
+			error = -EINVAL;
+			break;
+		}
+	} while (error == 0 && did_unlock);
 
 	return error;
 }
