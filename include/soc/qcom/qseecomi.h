@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2016,2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -76,6 +76,8 @@ enum qseecom_qceos_cmd_id {
 	QSEOS_FSM_OEM_FUSE_READ_ROW = 0x302,
 	QSEOS_FSM_ENCFS_REQ_CMD = 0x403,
 	QSEOS_FSM_ENCFS_REQ_RSP_CMD = 0x404,
+	QSEOS_FSM_IKE_SA_REQ_CMD = 0x503,
+	QSEOS_FSM_IKE_SA_REQ_RSP_CMD = 0x504,
 
 	QSEOS_CMD_MAX     = 0xEFFFFFFF
 };
