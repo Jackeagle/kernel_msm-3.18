@@ -1,6 +1,6 @@
 /*Qualcomm Secure Execution Environment Communicator (QSEECOM) driver
  *
- * Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -2571,6 +2571,8 @@ static int qseecom_send_service_cmd(struct qseecom_dev_handle *data,
 	case QSEOS_FSM_OEM_FUSE_READ_ROW:
 	case QSEOS_FSM_ENCFS_REQ_CMD:
 	case QSEOS_FSM_ENCFS_REQ_RSP_CMD:
+	case QSEOS_FSM_IKE_SA_REQ_CMD:
+	case QSEOS_FSM_IKE_SA_REQ_RSP_CMD:
 		send_req_ptr = &send_fsm_key_svc_ireq;
 		req_buf_size = sizeof(send_fsm_key_svc_ireq);
 		if (__qseecom_process_fsm_key_svc_cmd(data, &req,
