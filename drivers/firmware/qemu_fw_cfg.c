@@ -150,11 +150,13 @@ end:
 }
 
 /* read chunk of given fw_cfg blob (caller responsible for sanity-check) */
-static inline void fw_cfg_read_blob(u16 key,
-				    void *buf, loff_t pos, size_t count)
+static ssize_t fw_cfg_read_blob(u16 key,
+				void *buf, loff_t pos, size_t count,
+				bool dma)
 {
 	u32 glk = -1U;
 	acpi_status status;
+	ssize_t ret = count;
 
 	/* If we have ACPI, ensure mutual exclusion against any potential
 	 * device access by the firmware, e.g. via AML methods:
@@ -164,17 +166,36 @@ static inline void fw_cfg_read_blob(u16 key,
 		/* Should never get here */
 		WARN(1, "fw_cfg_read_blob: Failed to lock ACPI!\n");
 		memset(buf, 0, count);
-		return;
+		return -EINVAL;
 	}
 
 	mutex_lock(&fw_cfg_dev_lock);
-	iowrite16(fw_cfg_sel_endianness(key), fw_cfg_reg_ctrl);
-	while (pos-- > 0)
-		ioread8(fw_cfg_reg_data);
-	ioread8_rep(fw_cfg_reg_data, buf, count);
+	if (dma && fw_cfg_dma_enabled()) {
+		if (pos == 0) {
+			ret = fw_cfg_dma_transfer(buf, count, key << 16
+						  | FW_CFG_DMA_CTL_SELECT
+						  | FW_CFG_DMA_CTL_READ);
+		} else {
+			iowrite16(fw_cfg_sel_endianness(key), fw_cfg_reg_ctrl);
+			ret = fw_cfg_dma_transfer(NULL, pos, FW_CFG_DMA_CTL_SKIP);
+			if (ret < 0)
+				goto end;
+			ret = fw_cfg_dma_transfer(buf, count,
+						  FW_CFG_DMA_CTL_READ);
+		}
+	} else {
+		iowrite16(fw_cfg_sel_endianness(key), fw_cfg_reg_ctrl);
+		while (pos-- > 0)
+			ioread8(fw_cfg_reg_data);
+		ioread8_rep(fw_cfg_reg_data, buf, count);
+	}
+
+end:
 	mutex_unlock(&fw_cfg_dev_lock);
 
 	acpi_release_global_lock(glk);
+
+	return ret;
 }
 
 #ifdef CONFIG_CRASH_CORE
@@ -307,7 +328,7 @@ static int fw_cfg_do_platform_probe(struct platform_device *pdev)
 #endif
 
 	/* verify fw_cfg device signature */
-	fw_cfg_read_blob(FW_CFG_SIGNATURE, sig, 0, FW_CFG_SIG_SIZE);
+	fw_cfg_read_blob(FW_CFG_SIGNATURE, sig, 0, FW_CFG_SIG_SIZE, false);
 	if (memcmp(sig, "QEMU", FW_CFG_SIG_SIZE) != 0) {
 		fw_cfg_io_cleanup();
 		return -ENODEV;
@@ -494,8 +515,8 @@ static ssize_t fw_cfg_sysfs_read_raw(struct file *filp, struct kobject *kobj,
 	if (count > entry->f.size - pos)
 		count = entry->f.size - pos;
 
-	fw_cfg_read_blob(entry->f.select, buf, pos, count);
-	return count;
+	/* do not use DMA, virt_to_phys(buf) might not be ok */
+	return fw_cfg_read_blob(entry->f.select, buf, pos, count, false);
 }
 
 static struct bin_attribute fw_cfg_sysfs_attr_raw = {
@@ -656,7 +677,7 @@ static int fw_cfg_register_dir_entries(void)
 	struct fw_cfg_file *dir;
 	size_t dir_size;
 
-	fw_cfg_read_blob(FW_CFG_FILE_DIR, &count, 0, sizeof(count));
+	fw_cfg_read_blob(FW_CFG_FILE_DIR, &count, 0, sizeof(count), false);
 	count = be32_to_cpu(count);
 	dir_size = count * sizeof(struct fw_cfg_file);
 
@@ -664,7 +685,7 @@ static int fw_cfg_register_dir_entries(void)
 	if (!dir)
 		return -ENOMEM;
 
-	fw_cfg_read_blob(FW_CFG_FILE_DIR, dir, sizeof(count), dir_size);
+	fw_cfg_read_blob(FW_CFG_FILE_DIR, dir, sizeof(count), dir_size, true);
 
 	for (i = 0; i < count; i++) {
 		dir[i].size = be32_to_cpu(dir[i].size);
@@ -713,7 +734,7 @@ static int fw_cfg_sysfs_probe(struct platform_device *pdev)
 		goto err_probe;
 
 	/* get revision number, add matching top-level attribute */
-	fw_cfg_read_blob(FW_CFG_ID, &fw_cfg_rev, 0, sizeof(fw_cfg_rev));
+	fw_cfg_read_blob(FW_CFG_ID, &fw_cfg_rev, 0, sizeof(fw_cfg_rev), false);
 	fw_cfg_rev = le32_to_cpu(fw_cfg_rev);
 	err = sysfs_create_file(fw_cfg_top_ko, &fw_cfg_rev_attr.attr);
 	if (err)
