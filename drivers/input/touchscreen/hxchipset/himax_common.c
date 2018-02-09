@@ -1,4 +1,4 @@
-/* Himax Android Driver Sample Code for Himax chipset
+	/* Himax Android Driver Sample Code for Himax chipset
 *
 * Copyright (C) 2015 Himax Corporation.
 *
@@ -1424,7 +1424,6 @@ int himax_fb_register(struct himax_ts_data *ts)
 	int ret = 0;
 
 	I(" %s in", __func__);
-
 	ts->fb_notif.notifier_call = fb_notifier_callback;
 	ret = fb_register_client(&ts->fb_notif);
 	if (ret)
@@ -1616,7 +1615,6 @@ himax_read_FW_ver(client);
 			__func__, ts->input_dev->name);
 		goto err_input_register_device_failed;
 	}
-
 #ifdef HX_SMART_WAKEUP
 	ts->SMWP_enable=0;
 	wake_lock_init(&ts->ts_SMWP_wake_lock, WAKE_LOCK_SUSPEND, HIMAX_common_NAME);
@@ -1725,10 +1723,10 @@ int himax_chip_common_probe(struct i2c_client *client, const struct i2c_device_i
 
 himax_gpio_power_config(ts->client, pdata);
 
-err = himax_ts_pinctrl_init(ts);
-if (err || ts->ts_pinctrl == NULL) {
-	E(" Pinctrl init failed\n");
-}
+	err = himax_ts_pinctrl_init(ts);
+	if (err || ts->ts_pinctrl == NULL) {
+		E(" Pinctrl init failed\n");
+	}
 
 #ifndef CONFIG_OF
 	if (pdata->power) {
@@ -1744,7 +1742,7 @@ if (err || ts->ts_pinctrl == NULL) {
 
 	mutex_init(&ts->fb_mutex);
 	/* ts initialization is deferred till FB_UNBLACK event;
-	* probe is considered pending till then.*/
+	 * probe is considered pending till then.*/
 	ts->probe_done = false;
 #ifdef CONFIG_FB
 	err = himax_fb_register(ts);
@@ -1772,13 +1770,12 @@ err_get_platform_data_fail:
 			ts->ts_pinctrl = NULL;
 		} else {
 			err = pinctrl_select_state(ts->ts_pinctrl,
-				ts->pinctrl_state_release);
+					ts->pinctrl_state_release);
 			if (err)
 				E("failed to select relase pinctrl state %d\n",
-				err);
-			}
+					err);
 		}
-
+	}
 	kfree(ic_data);
 
 err_dt_ic_data_fail:
@@ -1822,14 +1819,13 @@ int himax_chip_common_remove(struct i2c_client *client)
 			devm_pinctrl_put(ts->ts_pinctrl);
 			ts->ts_pinctrl = NULL;
 		} else {
-		ret = pinctrl_select_state(ts->ts_pinctrl,
-			ts->pinctrl_state_release);
-		if (ret)
-			E("failed to select relase pinctrl state %d\n",
-			ret);
+			ret = pinctrl_select_state(ts->ts_pinctrl,
+					ts->pinctrl_state_release);
+			if (ret)
+				E("failed to select relase pinctrl state %d\n",
+					ret);
 		}
 	}
-
 #ifdef HX_SMART_WAKEUP
 		wake_lock_destroy(&ts->ts_SMWP_wake_lock);
 #endif
@@ -1891,13 +1887,15 @@ int himax_chip_common_suspend(struct himax_ts_data *ts)
 	//ts->first_pressed = 0;
 	atomic_set(&ts->suspend_mode, 1);
 	ts->pre_finger_mask = 0;
+
 	if (ts->ts_pinctrl) {
 		ret = pinctrl_select_state(ts->ts_pinctrl,
-			ts->pinctrl_state_suspend);
+				ts->pinctrl_state_suspend);
 		if (ret < 0) {
 			E("Failed to get idle pinctrl state %d\n", ret);
-			}
 		}
+	}
+
 	if (ts->pdata->powerOff3V3 && ts->pdata->power)
 		ts->pdata->power(0);
 
@@ -1914,21 +1912,22 @@ int himax_chip_common_resume(struct himax_ts_data *ts)
 		ts->pdata->power(1);
 		
 		
-	/*************************************/
-	if (ts->protocol_type == PROTOCOL_TYPE_A)
-	input_mt_sync(ts->input_dev);
-	input_report_key(ts->input_dev, BTN_TOUCH, 0);
-	input_sync(ts->input_dev);
-	/*************************************/
-
+		/*************************************/
+		if (ts->protocol_type == PROTOCOL_TYPE_A)
+		input_mt_sync(ts->input_dev);
+		input_report_key(ts->input_dev, BTN_TOUCH, 0);
+		input_sync(ts->input_dev);
+		/*************************************/
+		
+		
 	if (ts->ts_pinctrl) {
 		retval = pinctrl_select_state(ts->ts_pinctrl,
-			ts->pinctrl_state_active);
+				ts->pinctrl_state_active);
 		if (retval < 0) {
 			E("Cannot get default pinctrl state %d\n", retval);
 			goto err_pinctrl_select_resume;
-			}
 		}
+	}
 
 	atomic_set(&ts->suspend_mode, 0);
 

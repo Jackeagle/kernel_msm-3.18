@@ -365,7 +365,7 @@ int himax_ts_pinctrl_init(struct himax_ts_data *ts)
 
 	ts->pinctrl_state_active
 		= pinctrl_lookup_state(ts->ts_pinctrl,
-		PINCTRL_STATE_ACTIVE);
+				PINCTRL_STATE_ACTIVE);
 	if (IS_ERR_OR_NULL(ts->pinctrl_state_active)) {
 		retval = PTR_ERR(ts->pinctrl_state_active);
 		dev_err(&ts->client->dev,
@@ -376,7 +376,7 @@ int himax_ts_pinctrl_init(struct himax_ts_data *ts)
 
 	ts->pinctrl_state_suspend
 		= pinctrl_lookup_state(ts->ts_pinctrl,
-		PINCTRL_STATE_SUSPEND);
+			PINCTRL_STATE_SUSPEND);
 	if (IS_ERR_OR_NULL(ts->pinctrl_state_suspend)) {
 		retval = PTR_ERR(ts->pinctrl_state_suspend);
 		dev_err(&ts->client->dev,
@@ -387,7 +387,7 @@ int himax_ts_pinctrl_init(struct himax_ts_data *ts)
 
 	ts->pinctrl_state_release
 		= pinctrl_lookup_state(ts->ts_pinctrl,
-		PINCTRL_STATE_RELEASE);
+			PINCTRL_STATE_RELEASE);
 	if (IS_ERR_OR_NULL(ts->pinctrl_state_release)) {
 		retval = PTR_ERR(ts->pinctrl_state_release);
 		dev_dbg(&ts->client->dev,
