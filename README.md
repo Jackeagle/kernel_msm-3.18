@@ -17,3 +17,4 @@ Thanks for taking the time to have a look at the Robopot hardware and software d
 Light Sensor PCB
 
 ![alt text](https://github.com/FrazLaw/RoboPot/blob/master/schematic-lightsensor.png)
+![alt text](https://github.com/FrazLaw/RoboPot/blob/master/SchematicPic.PNG)
