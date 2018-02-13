@@ -1,7 +1,7 @@
 # RoboPot
-We are creating a web-based, plant pot positioning system with integrated light sensing features.  
+We are creating a web-based, plant pot positioning system with integrated light sensing features.  The plant pot will be controlled via a web based GUI - HTML and JavaScript based - with ambient light sensors in order to determihne the optimum positioning of the plant pot for maximum illumination. The devices will connect through I2C as well as WiFi to control the motor control of the two wheeled mini-robot. 
 
-# System Description
+### System Description
 
 Robopot allows the keen technically minded gardener to position their beloved plants whereever they wish within the vicinity of their patio or small garden.
 
