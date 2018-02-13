@@ -18,3 +18,5 @@ Light Sensor PCB
 
 ![alt text](https://github.com/FrazLaw/RoboPot/blob/master/schematic-lightsensor.png)
 ![alt text](https://github.com/FrazLaw/RoboPot/blob/master/SchematicPic.PNG)
+
+Screw you guys! - Alastair
