@@ -14,9 +14,12 @@ Thanks for taking the time to have a look at the Robopot hardware and software d
 
 # HARDWARE SCHEMATICS
 
-Light Sensor PCB
+###Light Sensor PCB
 
 ![alt text](https://github.com/FrazLaw/RoboPot/blob/master/schematic-lightsensor.png)
+
+###Magnetometer Schematic
+So, for us to determine in which direction our mini-movable plant pot is facing, we needed to add a magnetometer. This enables us to then feedback to the GUI and indicate which position we are at.
 ![alt text](https://github.com/FrazLaw/RoboPot/blob/master/SchematicPic.PNG)
 
 
