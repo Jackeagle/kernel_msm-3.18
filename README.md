@@ -1,7 +1,7 @@
 # RoboPot
 We are creating a web-based, plant pot positioning system with integrated light sensing features.  
 
-System Description
+# System Description
 
 Robopot allows the keen technically minded gardener to position their beloved plants whereever they wish within the vicinity of their patio or small garden.
 
@@ -12,7 +12,7 @@ Thanks for taking the time to have a look at the Robopot hardware and software d
 
 ![alt text](https://github.com/FrazLaw/RoboPot/blob/master/RoboPot.png)
 
-###HARDWARE SCHEMATICS
+# HARDWARE SCHEMATICS
 
 Light Sensor PCB
 
