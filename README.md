@@ -19,7 +19,7 @@ Thanks for taking the time to have a look at the Robopot hardware and software d
 ![alt text](https://github.com/FrazLaw/RoboPot/blob/master/schematic-lightsensor.png)
 
 ### Magnetometer Schematic
-So, for us to determine in which direction our mini-movable plant pot is facing, we needed to add a magnetometer. This enables us to then feedback to the GUI and indicate which position we are at.
+So, for us to determine in which direction our mini-movable plant pot is facing, we needed to add a magnetometer. This enables us to then feedback to the GUI and indicate which position we are at. This feedback network, in conjuction with the proximity sensor, is essential ot compile the information into a reliable position. 
 ![alt text](https://github.com/FrazLaw/RoboPot/blob/master/SchematicPic.PNG)
 
 
