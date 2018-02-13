@@ -608,11 +608,11 @@ int btrfs_parse_options(struct btrfs_fs_info *info, char *options,
 				kfree(num);
 
 				if (info->max_inline) {
-					info->max_inline = min_t(u64,
+					info->max_inline = min_t(u32,
 						info->max_inline,
 						info->sectorsize);
 				}
-				btrfs_info(info, "max_inline at %llu",
+				btrfs_info(info, "max_inline at %u",
 					   info->max_inline);
 			} else {
 				ret = -ENOMEM;
@@ -1281,7 +1281,7 @@ static int btrfs_show_options(struct seq_file *seq, struct dentry *dentry)
 	if (btrfs_test_opt(info, NOBARRIER))
 		seq_puts(seq, ",nobarrier");
 	if (info->max_inline != BTRFS_DEFAULT_MAX_INLINE)
-		seq_printf(seq, ",max_inline=%llu", info->max_inline);
+		seq_printf(seq, ",max_inline=%u", info->max_inline);
 	if (info->thread_pool_size !=  min_t(unsigned long,
 					     num_online_cpus() + 2, 8))
 		seq_printf(seq, ",thread_pool=%d", info->thread_pool_size);
@@ -1757,7 +1757,7 @@ static int btrfs_remount(struct super_block *sb, int *flags, char *data)
 	unsigned old_flags = sb->s_flags;
 	unsigned long old_opts = fs_info->mount_opt;
 	unsigned long old_compress_type = fs_info->compress_type;
-	u64 old_max_inline = fs_info->max_inline;
+	u32 old_max_inline = fs_info->max_inline;
 	int old_thread_pool_size = fs_info->thread_pool_size;
 	unsigned int old_metadata_ratio = fs_info->metadata_ratio;
 	int ret;

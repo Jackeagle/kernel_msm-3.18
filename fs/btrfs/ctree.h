@@ -796,7 +796,7 @@ struct btrfs_fs_info {
 	 * extent. The write side(mount/remount) is under ->s_umount lock,
 	 * so it is also safe.
 	 */
-	u64 max_inline;
+	u32 max_inline;
 
 	struct btrfs_transaction *running_transaction;
 	wait_queue_head_t transaction_throttle;
