@@ -149,7 +149,7 @@ ENDPROC(cpu_v7_do_resume)
 #endif
 
 /*
- * Qualcomm Inc. Krait processors. - need to invalidate Branch prediction
+ * Qualcomm Technologies Inc. Krait processors. - need to invalidate Branch prediction
  * on switch_mm
  */
 	globl_equ	cpu_krait_proc_init,	cpu_v7_proc_init
