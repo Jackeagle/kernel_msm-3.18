@@ -4448,12 +4448,12 @@ static void analyse_stripe(struct stripe_head *sh, struct stripe_head_state *s)
 		else if (is_bad) {
 			/* also not in-sync */
 			if (!test_bit(WriteErrorSeen, &rdev->flags) &&
-			    test_bit(R5_UPTODATE, &dev->flags)) {
+			    (test_bit(R5_UPTODATE, &dev->flags) || test_bit(R5_OVERWRITE, &dev->flags))) {
 				/* treat as in-sync, but with a read error
 				 * which we can now try to correct
 				 */
 				set_bit(R5_Insync, &dev->flags);
-				set_bit(R5_ReadError, &dev->flags);
+				//set_bit(R5_ReadError, &dev->flags);
 			}
 		} else if (test_bit(In_sync, &rdev->flags))
 			set_bit(R5_Insync, &dev->flags);
@@ -6764,9 +6764,7 @@ static void free_conf(struct r5conf *conf)
 
 	log_exit(conf);
 
-	if (conf->shrinker.nr_deferred)
-		unregister_shrinker(&conf->shrinker);
-
+	unregister_shrinker(&conf->shrinker);
 	free_thread_groups(conf);
 	shrink_stripes(conf);
 	raid5_free_percpu(conf);
