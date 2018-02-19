@@ -69,6 +69,12 @@ my @skip_any = (
 	'fd',
 	'usbmon');
 
+# These files are the same format under each PID that they appear.
+# We need only pass them once.
+my @once_only = (
+	'smaps',
+	'mb_groups');
+
 sub help
 {
 	my ($exitcode) = @_;
@@ -401,6 +407,25 @@ sub parse_dmesg
 	close $cmd;
 }
 
+sub already_scanned
+{
+	my ($filename) = @_;
+	state %seen;
+
+	foreach (@once_only) {
+		if (/^$filename$/) {
+			if ($seen{$_} == 1) {
+				return 1;
+			}
+			$seen{$_} = 1;
+
+			return 0;
+		}
+	}
+
+	return 0;
+}
+
 # True if we should skip this path.
 sub skip
 {
@@ -413,6 +438,10 @@ sub skip
 	my($filename, $dirs, $suffix) = fileparse($path);
 	foreach (@skip_any) {
 		return 1 if (/^$filename$/);
+	}
+
+	if (already_scanned($filename)) {
+		return 1;
 	}
 
 	return 0;
