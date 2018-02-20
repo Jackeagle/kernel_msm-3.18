@@ -540,6 +540,7 @@ struct nfsd4_copy {
 
 	struct list_head	copies;
 	struct task_struct	*copy_task;
+	refcount_t		refcount;
 };
 
 struct nfsd4_seek {
