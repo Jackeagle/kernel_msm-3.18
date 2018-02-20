@@ -1030,7 +1030,8 @@ nfsd4_write(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 static __be32
 nfsd4_verify_copy(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 		  stateid_t *src_stateid, struct file **src,
-		  stateid_t *dst_stateid, struct file **dst)
+		  stateid_t *dst_stateid, struct file **dst,
+		  struct nfs4_stid **stid)
 {
 	__be32 status;
 
@@ -1044,7 +1045,7 @@ nfsd4_verify_copy(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 
 	status = nfs4_preprocess_stateid_op(rqstp, cstate, &cstate->current_fh,
 					    dst_stateid, WR_STATE, dst, NULL,
-					    NULL);
+					    stid);
 	if (status) {
 		dprintk("NFSD: %s: couldn't process dst stateid!\n", __func__);
 		goto out_put_src;
@@ -1075,7 +1076,7 @@ nfsd4_clone(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	__be32 status;
 
 	status = nfsd4_verify_copy(rqstp, cstate, &clone->cl_src_stateid, &src,
-				   &clone->cl_dst_stateid, &dst);
+				   &clone->cl_dst_stateid, &dst, NULL);
 	if (status)
 		goto out;
 
@@ -1108,8 +1109,6 @@ static const struct nfsd4_callback_ops nfsd4_cb_offload_ops = {
 
 static int nfsd4_init_copy_res(struct nfsd4_copy *copy, bool sync)
 {
-	memcpy(&copy->cp_res.cb_stateid, &copy->cp_dst_stateid,
-		sizeof(copy->cp_dst_stateid));
 	copy->cp_res.wr_stable_how = NFS_UNSTABLE;
 	copy->cp_consecutive = 1;
 	copy->cp_synchronous = sync;
@@ -1171,10 +1170,15 @@ static void dup_copy_fields(struct nfsd4_copy *src, struct nfsd4_copy *dst)
 	atomic_inc(&dst->cp_clp->cl_refcount);
 	dst->fh_dst = get_file(src->fh_dst);
 	dst->fh_src = get_file(src->fh_src);
+	dst->stid = src->stid;
+	dst->cps = src->cps;
 }
 
 static void cleanup_async_copy(struct nfsd4_copy *copy, bool remove)
 {
+	list_del(&copy->cps->cp_list);
+	nfs4_free_cp_state(copy->cps);
+	nfs4_put_stid(copy->stid);
 	fput(copy->fh_dst);
 	fput(copy->fh_src);
 	if (remove) {
@@ -1218,7 +1222,7 @@ nfsd4_copy(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 
 	status = nfsd4_verify_copy(rqstp, cstate, &copy->cp_src_stateid,
 				   &copy->fh_src, &copy->cp_dst_stateid,
-				   &copy->fh_dst);
+				   &copy->fh_dst, &copy->stid);
 	if (status)
 		goto out;
 
@@ -1226,18 +1230,28 @@ nfsd4_copy(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	memcpy(&copy->fh, &cstate->current_fh.fh_handle,
 		sizeof(struct knfsd_fh));
 	copy->net = SVC_NET(rqstp);
-	/* for now disable asynchronous copy feature */
-	copy->cp_synchronous = 1;
 	if (!copy->cp_synchronous) {
+		struct nfsd_net *nn = net_generic(SVC_NET(rqstp), nfsd_net_id);
+
 		status = nfsd4_init_copy_res(copy, 0);
 		async_copy = kzalloc(sizeof(struct nfsd4_copy), GFP_KERNEL);
 		if (!async_copy) {
 			status = nfserrno(-ENOMEM);
 			goto out;
 		}
+		copy->cps = nfs4_alloc_init_cp_state(nn, copy->stid);
+		if (!copy->cps) {
+			status = nfserrno(-ENOMEM);
+			kfree(async_copy);
+			goto out;
+		}
+		/* take a reference on the parent stateid so it's not
+		 * not freed by the copy compound
+		 */
+		refcount_inc(&copy->stid->sc_count);
+		memcpy(&copy->cp_res.cb_stateid, &copy->cps->cp_stateid,
+			sizeof(copy->cps->cp_stateid));
 		dup_copy_fields(copy, async_copy);
-		memcpy(&copy->cp_res.cb_stateid, &copy->cp_dst_stateid,
-			sizeof(copy->cp_dst_stateid));
 		async_copy->copy_task = kthread_create(nfsd4_do_async_copy,
 				async_copy, "%s", "copy thread");
 		if (IS_ERR(async_copy->copy_task)) {

@@ -535,6 +535,8 @@ struct nfsd4_copy {
 	struct file             *fh_src;
 	struct file             *fh_dst;
 	struct net              *net;
+	struct nfs4_stid        *stid;
+	struct nfs4_cp_state    *cps;
 
 	struct list_head	copies;
 	struct task_struct	*copy_task;

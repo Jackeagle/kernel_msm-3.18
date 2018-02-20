@@ -667,6 +667,7 @@ struct nfs4_stid *nfs4_alloc_stid(struct nfs4_client *cl, struct kmem_cache *sla
 	/* Will be incremented before return to client: */
 	refcount_set(&stid->sc_count, 1);
 	spin_lock_init(&stid->sc_lock);
+	INIT_LIST_HEAD(&stid->sc_cp_list);
 
 	/*
 	 * It shouldn't be a problem to reuse an opaque stateid value.
@@ -681,6 +682,69 @@ struct nfs4_stid *nfs4_alloc_stid(struct nfs4_client *cl, struct kmem_cache *sla
 out_free:
 	kmem_cache_free(slab, stid);
 	return NULL;
+}
+
+/*
+ * Create a unique stateid_t to represent each COPY. Hang the copy
+ * stateids off the OPEN/LOCK/DELEG stateid from the client open
+ * the source file.
+ */
+struct nfs4_cp_state *nfs4_alloc_init_cp_state(struct nfsd_net *nn,
+					       struct nfs4_stid *p_stid)
+{
+	struct nfs4_cp_state *cps;
+	int new_id;
+
+	cps = kzalloc(sizeof(struct nfs4_cp_state), GFP_KERNEL);
+	if (!cps)
+		return NULL;
+	idr_preload(GFP_KERNEL);
+	spin_lock(&nn->s2s_cp_lock);
+	new_id = idr_alloc_cyclic(&nn->s2s_cp_stateids, cps, 0, 0, GFP_NOWAIT);
+	spin_unlock(&nn->s2s_cp_lock);
+	idr_preload_end();
+	if (new_id < 0)
+		goto out_free;
+	cps->cp_stateid.si_opaque.so_id = new_id;
+	cps->cp_stateid.si_opaque.so_clid.cl_boot = nn->boot_time;
+	cps->cp_stateid.si_opaque.so_clid.cl_id = nn->s2s_cp_cl_id;
+	cps->cp_p_stid = p_stid;
+	spin_lock(&p_stid->sc_lock);
+	list_add(&cps->cp_list, &p_stid->sc_cp_list);
+	spin_unlock(&p_stid->sc_lock);
+
+	return cps;
+out_free:
+	kfree(cps);
+	return NULL;
+}
+
+void nfs4_free_cp_state(struct nfs4_cp_state *cps)
+{
+	struct nfsd_net *nn;
+
+	nn = net_generic(cps->cp_p_stid->sc_client->net, nfsd_net_id);
+	spin_lock(&nn->s2s_cp_lock);
+	idr_remove(&nn->s2s_cp_stateids, cps->cp_stateid.si_opaque.so_id);
+	spin_unlock(&nn->s2s_cp_lock);
+
+	kfree(cps);
+}
+
+static void nfs4_free_cp_statelist(struct nfs4_stid *stid)
+{
+	struct nfs4_cp_state *cps;
+
+	might_sleep();
+
+	spin_lock(&stid->sc_lock);
+	while (!list_empty(&stid->sc_cp_list)) {
+		cps = list_first_entry(&stid->sc_cp_list, struct nfs4_cp_state,
+				       cp_list);
+		list_del(&cps->cp_list);
+		nfs4_free_cp_state(cps);
+	}
+	spin_unlock(&stid->sc_lock);
 }
 
 static struct nfs4_ol_stateid * nfs4_alloc_open_stateid(struct nfs4_client *clp)
@@ -828,6 +892,9 @@ nfs4_put_stid(struct nfs4_stid *s)
 	}
 	idr_remove(&clp->cl_stateids, s->sc_stateid.si_opaque.so_id);
 	spin_unlock(&clp->cl_lock);
+
+	nfs4_free_cp_statelist(s);
+
 	s->sc_free(s);
 	if (fp)
 		put_nfs4_file(fp);
@@ -7126,6 +7193,8 @@ static int nfs4_state_create_net(struct net *net)
 	INIT_LIST_HEAD(&nn->close_lru);
 	INIT_LIST_HEAD(&nn->del_recall_lru);
 	spin_lock_init(&nn->client_lock);
+	spin_lock_init(&nn->s2s_cp_lock);
+	idr_init(&nn->s2s_cp_stateids);
 
 	spin_lock_init(&nn->blocked_locks_lock);
 	INIT_LIST_HEAD(&nn->blocked_locks_lru);
