@@ -529,6 +529,15 @@ struct nfsd4_copy {
 	struct nfsd4_callback	cp_cb;
 	__be32			nfserr;
 	struct knfsd_fh		fh;
+
+	struct nfs4_client      *cp_clp;
+
+	struct file             *fh_src;
+	struct file             *fh_dst;
+	struct net              *net;
+
+	struct list_head	copies;
+	struct task_struct	*copy_task;
 };
 
 struct nfsd4_seek {
