@@ -12,7 +12,7 @@
 
 #ifndef __ASSEMBLER__
 
-extern void (*trampoline_32bit_src)(void *return_ptr);
+extern void trampoline_32bit_src(void *return_ptr);
 
 #endif /* __ASSEMBLER__ */
 #endif /* BOOT_COMPRESSED_PAGETABLE_H */
