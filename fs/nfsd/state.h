@@ -94,12 +94,24 @@ struct nfs4_stid {
 #define NFS4_REVOKED_DELEG_STID 16
 #define NFS4_CLOSED_DELEG_STID 32
 #define NFS4_LAYOUT_STID 64
+	struct list_head	sc_cp_list;
 	unsigned char		sc_type;
 	stateid_t		sc_stateid;
 	spinlock_t		sc_lock;
 	struct nfs4_client	*sc_client;
 	struct nfs4_file	*sc_file;
 	void			(*sc_free)(struct nfs4_stid *);
+};
+
+/*
+ * Keep a list of stateids issued by the COPY, associate it with the
+ * parent OPEN/LOCK/DELEG stateid. Used for lookup by
+ * OFFLOAD_CANCEL and OFFLOAD_STATUS (as well as COPY_NOTIFY)
+ */
+struct nfs4_cp_state {
+	stateid_t		cp_stateid;
+	struct list_head	cp_list;	/* per parent nfs4_stid */
+	struct nfs4_stid        *cp_p_stid;     /* pointer to parent */
 };
 
 /*
@@ -355,6 +367,8 @@ struct nfs4_client {
 	struct rpc_wait_queue	cl_cb_waitq;	/* backchannel callers may */
 						/* wait here for slots */
 	struct net		*net;
+	struct list_head	async_copies;	/* list of async copies */
+	spinlock_t		async_lock;	/* lock for async copies */
 };
 
 /* struct nfs4_client_reset
@@ -573,6 +587,7 @@ enum nfsd4_cb_op {
 	NFSPROC4_CLNT_CB_NULL = 0,
 	NFSPROC4_CLNT_CB_RECALL,
 	NFSPROC4_CLNT_CB_LAYOUT,
+	NFSPROC4_CLNT_CB_OFFLOAD,
 	NFSPROC4_CLNT_CB_SEQUENCE,
 	NFSPROC4_CLNT_CB_NOTIFY_LOCK,
 };
@@ -602,12 +617,15 @@ struct nfsd_net;
 
 extern __be32 nfs4_preprocess_stateid_op(struct svc_rqst *rqstp,
 		struct nfsd4_compound_state *cstate, struct svc_fh *fhp,
-		stateid_t *stateid, int flags, struct file **filp, bool *tmp_file);
+		stateid_t *stateid, int flags, struct file **filp,
+		bool *tmp_file, struct nfs4_stid **cstid);
 __be32 nfsd4_lookup_stateid(struct nfsd4_compound_state *cstate,
 		     stateid_t *stateid, unsigned char typemask,
 		     struct nfs4_stid **s, struct nfsd_net *nn);
 struct nfs4_stid *nfs4_alloc_stid(struct nfs4_client *cl, struct kmem_cache *slab,
 				  void (*sc_free)(struct nfs4_stid *));
+struct nfs4_cp_state *nfs4_alloc_init_cp_state(struct nfsd_net *nn, struct nfs4_stid *p_stid);
+void nfs4_free_cp_state(struct nfs4_cp_state *cps);
 void nfs4_unhash_stid(struct nfs4_stid *s);
 void nfs4_put_stid(struct nfs4_stid *s);
 void nfs4_inc_and_copy_stateid(stateid_t *dst, struct nfs4_stid *stid);
@@ -628,6 +646,7 @@ extern void nfsd4_run_cb(struct nfsd4_callback *cb);
 extern int nfsd4_create_callback_queue(void);
 extern void nfsd4_destroy_callback_queue(void);
 extern void nfsd4_shutdown_callback(struct nfs4_client *);
+extern void nfsd4_shutdown_copy(struct nfs4_client *clp);
 extern void nfsd4_prepare_cb_recall(struct nfs4_delegation *dp);
 extern struct nfs4_client_reclaim *nfs4_client_to_reclaim(const char *name,
 							struct nfsd_net *nn);

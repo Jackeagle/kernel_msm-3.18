@@ -667,6 +667,7 @@ struct nfs4_stid *nfs4_alloc_stid(struct nfs4_client *cl, struct kmem_cache *sla
 	/* Will be incremented before return to client: */
 	refcount_set(&stid->sc_count, 1);
 	spin_lock_init(&stid->sc_lock);
+	INIT_LIST_HEAD(&stid->sc_cp_list);
 
 	/*
 	 * It shouldn't be a problem to reuse an opaque stateid value.
@@ -681,6 +682,69 @@ struct nfs4_stid *nfs4_alloc_stid(struct nfs4_client *cl, struct kmem_cache *sla
 out_free:
 	kmem_cache_free(slab, stid);
 	return NULL;
+}
+
+/*
+ * Create a unique stateid_t to represent each COPY. Hang the copy
+ * stateids off the OPEN/LOCK/DELEG stateid from the client open
+ * the source file.
+ */
+struct nfs4_cp_state *nfs4_alloc_init_cp_state(struct nfsd_net *nn,
+					       struct nfs4_stid *p_stid)
+{
+	struct nfs4_cp_state *cps;
+	int new_id;
+
+	cps = kzalloc(sizeof(struct nfs4_cp_state), GFP_KERNEL);
+	if (!cps)
+		return NULL;
+	idr_preload(GFP_KERNEL);
+	spin_lock(&nn->s2s_cp_lock);
+	new_id = idr_alloc_cyclic(&nn->s2s_cp_stateids, cps, 0, 0, GFP_NOWAIT);
+	spin_unlock(&nn->s2s_cp_lock);
+	idr_preload_end();
+	if (new_id < 0)
+		goto out_free;
+	cps->cp_stateid.si_opaque.so_id = new_id;
+	cps->cp_stateid.si_opaque.so_clid.cl_boot = nn->boot_time;
+	cps->cp_stateid.si_opaque.so_clid.cl_id = nn->s2s_cp_cl_id;
+	cps->cp_p_stid = p_stid;
+	spin_lock(&p_stid->sc_lock);
+	list_add(&cps->cp_list, &p_stid->sc_cp_list);
+	spin_unlock(&p_stid->sc_lock);
+
+	return cps;
+out_free:
+	kfree(cps);
+	return NULL;
+}
+
+void nfs4_free_cp_state(struct nfs4_cp_state *cps)
+{
+	struct nfsd_net *nn;
+
+	nn = net_generic(cps->cp_p_stid->sc_client->net, nfsd_net_id);
+	spin_lock(&nn->s2s_cp_lock);
+	idr_remove(&nn->s2s_cp_stateids, cps->cp_stateid.si_opaque.so_id);
+	spin_unlock(&nn->s2s_cp_lock);
+
+	kfree(cps);
+}
+
+static void nfs4_free_cp_statelist(struct nfs4_stid *stid)
+{
+	struct nfs4_cp_state *cps;
+
+	might_sleep();
+
+	spin_lock(&stid->sc_lock);
+	while (!list_empty(&stid->sc_cp_list)) {
+		cps = list_first_entry(&stid->sc_cp_list, struct nfs4_cp_state,
+				       cp_list);
+		list_del(&cps->cp_list);
+		nfs4_free_cp_state(cps);
+	}
+	spin_unlock(&stid->sc_lock);
 }
 
 static struct nfs4_ol_stateid * nfs4_alloc_open_stateid(struct nfs4_client *clp)
@@ -828,6 +892,9 @@ nfs4_put_stid(struct nfs4_stid *s)
 	}
 	idr_remove(&clp->cl_stateids, s->sc_stateid.si_opaque.so_id);
 	spin_unlock(&clp->cl_lock);
+
+	nfs4_free_cp_statelist(s);
+
 	s->sc_free(s);
 	if (fp)
 		put_nfs4_file(fp);
@@ -1790,6 +1857,8 @@ static struct nfs4_client *alloc_client(struct xdr_netobj name)
 #ifdef CONFIG_NFSD_PNFS
 	INIT_LIST_HEAD(&clp->cl_lo_states);
 #endif
+	INIT_LIST_HEAD(&clp->async_copies);
+	spin_lock_init(&clp->async_lock);
 	spin_lock_init(&clp->cl_lock);
 	rpc_init_wait_queue(&clp->cl_cb_waitq, "Backchannel slot table");
 	return clp;
@@ -1896,6 +1965,7 @@ __destroy_client(struct nfs4_client *clp)
 		release_openowner(oo);
 	}
 	nfsd4_return_all_client_layouts(clp);
+	nfsd4_shutdown_copy(clp);
 	nfsd4_shutdown_callback(clp);
 	if (clp->cl_cb_conn.cb_xprt)
 		svc_xprt_put(clp->cl_cb_conn.cb_xprt);
@@ -5090,7 +5160,8 @@ nfs4_check_file(struct svc_rqst *rqstp, struct svc_fh *fhp, struct nfs4_stid *s,
 __be32
 nfs4_preprocess_stateid_op(struct svc_rqst *rqstp,
 		struct nfsd4_compound_state *cstate, struct svc_fh *fhp,
-		stateid_t *stateid, int flags, struct file **filpp, bool *tmp_file)
+		stateid_t *stateid, int flags, struct file **filpp,
+		bool *tmp_file, struct nfs4_stid **cstid)
 {
 	struct inode *ino = d_inode(fhp->fh_dentry);
 	struct net *net = SVC_NET(rqstp);
@@ -5141,8 +5212,11 @@ done:
 	if (!status && filpp)
 		status = nfs4_check_file(rqstp, fhp, s, filpp, tmp_file, flags);
 out:
-	if (s)
+	if (s) {
+		if (!status && cstid)
+			*cstid = s;
 		nfs4_put_stid(s);
+	}
 	return status;
 }
 
@@ -5481,15 +5555,26 @@ nfsd4_close(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 		goto out; 
 
 	stp->st_stid.sc_type = NFS4_CLOSED_STID;
+
+	/*
+	 * Technically we don't _really_ have to increment or copy it, since
+	 * it should just be gone after this operation and we clobber the
+	 * copied value below, but we continue to do so here just to ensure
+	 * that racing ops see that there was a state change.
+	 */
 	nfs4_inc_and_copy_stateid(&close->cl_stateid, &stp->st_stid);
 
 	nfsd4_close_open_stateid(stp);
 	mutex_unlock(&stp->st_mutex);
 
-	/* See RFC5661 sectionm 18.2.4 */
-	if (stp->st_stid.sc_client->cl_minorversion)
-		memcpy(&close->cl_stateid, &close_stateid,
-				sizeof(close->cl_stateid));
+	/* v4.1+ suggests that we send a special stateid in here, since the
+	 * clients should just ignore this anyway. Since this is not useful
+	 * for v4.0 clients either, we set it to the special close_stateid
+	 * universally.
+	 *
+	 * See RFC5661 section 18.2.4, and RFC7530 section 16.2.5
+	 */
+	memcpy(&close->cl_stateid, &close_stateid, sizeof(close->cl_stateid));
 
 	/* put reference from nfs4_preprocess_seqid_op */
 	nfs4_put_stid(&stp->st_stid);
@@ -7109,6 +7194,8 @@ static int nfs4_state_create_net(struct net *net)
 	INIT_LIST_HEAD(&nn->close_lru);
 	INIT_LIST_HEAD(&nn->del_recall_lru);
 	spin_lock_init(&nn->client_lock);
+	spin_lock_init(&nn->s2s_cp_lock);
+	idr_init(&nn->s2s_cp_stateids);
 
 	spin_lock_init(&nn->blocked_locks_lock);
 	INIT_LIST_HEAD(&nn->blocked_locks_lru);
