@@ -95,18 +95,18 @@ int main()
     char cmd;    //location robot is required to be
     int Direction;    //Direction robot is facing
     int Proximity;    //Proximity Sensor Reading
-    char Location;    //robot location
-    int Turn_1;
-    int Turn_2;
-    int Move_x;
-    int Move_y;
-    int Move_Flag;
+    char Location='a';    //robot location
+    int Turn_1=0;
+    int Turn_2=0;
+    int Move_x=0;
+    int Move_y=0;
+    int Move_Flag=0;
     int i;
 
     while(1)
     {
-        Find_Direction();
-        Find_Proximity();
+        Find_Direction(&Direction);
+        Find_Proximity(&Proximity);
         Find_Location(&Location, &Direction, &Proximity);
         Move_Flag = Check_cmd();
 
@@ -116,7 +116,7 @@ int main()
             if(cmd!=Location)
             {
                 Find_Path(&cmd, &Location, &Turn_1, &Turn_2, &Move_x, &Move_y);
-                if(Turn1 != 0)
+                if(Turn_1 != 0)
                 {
                     Turn(&Turn_1);
                 }
@@ -129,7 +129,7 @@ int main()
                         Transmit_Location(&Location);
                     }
                 }
-                if(Turn2 != 0)
+                if(Turn_2 != 0)
                 {
                     Turn(&Turn_2);
                 }
