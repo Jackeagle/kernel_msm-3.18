@@ -1,4 +1,7 @@
 /*
+Author: Fraser Menzies
+Date: 22 Feb 2018
+
 Robot Hardware requires
 
 -2 motors controlled with PWM, 4GPIO PWM pins + 2GPIO enable pins
