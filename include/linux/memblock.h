@@ -423,6 +423,11 @@ static inline phys_addr_t memblock_alloc(phys_addr_t size, phys_addr_t align)
 {
 	return 0;
 }
+static inline unsigned long memblock_next_valid_pfn(unsigned long pfn,
+						    unsigned long max_pfn)
+{
+	return pfn;
+}
 #endif /* CONFIG_HAVE_MEMBLOCK */
 
 #endif /* __KERNEL__ */
