@@ -57,7 +57,7 @@ Determines path to required location
 @Param int *Move_x- number of movements in the x direction required
 @Param int *Move_y- number of movements in the y direction required
 */
-void Find_Path(char *cmd, char *Location, int *Turn_1, int *Turn_2, int *Move_x,int *Move_y);
+void Find_Path(char cmd, char Location, int *Turn_1, int *Turn_2, int *Move_x,int *Move_y);
 /*
 Reads magnemometer
 @Param int *Direction - Direction robot is pointing
@@ -115,7 +115,7 @@ int main()
             Read_cmd(&cmd);
             if(cmd!=Location)
             {
-                Find_Path(&cmd, &Location, &Turn_1, &Turn_2, &Move_x, &Move_y);
+                Find_Path(cmd, Location, &Turn_1, &Turn_2, &Move_x, &Move_y);
                 if(Turn1 != 0)
                 {
                     Turn(&Turn_1);
