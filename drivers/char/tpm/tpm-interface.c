@@ -390,6 +390,7 @@ ssize_t tpm_transmit(struct tpm_chip *chip, struct tpm_space *space,
 	u32 count, ordinal;
 	unsigned long stop;
 	bool need_locality;
+	int l_rc;
 
 	rc = tpm_validate_command(chip, space, buf, bufsiz);
 	if (rc == -EINVAL)
@@ -422,8 +423,6 @@ ssize_t tpm_transmit(struct tpm_chip *chip, struct tpm_space *space,
 	if (!(flags & TPM_TRANSMIT_UNLOCKED))
 		mutex_lock(&chip->tpm_mutex);
 
-	if (chip->dev.parent)
-		pm_runtime_get_sync(chip->dev.parent);
 
 	if (chip->ops->clk_enable != NULL)
 		chip->ops->clk_enable(chip, true);
@@ -438,6 +437,9 @@ ssize_t tpm_transmit(struct tpm_chip *chip, struct tpm_space *space,
 			goto out_no_locality;
 		chip->locality = rc;
 	}
+
+	if (chip->dev.parent)
+		pm_runtime_get_sync(chip->dev.parent);
 
 	rc = tpm2_prepare_space(chip, space, ordinal, buf);
 	if (rc)
@@ -499,16 +501,21 @@ out_recv:
 	rc = tpm2_commit_space(chip, space, ordinal, buf, &len);
 
 out:
+	if (chip->dev.parent)
+		pm_runtime_put_sync(chip->dev.parent);
+
 	if (need_locality && chip->ops->relinquish_locality) {
-		chip->ops->relinquish_locality(chip, chip->locality);
+		/* this coud be on error path, don't override error code */
+		l_rc = chip->ops->relinquish_locality(chip, chip->locality);
+		if (l_rc)
+			dev_err(&chip->dev, "%s: relinquish_locality: error %d\n",
+				__func__, l_rc);
 		chip->locality = -1;
 	}
+
 out_no_locality:
 	if (chip->ops->clk_enable != NULL)
 		chip->ops->clk_enable(chip, false);
-
-	if (chip->dev.parent)
-		pm_runtime_put_sync(chip->dev.parent);
 
 	if (!(flags & TPM_TRANSMIT_UNLOCKED))
 		mutex_unlock(&chip->tpm_mutex);
@@ -1190,6 +1197,10 @@ int tpm_get_random(struct tpm_chip *chip, u8 *out, size_t max)
 			break;
 
 		recd = be32_to_cpu(tpm_cmd.params.getrandom_out.rng_data_len);
+		if (recd > num_bytes) {
+			total = -EFAULT;
+			break;
+		}
 
 		rlength = be32_to_cpu(tpm_cmd.header.out.length);
 		if (rlength < offsetof(struct tpm_getrandom_out, rng_data) +
