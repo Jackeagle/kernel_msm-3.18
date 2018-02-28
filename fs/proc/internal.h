@@ -177,12 +177,12 @@ struct pde_opener {
 	struct list_head lh;
 	bool closing;
 	struct completion *c;
-};
+} __randomize_layout;
 extern const struct inode_operations proc_link_inode_operations;
 
 extern const struct inode_operations proc_pid_link_inode_operations;
 
-extern void proc_init_inodecache(void);
+void proc_init_kmemcache(void);
 void set_proc_pid_nlink(void);
 extern struct inode *proc_get_inode(struct super_block *, struct proc_dir_entry *);
 extern int proc_fill_super(struct super_block *, void *data, int flags);
