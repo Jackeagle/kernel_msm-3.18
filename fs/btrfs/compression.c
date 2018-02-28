@@ -419,7 +419,7 @@ blk_status_t btrfs_submit_compressed_write(struct inode *inode, u64 start,
 
 static u64 bio_end_offset(struct bio *bio)
 {
-	struct bio_vec *last = &bio->bi_io_vec[bio->bi_vcnt - 1];
+	struct bio_vec *last = bio_last_bvec_all(bio);
 
 	return page_offset(last->bv_page) + last->bv_len + last->bv_offset;
 }
@@ -571,7 +571,7 @@ blk_status_t btrfs_submit_compressed_read(struct inode *inode, struct bio *bio,
 	/* we need the actual starting offset of this extent in the file */
 	read_lock(&em_tree->lock);
 	em = lookup_extent_mapping(em_tree,
-				   page_offset(bio->bi_io_vec->bv_page),
+				   page_offset(bio_first_page_all(bio)),
 				   PAGE_SIZE);
 	read_unlock(&em_tree->lock);
 	if (!em)
@@ -1133,7 +1133,7 @@ int btrfs_decompress(int type, unsigned char *data_in, struct page *dest_page,
 	return ret;
 }
 
-void btrfs_exit_compress(void)
+void __cold btrfs_exit_compress(void)
 {
 	free_workspaces();
 }
@@ -1621,12 +1621,23 @@ out:
 
 unsigned int btrfs_compress_str2level(const char *str)
 {
-	if (strncmp(str, "zlib", 4) != 0)
+	long level;
+	int max;
+
+	if (strncmp(str, "zlib", 4) == 0)
+		max = 9;
+	else if (strncmp(str, "zstd", 4) == 0)
+		max = 15; // encoded on 4 bits, real max is 22
+	else
 		return 0;
 
-	/* Accepted form: zlib:1 up to zlib:9 and nothing left after the number */
-	if (str[4] == ':' && '1' <= str[5] && str[5] <= '9' && str[6] == 0)
-		return str[5] - '0';
+	/* Accepted form: zxxx:1 up to zxxx:9 and nothing left after the number */
+	str += 4;
+	if (*str == ':')
+		str++;
 
-	return BTRFS_ZLIB_DEFAULT_LEVEL;
+	if (kstrtoul(str, 10, &level))
+		return BTRFS_ZLIB_DEFAULT_LEVEL;
+
+	return (level > max) ? BTRFS_ZLIB_DEFAULT_LEVEL : level;
 }
