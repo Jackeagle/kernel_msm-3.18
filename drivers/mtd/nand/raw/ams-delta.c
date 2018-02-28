@@ -1,11 +1,12 @@
 /*
- *  drivers/mtd/nand/ams-delta.c
- *
  *  Copyright (C) 2006 Jonathan McDowell <noodles@earth.li>
  *
- *  Derived from drivers/mtd/toto.c
+ *  Derived from drivers/mtd/nand/toto.c (removed in v2.6.28)
+ *    Copyright (c) 2003 Texas Instruments
+ *    Copyright (c) 2002 Thomas Gleixner <tgxl@linutronix.de>
+ *
  *  Converted to platform driver by Janusz Krzysztofik <jkrzyszt@tis.icnet.pl>
- *  Partially stolen from drivers/mtd/nand/plat_nand.c
+ *  Partially stolen from plat_nand.c
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
