@@ -18,6 +18,7 @@
 #include <linux/pm_domain.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
+#include <linux/slab.h>
 
 #define GPC_CNTR		0x000
 
@@ -254,6 +255,7 @@ static struct imx_pm_domain imx_gpc_domains[] = {
 	{
 		.base = {
 			.name = "ARM",
+			.flags = GENPD_FLAG_ALWAYS_ON,
 		},
 	}, {
 		.base = {
@@ -442,13 +444,19 @@ static int imx_gpc_probe(struct platform_device *pdev)
 			if (domain_index >= of_id_data->num_domains)
 				continue;
 
-			domain = &imx_gpc_domains[domain_index];
+			domain = kmalloc(sizeof(*domain), GFP_KERNEL);
+			if (!domain) {
+				of_node_put(np);
+				return -ENOMEM;
+			}
+			memcpy(domain, &imx_gpc_domains[domain_index], sizeof(*domain));
 			domain->regmap = regmap;
 			domain->ipg_rate_mhz = ipg_rate_mhz;
 
 			pd_pdev = platform_device_alloc("imx-pgc-power-domain",
 							domain_index);
 			if (!pd_pdev) {
+				kfree(domain);
 				of_node_put(np);
 				return -ENOMEM;
 			}
@@ -470,13 +478,21 @@ static int imx_gpc_probe(struct platform_device *pdev)
 
 static int imx_gpc_remove(struct platform_device *pdev)
 {
+	struct device_node *pgc_node;
 	int ret;
+
+	pgc_node = of_get_child_by_name(pdev->dev.of_node, "pgc");
+
+	/* bail out if DT too old and doesn't provide the necessary info */
+	if (!of_property_read_bool(pdev->dev.of_node, "#power-domain-cells") &&
+	    !pgc_node)
+		return 0;
 
 	/*
 	 * If the old DT binding is used the toplevel driver needs to
 	 * de-register the power domains
 	 */
-	if (!of_get_child_by_name(pdev->dev.of_node, "pgc")) {
+	if (!pgc_node) {
 		of_genpd_del_provider(pdev->dev.of_node);
 
 		ret = pm_genpd_remove(&imx_gpc_domains[GPC_PGC_DOMAIN_PU].base);
