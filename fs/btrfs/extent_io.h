@@ -440,9 +440,9 @@ int read_extent_buffer_pages(struct extent_io_tree *tree,
 			     int mirror_num);
 void wait_on_extent_buffer_writeback(struct extent_buffer *eb);
 
-static inline unsigned long num_extent_pages(u64 start, u64 len)
+static inline unsigned long num_extent_pages(const struct extent_buffer *eb)
 {
-	return len >> PAGE_SHIFT;
+	return eb->len >> PAGE_SHIFT;
 }
 
 static inline void extent_buffer_get(struct extent_buffer *eb)
