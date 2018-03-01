@@ -88,7 +88,7 @@ void Drive();
 Sends location to location file
 @Param char *Location
 */
-void Transmit_Location(char *Location);
+void Transmit_Location(char Location);
 
 int main()
 {
