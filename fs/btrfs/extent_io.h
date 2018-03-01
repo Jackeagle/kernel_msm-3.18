@@ -442,8 +442,7 @@ void wait_on_extent_buffer_writeback(struct extent_buffer *eb);
 
 static inline unsigned long num_extent_pages(u64 start, u64 len)
 {
-	return ((start + len + PAGE_SIZE - 1) >> PAGE_SHIFT) -
-		(start >> PAGE_SHIFT);
+	return len >> PAGE_SHIFT;
 }
 
 static inline void extent_buffer_get(struct extent_buffer *eb)
