@@ -71,15 +71,15 @@ void Find_Proximity(int *Proximity);
 /*
 Finds Location
 @Param char *Location -Location of robot
-@Param int *Direction - Direction robot is pointing
-@Param int *Proximity - Distance of robot to object in front
+@Param int Direction - Direction robot is pointing
+@Param int Proximity - Distance of robot to object in front
 */
-void Find_Location(char* Location, int *Direction, int *Proximity);
+void Find_Location(char* Location, int Direction, int Proximity);
 /*
 Turns robot
 @Param char *Direction- required direction to be pointed in
 */
-void Turn(char *Direction);
+void Turn(char Direction);
 /*
 Moves robot by a single unit length
 */
@@ -115,13 +115,8 @@ int main()
             Read_cmd(&cmd);
             if(cmd!=Location)
             {
-<<<<<<< HEAD
                 Find_Path(cmd, Location, &Turn_1, &Turn_2, &Move_x, &Move_y);
-                if(Turn1 != 0)
-=======
-                Find_Path(&cmd, &Location, &Turn_1, &Turn_2, &Move_x, &Move_y);
                 if(Turn_1 != 0)
->>>>>>> d2fe2ff9f53c70e3070b877116747f83cda3a4cf
                 {
                     Turn(&Turn_1);
                 }
@@ -130,8 +125,8 @@ int main()
                     for(i=0; i<Move_x; i++)
                     {
                         Drive();
-                        Find_Location(&Location, &Direction, &Proximity);
-                        Transmit_Location(&Location);
+                        Find_Location(&Location, Direction, Proximity);
+                        Transmit_Location(Location);
                     }
                 }
                 if(Turn_2 != 0)
@@ -143,8 +138,8 @@ int main()
                     for(i=0; i<Move_y; i++)
                     {
                         Drive();
-                        Find_Location(&Location, &Direction, &Proximity);
-                        Transmit_Location(&Location);
+                        Find_Location(&Location, Direction, Proximity);
+                        Transmit_Location(Location);
                     }
                 }
                 if(cmd == Location)
