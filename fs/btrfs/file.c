@@ -2214,7 +2214,7 @@ int btrfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	}
 	trans->sync = true;
 
-	ret = btrfs_log_dentry_safe(trans, root, dentry, start, end, &ctx);
+	ret = btrfs_log_dentry_safe(trans, dentry, start, end, &ctx);
 	if (ret < 0) {
 		/* Fallthrough and commit/free transaction. */
 		ret = 1;
@@ -3378,7 +3378,7 @@ const struct file_operations btrfs_file_operations = {
 	.dedupe_file_range = btrfs_dedupe_file_range,
 };
 
-void btrfs_auto_defrag_exit(void)
+void __cold btrfs_auto_defrag_exit(void)
 {
 	kmem_cache_destroy(btrfs_inode_defrag_cachep);
 }
