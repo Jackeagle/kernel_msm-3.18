@@ -4,6 +4,7 @@
 <head>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
 <style>
+
 .fa {
   padding: 20px;
   font-size: 30px;
@@ -25,13 +26,13 @@
   color: white;
   float: left;
 }
+
+
 h1 {
 	color: white;
 	text-shadow: 1px 1px 5px black, 0 0 25px green, 0 0 5px lawngreen;
 	text-align: center;
 	font-size: 3em;
-	display: inline;
-	margin-left: 30%;
 }
 h3 {
 	color: white;
@@ -39,14 +40,37 @@ h3 {
 	text-align: center;
 	font-size: 2em;
 }
+
+
 body {
 	background-image: url("https://images.pexels.com/photos/413195/pexels-photo-413195.jpeg?h=350&auto=compress&cs=tinysrgb");
 }
+
+.btn-light .button {
+    background-color: #4CAF50; /* Green */
+    border: 1px solid green;
+    color: white;
+    padding: 3px 32px;
+    text-align: left;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 16px;
+    cursor: pointer;
+    width: 450px;
+    display: block;
+}
+
+.button4 {
+    background-color: white;
+    color: black;
+    border: 2px solid #e7e7e7;
+}
+
 .btn-group button {
 	background-color: green;
 	border: 2px solid white;
 	color: white;
-	padding: 48px 48px; /*size*/
+	padding: 48px 48px;
 	cursor: pointer;
 	float: left;
 }
@@ -72,14 +96,21 @@ p.intro {
 </head>
 
 <body>
-<a href="#" class="fa fa-facebook"></a> <a href="#" class="fa fa-instagram"></a> <h1>RoboPot</h1>
+<a href="#" class="fa fa-facebook"></a> <a href="#" class="fa fa-instagram"></a>	<h1>RoboPot</h1>
+
 <h3>Group 7 - Fraser Law, Fraser Menzies and Alastair Thurlbeck</h3>
 <p class="intro">
 This is our solution to moveable plant pots remotely controlled via a web interface!
 </p>
 
-<div class="btn-group">
+<div class="btn-light">
+<button class="button">Light Sensor (Top Left)     = </button>
+<button class="button">Light Sensor (Top Right)    = </button>
+<button class="button">Light Sensor (Bottom Left)  = </button>
+<button class="button">Light Sensor (Bottom Right) = </button>
+</div>
 
+<div class="btn-group">
 	<button style="margin-left: 35%" id="a" onclick="myFunction(this)"></button>
 	<button id="b" onclick="myFunction(this)"></button>
 	<button id="c" onclick="myFunction(this)"></button>
@@ -110,8 +141,6 @@ function myFunction(elem){
 	return elem.id;
 }
 </script>
-
 overflow: auto;
 </body>
 </html>
-
