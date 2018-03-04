@@ -5,37 +5,11 @@
  *
  *  Copyright (C) 1991-2002  Linus Torvalds
  */
-#include <linux/sched.h>
-#include <linux/sched/clock.h>
-#include <uapi/linux/sched/types.h>
-#include <linux/sched/loadavg.h>
-#include <linux/sched/hotplug.h>
-#include <linux/wait_bit.h>
-#include <linux/cpuset.h>
-#include <linux/delayacct.h>
-#include <linux/init_task.h>
-#include <linux/context_tracking.h>
-#include <linux/rcupdate_wait.h>
-#include <linux/compat.h>
-
-#include <linux/blkdev.h>
-#include <linux/kprobes.h>
-#include <linux/mmu_context.h>
-#include <linux/module.h>
-#include <linux/nmi.h>
-#include <linux/prefetch.h>
-#include <linux/profile.h>
-#include <linux/security.h>
-#include <linux/syscalls.h>
-#include <linux/sched/isolation.h>
+#include "sched.h"
 
 #include <asm/switch_to.h>
 #include <asm/tlb.h>
-#ifdef CONFIG_PARAVIRT
-#include <asm/paravirt.h>
-#endif
 
-#include "sched.h"
 #include "../workqueue_internal.h"
 #include "../smpboot.h"
 
@@ -135,7 +109,7 @@ struct rq *task_rq_lock(struct task_struct *p, struct rq_flags *rf)
 		 *					[L] ->on_rq
 		 *	RELEASE (rq->lock)
 		 *
-		 * If we observe the old cpu in task_rq_lock, the acquire of
+		 * If we observe the old CPU in task_rq_lock, the acquire of
 		 * the old rq->lock will fully serialize against the stores.
 		 *
 		 * If we observe the new CPU in task_rq_lock, the acquire will
@@ -1457,7 +1431,7 @@ EXPORT_SYMBOL_GPL(kick_process);
  *
  *  - cpu_active must be a subset of cpu_online
  *
- *  - on cpu-up we allow per-cpu kthreads on the online && !active cpu,
+ *  - on CPU-up we allow per-CPU kthreads on the online && !active CPU,
  *    see __set_cpus_allowed_ptr(). At this point the newly online
  *    CPU isn't yet part of the sched domains, and balancing will not
  *    see it.
@@ -2629,6 +2603,18 @@ static inline void finish_lock_switch(struct rq *rq)
 	raw_spin_unlock_irq(&rq->lock);
 }
 
+/*
+ * NOP if the arch has not defined these:
+ */
+
+#ifndef prepare_arch_switch
+# define prepare_arch_switch(next)	do { } while (0)
+#endif
+
+#ifndef finish_arch_post_lock_switch
+# define finish_arch_post_lock_switch()	do { } while (0)
+#endif
+
 /**
  * prepare_task_switch - prepare to switch tasks
  * @rq: the runqueue preparing to switch
@@ -3037,7 +3023,7 @@ unsigned long long task_sched_runtime(struct task_struct *p)
 
 #if defined(CONFIG_64BIT) && defined(CONFIG_SMP)
 	/*
-	 * 64-bit doesn't need locks to atomically read a 64bit value.
+	 * 64-bit doesn't need locks to atomically read a 64-bit value.
 	 * So we have a optimization chance when the task's delta_exec is 0.
 	 * Reading ->on_cpu is racy, but this is ok.
 	 *
@@ -7085,3 +7071,5 @@ const u32 sched_prio_to_wmult[40] = {
  /*  10 */  39045157,  49367440,  61356676,  76695844,  95443717,
  /*  15 */ 119304647, 148102320, 186737708, 238609294, 286331153,
 };
+
+#undef CREATE_TRACE_POINTS
