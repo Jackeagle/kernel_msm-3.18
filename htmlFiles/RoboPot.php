@@ -99,7 +99,8 @@ tr {
 	<title>RoboPot</title>
 </head>
 
-<body onload="sensors">
+<body>
+<meta http-equiv="refresh" content="30"/>
 <a href="#" class="fa fa-facebook"></a> <a href="#" class="fa fa-instagram"></a>	
 <h1>RoboPot</h1>
 <h3>Group 7 - Fraser Law, Fraser Menzies and Alastair Thurlbeck</h3>
