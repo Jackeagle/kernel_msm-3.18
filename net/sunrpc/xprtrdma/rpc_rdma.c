@@ -1331,7 +1331,15 @@ void rpcrdma_reply_handler(struct rpcrdma_rep *rep)
 	struct rpcrdma_req *req;
 	struct rpc_rqst *rqst;
 	u32 credits;
+	int total;
 	__be32 *p;
+
+	total = buf->rb_max_requests + (buf->rb_bc_srv_max_requests << 1);
+	total -= buf->rb_reps;
+	if (total > 0)
+		while (total--)
+			if (!rpcrdma_create_rep(r_xprt, false))
+				break;
 
 	if (rep->rr_hdrbuf.head[0].iov_len == 0)
 		goto out_badstatus;

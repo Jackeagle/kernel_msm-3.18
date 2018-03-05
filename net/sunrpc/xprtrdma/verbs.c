@@ -1095,11 +1095,12 @@ rpcrdma_create_req(struct rpcrdma_xprt *r_xprt)
 /**
  * rpcrdma_create_rep - Allocate an rpcrdma_rep object
  * @r_xprt: controlling transport
+ * @temp: destroy rep upon release
  *
  * Returns 0 on success or a negative errno on failure.
  */
 int
-rpcrdma_create_rep(struct rpcrdma_xprt *r_xprt)
+rpcrdma_create_rep(struct rpcrdma_xprt *r_xprt, bool temp)
 {
 	struct rpcrdma_create_data_internal *cdata = &r_xprt->rx_data;
 	struct rpcrdma_buffer *buf = &r_xprt->rx_buf;
@@ -1127,9 +1128,11 @@ rpcrdma_create_rep(struct rpcrdma_xprt *r_xprt)
 	rep->rr_recv_wr.wr_cqe = &rep->rr_cqe;
 	rep->rr_recv_wr.sg_list = &rep->rr_rdmabuf->rg_iov;
 	rep->rr_recv_wr.num_sge = 1;
+	rep->rr_temp = temp;
 
 	spin_lock(&buf->rb_lock);
 	list_add(&rep->rr_list, &buf->rb_recv_bufs);
+	++buf->rb_reps;
 	spin_unlock(&buf->rb_lock);
 	return 0;
 
@@ -1179,11 +1182,9 @@ rpcrdma_buffer_create(struct rpcrdma_xprt *r_xprt)
 	}
 
 	INIT_LIST_HEAD(&buf->rb_recv_bufs);
-	for (i = 0; i <= buf->rb_max_requests; i++) {
-		rc = rpcrdma_create_rep(r_xprt);
-		if (rc)
-			goto out;
-	}
+	rc = rpcrdma_create_rep(r_xprt, true);
+	if (rc)
+		goto out;
 
 	rc = rpcrdma_sendctxs_create(r_xprt);
 	if (rc)
@@ -1220,8 +1221,14 @@ rpcrdma_buffer_get_rep_locked(struct rpcrdma_buffer *buf)
 static void
 rpcrdma_destroy_rep(struct rpcrdma_rep *rep)
 {
+	struct rpcrdma_buffer *buf = &rep->rr_rxprt->rx_buf;
+
 	rpcrdma_free_regbuf(rep->rr_rdmabuf);
 	kfree(rep);
+
+	spin_lock(&buf->rb_lock);
+	--buf->rb_reps;
+	spin_unlock(&buf->rb_lock);
 }
 
 void
@@ -1417,12 +1424,17 @@ rpcrdma_buffer_put(struct rpcrdma_req *req)
 
 	spin_lock(&buffers->rb_lock);
 	buffers->rb_send_count--;
-	list_add_tail(&req->rl_list, &buffers->rb_send_bufs);
+	list_add(&req->rl_list, &buffers->rb_send_bufs);
 	if (rep) {
 		buffers->rb_recv_count--;
-		list_add_tail(&rep->rr_list, &buffers->rb_recv_bufs);
+		if (!rep->rr_temp) {
+			list_add(&rep->rr_list, &buffers->rb_recv_bufs);
+			rep = NULL;
+		}
 	}
 	spin_unlock(&buffers->rb_lock);
+	if (rep)
+		rpcrdma_destroy_rep(rep);
 }
 
 /*
@@ -1450,8 +1462,13 @@ rpcrdma_recv_buffer_put(struct rpcrdma_rep *rep)
 
 	spin_lock(&buffers->rb_lock);
 	buffers->rb_recv_count--;
-	list_add_tail(&rep->rr_list, &buffers->rb_recv_bufs);
+	if (!rep->rr_temp) {
+		list_add(&rep->rr_list, &buffers->rb_recv_bufs);
+		rep = NULL;
+	}
 	spin_unlock(&buffers->rb_lock);
+	if (rep)
+		rpcrdma_destroy_rep(rep);
 }
 
 /**

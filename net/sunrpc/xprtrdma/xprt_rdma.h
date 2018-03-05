@@ -196,6 +196,7 @@ struct rpcrdma_rep {
 	__be32			rr_proc;
 	int			rr_wc_flags;
 	u32			rr_inv_rkey;
+	bool			rr_temp;
 	struct rpcrdma_regbuf	*rr_rdmabuf;
 	struct rpcrdma_xprt	*rr_rxprt;
 	struct work_struct	rr_work;
@@ -401,6 +402,7 @@ struct rpcrdma_buffer {
 	struct list_head	rb_recv_bufs;
 	u32			rb_max_requests;
 	u32			rb_credits;	/* most recent credit grant */
+	unsigned int		rb_reps;
 
 	u32			rb_bc_srv_max_requests;
 	spinlock_t		rb_reqslock;	/* protect rb_allreqs */
@@ -563,7 +565,7 @@ int rpcrdma_ep_post_recv(struct rpcrdma_ia *, struct rpcrdma_rep *);
  */
 struct rpcrdma_req *rpcrdma_create_req(struct rpcrdma_xprt *);
 void rpcrdma_destroy_req(struct rpcrdma_req *);
-int rpcrdma_create_rep(struct rpcrdma_xprt *r_xprt);
+int rpcrdma_create_rep(struct rpcrdma_xprt *r_xprt, bool temp);
 int rpcrdma_buffer_create(struct rpcrdma_xprt *);
 void rpcrdma_buffer_destroy(struct rpcrdma_buffer *);
 struct rpcrdma_sendctx *rpcrdma_sendctx_get_locked(struct rpcrdma_buffer *buf);

@@ -71,23 +71,6 @@ out_fail:
 	return -ENOMEM;
 }
 
-/* Allocate and add receive buffers to the rpcrdma_buffer's
- * existing list of rep's. These are released when the
- * transport is destroyed.
- */
-static int rpcrdma_bc_setup_reps(struct rpcrdma_xprt *r_xprt,
-				 unsigned int count)
-{
-	int rc = 0;
-
-	while (count--) {
-		rc = rpcrdma_create_rep(r_xprt);
-		if (rc)
-			break;
-	}
-	return rc;
-}
-
 /**
  * xprt_rdma_bc_setup - Pre-allocate resources for handling backchannel requests
  * @xprt: transport associated with these backchannel resources
@@ -113,10 +96,6 @@ int xprt_rdma_bc_setup(struct rpc_xprt *xprt, unsigned int reqs)
 		goto out_err;
 
 	rc = rpcrdma_bc_setup_reqs(r_xprt, reqs);
-	if (rc)
-		goto out_free;
-
-	rc = rpcrdma_bc_setup_reps(r_xprt, reqs);
 	if (rc)
 		goto out_free;
 
