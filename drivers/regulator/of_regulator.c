@@ -434,7 +434,8 @@ static bool of_coupling_find_node(struct device_node *src,
 	bool found = false;
 
 	n_phandles = of_count_phandle_with_args(src,
-						"regulator-coupled-with", 0);
+						"regulator-coupled-with",
+						NULL);
 
 	for (i = 0; i < n_phandles; i++) {
 		struct device_node *tmp = of_parse_phandle(src,
@@ -495,7 +496,7 @@ bool of_check_coupling_data(struct regulator_dev *rdev)
 
 		c_n_phandles = of_count_phandle_with_args(c_node,
 							  "regulator-coupled-with",
-							  0);
+							  NULL);
 
 		if (c_n_phandles != n_phandles) {
 			dev_err(&rdev->dev, "number of couped reg phandles mismatch\n");
