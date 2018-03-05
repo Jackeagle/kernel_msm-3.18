@@ -572,14 +572,26 @@ ssize_t tpm_transmit_cmd(struct tpm_chip *chip, struct tpm_space *space,
 			 const char *desc)
 {
 	const struct tpm_output_header *header = buf;
+	unsigned int delay_msec = TPM2_DURATION_SHORT;
 	int err;
 	ssize_t len;
 
-	len = tpm_transmit(chip, space, buf, bufsiz, flags);
-	if (len <  0)
-		return len;
+	for (;;) {
+		len = tpm_transmit(chip, space, buf, bufsiz, flags);
+		if (len <  0)
+			return len;
+		err = be32_to_cpu(header->return_code);
+		if (err != TPM2_RC_TESTING)
+			break;
 
-	err = be32_to_cpu(header->return_code);
+		delay_msec *= 2;
+		if (delay_msec > TPM2_DURATION_LONG) {
+			dev_err(&chip->dev, "the self test is still running\n");
+			break;
+		}
+		tpm_msleep(delay_msec);
+	}
+
 	if (err != 0 && desc)
 		dev_err(&chip->dev, "A TPM error (%d) occurred %s\n", err,
 			desc);
