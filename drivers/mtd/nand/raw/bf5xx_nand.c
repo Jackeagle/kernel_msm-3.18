@@ -1,15 +1,14 @@
-/* linux/drivers/mtd/nand/bf5xx_nand.c
- *
+/*
  * Copyright 2006-2008 Analog Devices Inc.
  *	http://blackfin.uclinux.org/
  *	Bryan Wu <bryan.wu@analog.com>
  *
  * Blackfin BF5xx on-chip NAND flash controller driver
  *
- * Derived from drivers/mtd/nand/s3c2410.c
+ * Derived from s3c2410.c
  * Copyright (c) 2007 Ben Dooks <ben@simtec.co.uk>
  *
- * Derived from drivers/mtd/nand/cafe.c
+ * Derived from cafe.c
  * Copyright © 2006 Red Hat, Inc.
  * Copyright © 2006 David Woodhouse <dwmw2@infradead.org>
  *
