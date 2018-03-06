@@ -165,6 +165,9 @@
 #define EXYNOS7_EMUL_DATA_SHIFT			7
 #define EXYNOS7_EMUL_DATA_MASK			0x1ff
 
+#define EXYNOS_FIRST_POINT_TRIM			25
+#define EXYNOS_SECOND_POINT_TRIM		85
+
 #define MCELSIUS	1000
 /**
  * struct exynos_tmu_data : A structure to hold the private data of the TMU
@@ -251,13 +254,13 @@ static int temp_to_code(struct exynos_tmu_data *data, u8 temp)
 
 	switch (pdata->cal_type) {
 	case TYPE_TWO_POINT_TRIMMING:
-		temp_code = (temp - pdata->first_point_trim) *
+		temp_code = (temp - EXYNOS_FIRST_POINT_TRIM) *
 			(data->temp_error2 - data->temp_error1) /
-			(pdata->second_point_trim - pdata->first_point_trim) +
+			(EXYNOS_SECOND_POINT_TRIM - EXYNOS_FIRST_POINT_TRIM) +
 			data->temp_error1;
 		break;
 	case TYPE_ONE_POINT_TRIMMING:
-		temp_code = temp + data->temp_error1 - pdata->first_point_trim;
+		temp_code = temp + data->temp_error1 - EXYNOS_FIRST_POINT_TRIM;
 		break;
 	default:
 		WARN_ON(1);
@@ -279,12 +282,12 @@ static int code_to_temp(struct exynos_tmu_data *data, u16 temp_code)
 	switch (pdata->cal_type) {
 	case TYPE_TWO_POINT_TRIMMING:
 		temp = (temp_code - data->temp_error1) *
-			(pdata->second_point_trim - pdata->first_point_trim) /
+			(EXYNOS_SECOND_POINT_TRIM - EXYNOS_FIRST_POINT_TRIM) /
 			(data->temp_error2 - data->temp_error1) +
-			pdata->first_point_trim;
+			EXYNOS_FIRST_POINT_TRIM;
 		break;
 	case TYPE_ONE_POINT_TRIMMING:
-		temp = temp_code - data->temp_error1 + pdata->first_point_trim;
+		temp = temp_code - data->temp_error1 + EXYNOS_FIRST_POINT_TRIM;
 		break;
 	default:
 		WARN_ON(1);
@@ -1159,11 +1162,6 @@ static int exynos_of_sensor_conf(struct device_node *np,
 			     &pdata->min_efuse_value);
 	of_property_read_u32(np, "samsung,tmu_max_efuse_value",
 			     &pdata->max_efuse_value);
-
-	of_property_read_u32(np, "samsung,tmu_first_point_trim", &value);
-	pdata->first_point_trim = (u8)value;
-	of_property_read_u32(np, "samsung,tmu_second_point_trim", &value);
-	pdata->second_point_trim = (u8)value;
 
 	of_property_read_u32(np, "samsung,tmu_cal_type", &pdata->cal_type);
 
