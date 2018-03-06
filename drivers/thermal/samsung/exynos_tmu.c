@@ -260,7 +260,7 @@ static int temp_to_code(struct exynos_tmu_data *data, u8 temp)
 		temp_code = temp + data->temp_error1 - pdata->first_point_trim;
 		break;
 	default:
-		temp_code = temp + pdata->default_temp_offset;
+		WARN_ON(1);
 		break;
 	}
 
@@ -287,7 +287,7 @@ static int code_to_temp(struct exynos_tmu_data *data, u16 temp_code)
 		temp = temp_code - data->temp_error1 + pdata->first_point_trim;
 		break;
 	default:
-		temp = temp_code - pdata->default_temp_offset;
+		WARN_ON(1);
 		break;
 	}
 
@@ -1164,8 +1164,6 @@ static int exynos_of_sensor_conf(struct device_node *np,
 	pdata->first_point_trim = (u8)value;
 	of_property_read_u32(np, "samsung,tmu_second_point_trim", &value);
 	pdata->second_point_trim = (u8)value;
-	of_property_read_u32(np, "samsung,tmu_default_temp_offset", &value);
-	pdata->default_temp_offset = (u8)value;
 
 	of_property_read_u32(np, "samsung,tmu_cal_type", &pdata->cal_type);
 
