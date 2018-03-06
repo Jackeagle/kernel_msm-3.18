@@ -166,8 +166,6 @@ void dump_stack(void)
 	__dump(NULL, base_reg);
 }
 
-EXPORT_SYMBOL(dump_stack);
-
 void show_stack(struct task_struct *tsk, unsigned long *sp)
 {
 	unsigned long *base_reg;
