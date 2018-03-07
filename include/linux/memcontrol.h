@@ -35,6 +35,7 @@ struct mem_cgroup;
 struct page;
 struct mm_struct;
 struct kmem_cache;
+struct oom_control;
 
 /* Cgroup-specific page state, on top of universal node page state */
 enum memcg_stat_item {
@@ -202,6 +203,13 @@ struct mem_cgroup {
 	/* OOM-Killer disable */
 	int		oom_kill_disable;
 
+	/*
+	 * Treat the sub-tree as an indivisible memory consumer,
+	 * kill all belonging tasks if the memory cgroup selected
+	 * as OOM victim.
+	 */
+	bool oom_group;
+
 	/* handle for "memory.events" */
 	struct cgroup_file events_file;
 
@@ -340,8 +348,16 @@ bool task_in_mem_cgroup(struct task_struct *task, struct mem_cgroup *memcg);
 struct mem_cgroup *mem_cgroup_from_task(struct task_struct *p);
 
 static inline
-struct mem_cgroup *mem_cgroup_from_css(struct cgroup_subsys_state *css){
+struct mem_cgroup *mem_cgroup_from_css(struct cgroup_subsys_state *css)
+{
 	return css ? container_of(css, struct mem_cgroup, css) : NULL;
+}
+
+struct mem_cgroup *get_mem_cgroup_from_mm(struct mm_struct *mm);
+
+static inline void mem_cgroup_put(struct mem_cgroup *memcg)
+{
+	css_put(&memcg->css);
 }
 
 #define mem_cgroup_from_counter(counter, member)	\
@@ -481,6 +497,13 @@ static inline bool task_in_memcg_oom(struct task_struct *p)
 }
 
 bool mem_cgroup_oom_synchronize(bool wait);
+
+bool mem_cgroup_select_oom_victim(struct oom_control *oc);
+
+static inline bool mem_cgroup_oom_group(struct mem_cgroup *memcg)
+{
+	return memcg->oom_group;
+}
 
 #ifdef CONFIG_MEMCG_SWAP
 extern int do_swap_account;
@@ -783,10 +806,19 @@ static inline bool mm_match_cgroup(struct mm_struct *mm,
 	return true;
 }
 
+static inline struct mem_cgroup *get_mem_cgroup_from_mm(struct mm_struct *mm)
+{
+	return NULL;
+}
+
 static inline bool task_in_mem_cgroup(struct task_struct *task,
 				      const struct mem_cgroup *memcg)
 {
 	return true;
+}
+
+static inline void mem_cgroup_put(struct mem_cgroup *memcg)
+{
 }
 
 static inline struct mem_cgroup *
@@ -981,6 +1013,16 @@ static inline
 void count_memcg_event_mm(struct mm_struct *mm, enum vm_event_item idx)
 {
 }
+
+static inline bool mem_cgroup_select_oom_victim(struct oom_control *oc)
+{
+	return false;
+}
+
+static inline bool mem_cgroup_oom_group(struct mem_cgroup *memcg)
+{
+	return false;
+}
 #endif /* CONFIG_MEMCG */
 
 /* idx can be of type enum memcg_stat_item or node_stat_item */
@@ -1140,11 +1182,13 @@ static inline bool mem_cgroup_under_socket_pressure(struct mem_cgroup *memcg)
 }
 #endif
 
-struct kmem_cache *memcg_kmem_get_cache(struct kmem_cache *cachep);
+struct kmem_cache *memcg_kmem_get_cache(struct kmem_cache *cachep,
+					struct mem_cgroup *memcg);
 void memcg_kmem_put_cache(struct kmem_cache *cachep);
 int memcg_kmem_charge_memcg(struct page *page, gfp_t gfp, int order,
 			    struct mem_cgroup *memcg);
-int memcg_kmem_charge(struct page *page, gfp_t gfp, int order);
+int memcg_kmem_charge(struct page *page, gfp_t gfp, int order,
+		      struct mem_cgroup *memcg);
 void memcg_kmem_uncharge(struct page *page, int order);
 
 #if defined(CONFIG_MEMCG) && !defined(CONFIG_SLOB)

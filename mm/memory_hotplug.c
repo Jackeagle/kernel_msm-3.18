@@ -250,7 +250,7 @@ static int __meminit __add_section(int nid, unsigned long phys_start_pfn,
 		struct vmem_altmap *altmap, bool want_memblock)
 {
 	int ret;
-	int i;
+	struct page *page;
 
 	if (pfn_valid(phys_start_pfn))
 		return -EEXIST;
@@ -260,21 +260,12 @@ static int __meminit __add_section(int nid, unsigned long phys_start_pfn,
 		return ret;
 
 	/*
-	 * Make all the pages reserved so that nobody will stumble over half
-	 * initialized state.
-	 * FIXME: We also have to associate it with a node because page_to_nid
-	 * relies on having page with the proper node.
+	 * The first page in every section holds node id, this is because we
+	 * will need it in online_pages().
 	 */
-	for (i = 0; i < PAGES_PER_SECTION; i++) {
-		unsigned long pfn = phys_start_pfn + i;
-		struct page *page;
-		if (!pfn_valid(pfn))
-			continue;
-
-		page = pfn_to_page(pfn);
-		set_page_node(page, nid);
-		SetPageReserved(page);
-	}
+	page = pfn_to_page(phys_start_pfn);
+	mm_zero_struct_page(page);
+	set_page_node(page, nid);
 
 	if (!want_memblock)
 		return 0;
@@ -1083,15 +1074,16 @@ out:
 
 static int check_hotplug_memory_range(u64 start, u64 size)
 {
-	u64 start_pfn = PFN_DOWN(start);
+	unsigned long block_sz = memory_block_size_bytes();
+	u64 block_nr_pages = block_sz >> PAGE_SHIFT;
 	u64 nr_pages = size >> PAGE_SHIFT;
+	u64 start_pfn = PFN_DOWN(start);
 
-	/* Memory range must be aligned with section */
-	if ((start_pfn & ~PAGE_SECTION_MASK) ||
-	    (nr_pages % PAGES_PER_SECTION) || (!nr_pages)) {
-		pr_err("Section-unaligned hotplug range: start 0x%llx, size 0x%llx\n",
-				(unsigned long long)start,
-				(unsigned long long)size);
+	/* memory range must be block size aligned */
+	if (!nr_pages || !IS_ALIGNED(start_pfn, block_nr_pages) ||
+	    !IS_ALIGNED(nr_pages, block_nr_pages)) {
+		pr_err("Block size [%#lx] unaligned hotplug range: start %#llx, size %#llx",
+		       block_sz, start, size);
 		return -EINVAL;
 	}
 
@@ -1337,8 +1329,7 @@ static unsigned long scan_movable_pages(unsigned long start, unsigned long end)
 	return 0;
 }
 
-static struct page *new_node_page(struct page *page, unsigned long private,
-		int **result)
+static struct page *new_node_page(struct page *page, unsigned long private)
 {
 	int nid = page_to_nid(page);
 	nodemask_t nmask = node_states[N_MEMORY];
@@ -1381,7 +1372,7 @@ do_migrate_range(unsigned long start_pfn, unsigned long end_pfn)
 			if (isolate_huge_page(page, &source))
 				move_pages -= 1 << compound_order(head);
 			continue;
-		} else if (thp_migration_supported() && PageTransHuge(page))
+		} else if (PageTransHuge(page))
 			pfn = page_to_pfn(compound_head(page))
 				+ hpage_nr_pages(page) - 1;
 
