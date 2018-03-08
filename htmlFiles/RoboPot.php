@@ -40,21 +40,7 @@ h3 {
 body {
 	background-image: url("https://images.pexels.com/photos/413195/pexels-photo-413195.jpeg?h=350&auto=compress&cs=tinysrgb");
 }
-.btn-light button {
-    background-color: #4CAF50; /* Green */
-    border: 1px solid green;
-    color: white;
-    padding: 3px 32px;
-    text-align: left;
-    text-decoration: none;
-    display: inline-block;
-    font-size: 16px;
-    cursor: pointer;
-    width: 20%;
-	display: block;
-	margin-left: 40%;
-	margin-right: 40%;
-}
+
 .btn-group button {
 	background-color: green;
 	border: 2px solid white;
@@ -100,10 +86,12 @@ tr {
 </head>
 
 <body>
-<meta http-equiv="refresh" content="30"/>
+
 <a href="#" class="fa fa-facebook"></a> <a href="#" class="fa fa-instagram"></a>	
 <h1>RoboPot</h1>
+
 <h3>Group 7 - Fraser Law, Fraser Menzies and Alastair Thurlbeck</h3>
+
 <p class="intro">
 This is our solution to moveable plant pots remotely controlled via a web interface!
 </p>
@@ -114,12 +102,8 @@ This is our solution to moveable plant pots remotely controlled via a web interf
 	</tr>
 	<tr>
 		<td>Top left</td>
-		<td>
-		<?php $myfile = fopen("lightsensor1.txt", "r") or die("unable to open file!");
-		echo fread($myfile,filesize("lightsensor1.txt"));
-		fclose($myfile);
-		?> 
-		</td>
+		<td id="demo"></td>
+		
 	</tr>
 	<tr>
 		<td>Top Right</td>
@@ -159,6 +143,20 @@ This is our solution to moveable plant pots remotely controlled via a web interf
 	<button id="O" onclick="myFunction(this)"></button>
 	<button id="P" onclick="myFunction(this)"></button>
 </div>
+
+<script type="text/javascript">	 //script attribute 
+	setInterval(function(){ //wait function 
+		var request = new XMLHttpRequest(); //XMLHttpRequest is in-built function
+		request.onreadystatechange = function(){
+			if (request.readyState == 4 && request.status == 200){ //server status and checks 
+				console.log(request.responseText); //request.responseText is the actual value that is being sent, .log isn't actually displaying the data
+				document.getElementById("demo").innerHTML =  request.responseText; //document is assigning the value from above into the table 
+			}
+		}		
+		request.open('POST', 'lightsensorvalue1.php', true); //actually opening and sending the files 
+		request.send();
+	},1000);		//wait
+</script>
 
 <script>
 function myFunction(elem){
