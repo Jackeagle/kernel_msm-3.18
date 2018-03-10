@@ -167,7 +167,7 @@ struct dax_device {
 #if IS_ENABLED(CONFIG_FS_DAX)
 static void generic_dax_pagefree(struct page *page, void *data)
 {
-	/* TODO: wakeup page-idle waiters */
+	wake_up_var(&page->_refcount);
 }
 
 struct dax_device *fs_dax_claim_bdev(struct block_device *bdev, void *owner)

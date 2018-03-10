@@ -56,6 +56,18 @@ struct dax_device *fs_dax_claim_bdev(struct block_device *bdev, void *owner);
 void fs_dax_release(struct dax_device *dax_dev, void *owner);
 int dax_writeback_mapping_range(struct address_space *mapping,
 		struct block_device *bdev, struct writeback_control *wbc);
+
+static inline void dax_layout_lock(void)
+{
+	rcu_read_lock();
+}
+
+static inline void dax_layout_unlock(void)
+{
+	rcu_read_unlock();
+}
+
+struct page *dax_layout_busy_page(struct address_space *mapping);
 #else
 static inline int bdev_dax_supported(struct super_block *sb, int blocksize)
 {
@@ -81,6 +93,19 @@ static inline int dax_writeback_mapping_range(struct address_space *mapping,
 		struct block_device *bdev, struct writeback_control *wbc)
 {
 	return -EOPNOTSUPP;
+}
+
+static inline void dax_layout_lock(void)
+{
+}
+
+static inline void dax_layout_unlock(void)
+{
+}
+
+static inline struct page *dax_layout_busy_page(struct address_space *mapping)
+{
+	return NULL;
 }
 #endif
 
