@@ -665,4 +665,68 @@ alternative_else_nop_endif
 	.endif
 	.endm
 
+/*
+ * Check whether to yield to another runnable task from kernel mode NEON code
+ * (which runs with preemption disabled).
+ *
+ * if_will_cond_yield_neon
+ *        // pre-yield patchup code
+ * do_cond_yield_neon
+ *        // post-yield patchup code
+ * endif_yield_neon    <label>
+ *
+ * where <label> is optional, and marks the point where execution will resume
+ * after a yield has been performed. If omitted, execution resumes right after
+ * the endif_yield_neon invocation.
+ *
+ * Note that the patchup code does not support assembler directives that change
+ * the output section, any use of such directives is undefined.
+ *
+ * The yield itself consists of the following:
+ * - Check whether the preempt count is exactly 1, in which case disabling
+ *   preemption once will make the task preemptible. If this is not the case,
+ *   yielding is pointless.
+ * - Check whether TIF_NEED_RESCHED is set, and if so, disable and re-enable
+ *   kernel mode NEON (which will trigger a reschedule), and branch to the
+ *   yield fixup code.
+ *
+ * This macro sequence clobbers x0, x1 and the flags register unconditionally,
+ * and may clobber x2 .. x18 if the yield path is taken.
+ */
+
+	.macro		cond_yield_neon, lbl
+	if_will_cond_yield_neon
+	do_cond_yield_neon
+	endif_yield_neon	\lbl
+	.endm
+
+	.macro		if_will_cond_yield_neon
+#ifdef CONFIG_PREEMPT
+	get_thread_info	x0
+	ldr		w1, [x0, #TSK_TI_PREEMPT]
+	ldr		x0, [x0, #TSK_TI_FLAGS]
+	cmp		w1, #PREEMPT_DISABLE_OFFSET
+	csel		x0, x0, xzr, eq
+	tbnz		x0, #TIF_NEED_RESCHED, .Lyield_\@	// needs rescheduling?
+#endif
+	/* fall through to endif_yield_neon */
+	.subsection	1
+.Lyield_\@ :
+	.endm
+
+	.macro		do_cond_yield_neon
+	bl		kernel_neon_end
+	bl		kernel_neon_begin
+	.endm
+
+	.macro		endif_yield_neon, lbl
+	.ifnb		\lbl
+	b		\lbl
+	.else
+	b		.Lyield_out_\@
+	.endif
+	.previous
+.Lyield_out_\@ :
+	.endm
+
 #endif	/* __ASM_ASSEMBLER_H */
