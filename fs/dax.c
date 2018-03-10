@@ -348,6 +348,19 @@ static void dax_disassociate_entry(void *entry, struct address_space *mapping,
 	}
 }
 
+static struct page *dax_busy_page(void *entry)
+{
+	unsigned long pfn, end_pfn;
+
+	for_each_entry_pfn(entry, pfn, end_pfn) {
+		struct page *page = pfn_to_page(pfn);
+
+		if (page_ref_count(page) > 1)
+			return page;
+	}
+	return NULL;
+}
+
 /*
  * Find radix tree entry at given index. If it points to an exceptional entry,
  * return it with the radix tree entry locked. If the radix tree doesn't
@@ -488,6 +501,85 @@ restart:
 	spin_unlock_irq(&mapping->tree_lock);
 	return entry;
 }
+
+/**
+ * dax_layout_busy_page - find first pinned page in @mapping
+ * @mapping: address space to scan for a page with ref count > 1
+ *
+ * DAX requires ZONE_DEVICE mapped pages. These pages are never
+ * 'onlined' to the page allocator so they are considered idle when
+ * page->count == 1. A filesystem uses this interface to determine if
+ * any page in the mapping is busy, i.e. for DMA, or other
+ * get_user_pages() usages.
+ *
+ * It is expected that the filesystem is holding locks to block the
+ * establishment of new mappings in this address_space. I.e. it expects
+ * to be able to run unmap_mapping_range() and subsequently not race
+ * mapping_mapped() becoming true. It expects that get_user_pages() pte
+ * walks are performed under rcu_read_lock().
+ */
+struct page *dax_layout_busy_page(struct address_space *mapping)
+{
+	pgoff_t	indices[PAGEVEC_SIZE];
+	struct page *page = NULL;
+	struct pagevec pvec;
+	pgoff_t	index, end;
+	unsigned i;
+
+	/*
+	 * In the 'limited' case get_user_pages() for dax is disabled.
+	 */
+	if (IS_ENABLED(CONFIG_FS_DAX_LIMITED))
+		return NULL;
+
+	if (!dax_mapping(mapping) || !mapping_mapped(mapping))
+		return NULL;
+
+	pagevec_init(&pvec);
+	index = 0;
+	end = -1;
+	/*
+	 * Flush dax_layout_lock() sections to ensure all possible page
+	 * references have been taken, or otherwise arrange for faults
+	 * to block on the filesystem lock that is taken for
+	 * establishing new mappings.
+	 */
+	unmap_mapping_range(mapping, 0, 0, 1);
+	synchronize_rcu();
+
+	while (index < end && pagevec_lookup_entries(&pvec, mapping, index,
+				min(end - index, (pgoff_t)PAGEVEC_SIZE),
+				indices)) {
+		for (i = 0; i < pagevec_count(&pvec); i++) {
+			struct page *pvec_ent = pvec.pages[i];
+			void *entry;
+
+			index = indices[i];
+			if (index >= end)
+				break;
+
+			if (!radix_tree_exceptional_entry(pvec_ent))
+				continue;
+
+			spin_lock_irq(&mapping->tree_lock);
+			entry = get_unlocked_mapping_entry(mapping, index, NULL);
+			if (entry)
+				page = dax_busy_page(entry);
+			put_unlocked_mapping_entry(mapping, index, entry);
+			spin_unlock_irq(&mapping->tree_lock);
+			if (page)
+				break;
+		}
+		pagevec_remove_exceptionals(&pvec);
+		pagevec_release(&pvec);
+		index++;
+
+		if (page)
+			break;
+	}
+	return page;
+}
+EXPORT_SYMBOL_GPL(dax_layout_busy_page);
 
 static int __dax_invalidate_mapping_entry(struct address_space *mapping,
 					  pgoff_t index, bool trunc)
