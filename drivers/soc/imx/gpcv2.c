@@ -322,13 +322,12 @@ static int imx_gpcv2_probe(struct platform_device *pdev)
 			continue;
 		}
 
-		domain = kmalloc(sizeof(*domain), GFP_KERNEL);
+		domain = kmemdup(&imx7_pgc_domains[domain_index],
+				 sizeof(*domain), GFP_KERNEL);
 		if (!domain) {
 			of_node_put(np);
 			return -ENOMEM;
 		}
-		memcpy(domain, &imx7_pgc_domains[domain_index],
-		       sizeof(*domain));
 
 		domain->regmap = regmap;
 		domain->genpd.power_on  = imx7_gpc_pu_pgc_sw_pup_req;
