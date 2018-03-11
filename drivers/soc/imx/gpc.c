@@ -444,12 +444,12 @@ static int imx_gpc_probe(struct platform_device *pdev)
 			if (domain_index >= of_id_data->num_domains)
 				continue;
 
-			domain = kmalloc(sizeof(*domain), GFP_KERNEL);
+			domain = kmemdup(&imx_gpc_domains[domain_index],
+					 sizeof(*domain), GFP_KERNEL);
 			if (!domain) {
 				of_node_put(np);
 				return -ENOMEM;
 			}
-			memcpy(domain, &imx_gpc_domains[domain_index], sizeof(*domain));
 			domain->regmap = regmap;
 			domain->ipg_rate_mhz = ipg_rate_mhz;
 
