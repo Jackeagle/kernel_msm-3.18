@@ -152,8 +152,8 @@ asmlinkage long sys_sync_file_range_metag(int fd, unsigned long offs_lo,
 					  unsigned long len_hi,
 					  unsigned int flags)
 {
-	return sys_sync_file_range(fd, merge_64(offs_hi, offs_lo),
-				   merge_64(len_hi, len_lo), flags);
+	return ksys_sync_file_range(fd, merge_64(offs_hi, offs_lo),
+				    merge_64(len_hi, len_lo), flags);
 }
 
 /* Provide the actual syscall number to call mapping. */
