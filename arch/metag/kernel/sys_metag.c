@@ -122,7 +122,7 @@ asmlinkage long sys_fadvise64_64_metag(int fd, unsigned long offs_lo,
 				       unsigned long len_lo,
 				       unsigned long len_hi, int advice)
 {
-	return sys_fadvise64_64(fd, merge_64(offs_hi, offs_lo),
+	return ksys_fadvise64_64(fd, merge_64(offs_hi, offs_lo),
 				merge_64(len_hi, len_lo), advice);
 }
 

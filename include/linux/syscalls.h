@@ -955,5 +955,6 @@ int ksys_dup(unsigned int fildes);
 int ksys_chroot(const char __user *filename);
 ssize_t ksys_write(unsigned int fd, const char __user *buf, size_t count);
 int ksys_unshare(unsigned long unshare_flags);
+int ksys_fadvise64_64(int fd, loff_t offset, loff_t len, int advice);
 
 #endif
