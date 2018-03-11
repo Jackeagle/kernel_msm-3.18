@@ -959,5 +959,6 @@ int ksys_fadvise64_64(int fd, loff_t offset, loff_t len, int advice);
 unsigned long ksys_mmap_pgoff(unsigned long addr, unsigned long len,
 			      unsigned long prot, unsigned long flags,
 			      unsigned long fd, unsigned long pgoff);
+int ksys_chdir(const char __user *filename);
 
 #endif
