@@ -54,6 +54,9 @@ static struct ptdump_info efi_ptdump_info = {
 
 static int __init ptdump_init(void)
 {
+	if (!efi_enabled(EFI_RUNTIME_SERVICES))
+		return 0;
+
 	return ptdump_debugfs_register(&efi_ptdump_info, "efi_page_tables");
 }
 device_initcall(ptdump_init);
@@ -80,10 +83,7 @@ static bool __init efi_virtmap_init(void)
 			return false;
 
 		ret = efi_create_mapping(&efi_mm, md);
-		if  (!ret) {
-			pr_info("  EFI remap %pa => %p\n",
-				&phys, (void *)(unsigned long)md->virt_addr);
-		} else {
+		if (ret) {
 			pr_warn("  EFI remap %pa: failed to create mapping (%d)\n",
 				&phys, ret);
 			return false;
