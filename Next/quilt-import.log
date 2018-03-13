@@ -1,0 +1,11 @@
+Importing dmi based on 4.16-rc4
+$ git clone -s -l -n -q . ../quilt-tmp
+$ cd ../quilt-tmp
+$ git reset --hard 661e50bc853209e41a5c14a290ca4decc43cbfd1
+HEAD is now at 661e50bc8532 Linux 4.16-rc4
+$ git am -s --patch-format=mbox ../quilt/dmi/firmware-dmi_scan-add-dmi_oem_string-support-to-dmi_matches.patch
+Applying: firmware: dmi_scan: add DMI_OEM_STRING support to dmi_matches
+$ cd /home/sfr/kernels/next/next
+$ git fetch -f ../quilt-tmp master:dmi/master
+From ../quilt-tmp
+   4a3928c6f8a5..eb693e35e850  master     -> dmi/master
