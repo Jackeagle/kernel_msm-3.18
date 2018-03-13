@@ -972,6 +972,8 @@ int ksys_sync_file_range(int fd, loff_t offset, loff_t nbytes,
 			 unsigned int flags);
 int ksys_fchmod(unsigned int fd, umode_t mode);
 int ksys_fchown(unsigned int fd, uid_t user, gid_t group);
+int ksys_getdents64(unsigned int fd, struct linux_dirent64 __user *dirent,
+		    unsigned int count);
 
 /*
  * The following kernel syscall equivalents are just wrappers to fs-internal
