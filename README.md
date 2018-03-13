@@ -14,9 +14,13 @@ Thanks for taking the time to have a look at the Robopot hardware and software d
 
 # HARDWARE SCHEMATICS
 
-### Light Sensor PCB
+### Ambient Light Sensors
+Light sensors are used to measure the ambient light reaching each area of the garden. In our demo, four light sensors are used, with the garden area divided into four quadrants. Each light sensor PCB uses the OPT3001 ambient light sensor module and an I2C range extender IC, the P82B715. The I2C data communication and power supply connections to the central hub are achieved through standard ethernet cables. The schematic of this light sensor PCB is shown below:
+![alt text](https://github.com/FrazLaw/RoboPot/blob/master/lightsensor2_sch.png)
 
-![alt text](https://github.com/FrazLaw/RoboPot/blob/master/schematic-lightsensor.png)
+### Garden Hub
+The garden hub uses a Raspberry Pi Zero to receive the ambient light sensor from all the remote ambient light sensors. The connections to the remote light sensor modules are made with standard ethernet cables. The I2C bus and the ambient light sensors are powered from the Pi's 3.3V output. The program on the Pi Zero collates the data from the sensors and deposits it into a file to be sent to the RoboPot Pi. The data can then be graphically displayed on the GUI webpage to the user. The PCB of the garden hub is as shown as below:
+![alt text](https://github.com/FrazLaw/RoboPot/blob/master/zerohub2_sch.png)
 
 ### Magnetometer Schematic
 So, for us to determine in which direction our mini-movable plant pot is facing, we needed to add a magnetometer. This enables us to then feedback to the GUI and indicate which position we are at. This feedback network, in conjuction with the proximity sensor, is essential ot compile the information into a reliable position. 
