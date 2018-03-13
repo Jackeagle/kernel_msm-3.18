@@ -23,7 +23,7 @@
 #if defined(HX_AUTO_UPDATE_FW)
 	static unsigned char i_CTPM_FW[]=
 	{
-		#include "HX83100_Amber_0601.i"
+		#include "HX83100_Amber_0901_030B.i"
 	};
 #endif
 
