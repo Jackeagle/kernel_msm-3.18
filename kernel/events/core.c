@@ -2848,6 +2848,41 @@ int perf_event_refresh(struct perf_event *event, int refresh)
 }
 EXPORT_SYMBOL_GPL(perf_event_refresh);
 
+static int perf_event_modify_breakpoint(struct perf_event *bp,
+					 struct perf_event_attr *attr)
+{
+	int err;
+
+	_perf_event_disable(bp);
+
+	err = modify_user_hw_breakpoint_check(bp, attr, true);
+	if (err) {
+		if (!bp->attr.disabled)
+			_perf_event_enable(bp);
+
+		return err;
+	}
+
+	if (!attr->disabled)
+		_perf_event_enable(bp);
+	return 0;
+}
+
+static int perf_event_modify_attr(struct perf_event *event,
+				  struct perf_event_attr *attr)
+{
+	if (event->attr.type != attr->type)
+		return -EINVAL;
+
+	switch (event->attr.type) {
+	case PERF_TYPE_BREAKPOINT:
+		return perf_event_modify_breakpoint(event, attr);
+	default:
+		/* Place holder for future additions. */
+		return -EOPNOTSUPP;
+	}
+}
+
 static void ctx_sched_out(struct perf_event_context *ctx,
 			  struct perf_cpu_context *cpuctx,
 			  enum event_type_t event_type)
@@ -4954,6 +4989,8 @@ static int perf_event_set_output(struct perf_event *event,
 				 struct perf_event *output_event);
 static int perf_event_set_filter(struct perf_event *event, void __user *arg);
 static int perf_event_set_bpf_prog(struct perf_event *event, u32 prog_fd);
+static int perf_copy_attr(struct perf_event_attr __user *uattr,
+			  struct perf_event_attr *attr);
 
 static long _perf_ioctl(struct perf_event *event, unsigned int cmd, unsigned long arg)
 {
@@ -5026,6 +5063,17 @@ static long _perf_ioctl(struct perf_event *event, unsigned int cmd, unsigned lon
 
 	case PERF_EVENT_IOC_QUERY_BPF:
 		return perf_event_query_prog_array(event, (void __user *)arg);
+
+	case PERF_EVENT_IOC_MODIFY_ATTRIBUTES: {
+		struct perf_event_attr new_attr;
+		int err = perf_copy_attr((struct perf_event_attr __user *)arg,
+					 &new_attr);
+
+		if (err)
+			return err;
+
+		return perf_event_modify_attr(event,  &new_attr);
+	}
 	default:
 		return -ENOTTY;
 	}
@@ -10127,6 +10175,9 @@ static int perf_copy_attr(struct perf_event_attr __user *uattr,
 			ret = -EINVAL;
 	}
 
+	if (!attr->sample_max_stack)
+		attr->sample_max_stack = sysctl_perf_event_max_stack;
+
 	if (attr->sample_type & PERF_SAMPLE_REGS_INTR)
 		ret = perf_reg_validate(attr->sample_regs_intr);
 out:
@@ -10339,9 +10390,6 @@ SYSCALL_DEFINE5(perf_event_open,
 	if ((attr.sample_type & PERF_SAMPLE_PHYS_ADDR) &&
 	    perf_paranoid_kernel() && !capable(CAP_SYS_ADMIN))
 		return -EACCES;
-
-	if (!attr.sample_max_stack)
-		attr.sample_max_stack = sysctl_perf_event_max_stack;
 
 	/*
 	 * In cgroup mode, the pid argument is used to pass the fd
