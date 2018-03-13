@@ -22,6 +22,9 @@ Thanks for taking the time to have a look at the Robopot hardware and software d
 So, for us to determine in which direction our mini-movable plant pot is facing, we needed to add a magnetometer. This enables us to then feedback to the GUI and indicate which position we are at. This feedback network, in conjuction with the proximity sensor, is essential ot compile the information into a reliable position. 
 ![alt text](https://github.com/FrazLaw/RoboPot/blob/master/SchematicPic.PNG)
 
+### Motor Driver
+An essential part of the system was to move the plant pot itself. To do this we will demonstrate using a small motor car which will be controlled via this motor driver circuit:
+
 
 
 
