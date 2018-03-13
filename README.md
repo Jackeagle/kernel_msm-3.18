@@ -19,7 +19,7 @@ Light sensors are used to measure the ambient light reaching each area of the ga
 ![alt text](https://github.com/FrazLaw/RoboPot/blob/master/lightsensor2_sch.png)
 
 ### Garden Hub
-The garden hub uses a Raspberry Pi Zero to receive the ambient light sensor from all the remote ambient light sensors. The connections to the remote light sensor modules are made with standard ethernet cables. The I2C bus and the ambient light sensors are powered from the Pi's 3.3V output. The program on the Pi Zero collates the data from the sensors and deposits it into a file to be sent to the RoboPot Pi. The data can then be graphically displayed on the GUI webpage to the user. The PCB of the garden hub is as shown as below:
+The garden hub uses a Raspberry Pi Zero to receive the I2C data from all the remote ambient light sensors. The connections to the remote light sensor modules are made with standard ethernet cables. The I2C bus and the ambient light sensors are powered from the Pi's 3.3V output. The program on the Pi Zero collates the data from the sensors and deposits it into a file to be sent to the RoboPot Pi. The data can then be graphically displayed on the GUI webpage to the user. The PCB of the garden hub is as shown as below:
 ![alt text](https://github.com/FrazLaw/RoboPot/blob/master/zerohub2_sch.png)
 
 ### Magnetometer Schematic
