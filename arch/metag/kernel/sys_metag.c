@@ -48,7 +48,7 @@ asmlinkage long sys_mmap2(unsigned long addr, unsigned long len,
 
 	pgoff >>= PAGE_SHIFT - 12;
 
-	return sys_mmap_pgoff(addr, len, prot, flags, fd, pgoff);
+	return ksys_mmap_pgoff(addr, len, prot, flags, fd, pgoff);
 }
 
 asmlinkage int sys_metag_setglobalbit(char __user *addr, int mask)
@@ -122,7 +122,7 @@ asmlinkage long sys_fadvise64_64_metag(int fd, unsigned long offs_lo,
 				       unsigned long len_lo,
 				       unsigned long len_hi, int advice)
 {
-	return sys_fadvise64_64(fd, merge_64(offs_hi, offs_lo),
+	return ksys_fadvise64_64(fd, merge_64(offs_hi, offs_lo),
 				merge_64(len_hi, len_lo), advice);
 }
 
@@ -152,8 +152,8 @@ asmlinkage long sys_sync_file_range_metag(int fd, unsigned long offs_lo,
 					  unsigned long len_hi,
 					  unsigned int flags)
 {
-	return sys_sync_file_range(fd, merge_64(offs_hi, offs_lo),
-				   merge_64(len_hi, len_lo), flags);
+	return ksys_sync_file_range(fd, merge_64(offs_hi, offs_lo),
+				    merge_64(len_hi, len_lo), flags);
 }
 
 /* Provide the actual syscall number to call mapping. */
