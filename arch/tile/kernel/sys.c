@@ -74,8 +74,8 @@ ssize_t sys32_readahead(int fd, SYSCALL_PAIR(offset), u32 count)
 int sys32_fadvise64_64(int fd, SYSCALL_PAIR(offset),
 		       SYSCALL_PAIR(len), int advice)
 {
-	return ksys_fadvise64_64(fd, ((loff_t)offset_hi << 32) | offset_lo,
-				 ((loff_t)len_hi << 32) | len_lo, advice);
+	return sys_fadvise64_64(fd, ((loff_t)offset_hi << 32) | offset_lo,
+				((loff_t)len_hi << 32) | len_lo, advice);
 }
 
 #endif /* 32-bit syscall wrappers */
