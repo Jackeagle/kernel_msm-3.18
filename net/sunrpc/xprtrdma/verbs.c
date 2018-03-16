@@ -1603,4 +1603,5 @@ post:
 		}
 	}
 	buf->rb_posted_receives += count;
+	trace_xprtrdma_post_recvs(r_xprt, count, rc);
 }

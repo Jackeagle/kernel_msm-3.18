@@ -549,6 +549,39 @@ TRACE_EVENT(xprtrdma_post_recv,
 	)
 );
 
+TRACE_EVENT(xprtrdma_post_recvs,
+	TP_PROTO(
+		const struct rpcrdma_xprt *r_xprt,
+		unsigned int count,
+		int status
+	),
+
+	TP_ARGS(r_xprt, count, status),
+
+	TP_STRUCT__entry(
+		__field(const void *, r_xprt)
+		__field(unsigned int, count)
+		__field(int, status)
+		__field(int, posted)
+		__string(addr, rpcrdma_addrstr(r_xprt))
+		__string(port, rpcrdma_portstr(r_xprt))
+	),
+
+	TP_fast_assign(
+		__entry->r_xprt = r_xprt;
+		__entry->count = count;
+		__entry->status = status;
+		__entry->posted = r_xprt->rx_buf.rb_posted_receives;
+		__assign_str(addr, rpcrdma_addrstr(r_xprt));
+		__assign_str(port, rpcrdma_portstr(r_xprt));
+	),
+
+	TP_printk("peer=[%s]:%s r_xprt=%p: %u new recvs, %d active (rc %d)",
+		__get_str(addr), __get_str(port), __entry->r_xprt,
+		__entry->count, __entry->posted, __entry->status
+	)
+);
+
 /**
  ** Completion events
  **/
