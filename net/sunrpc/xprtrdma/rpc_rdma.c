@@ -1026,8 +1026,6 @@ rpcrdma_is_bcall(struct rpcrdma_xprt *r_xprt, struct rpcrdma_rep *rep)
 
 out_short:
 	pr_warn("RPC/RDMA short backward direction call\n");
-	if (rpcrdma_ep_post_recv(&r_xprt->rx_ia, rep))
-		xprt_disconnect_done(&r_xprt->rx_xprt);
 	return true;
 }
 #else	/* CONFIG_SUNRPC_BACKCHANNEL */
@@ -1334,7 +1332,10 @@ void rpcrdma_reply_handler(struct rpcrdma_rep *rep)
 	int total;
 	__be32 *p;
 
+	--buf->rb_posted_receives;
+
 	total = buf->rb_max_requests + (buf->rb_bc_srv_max_requests << 1);
+	total += buf->rb_max_requests >> 3;
 	total -= buf->rb_reps;
 	if (total > 0)
 		while (total--)
@@ -1343,6 +1344,10 @@ void rpcrdma_reply_handler(struct rpcrdma_rep *rep)
 
 	if (rep->rr_hdrbuf.head[0].iov_len == 0)
 		goto out_badstatus;
+
+	if (buf->rb_posted_receives <
+	    buf->rb_reps - (buf->rb_max_requests >> 3))
+		rpcrdma_ep_post_recvs(r_xprt);
 
 	xdr_init_decode(&rep->rr_stream, &rep->rr_hdrbuf,
 			rep->rr_hdrbuf.head[0].iov_base);
@@ -1391,10 +1396,6 @@ void rpcrdma_reply_handler(struct rpcrdma_rep *rep)
 
 out_badstatus:
 	rpcrdma_recv_buffer_put(rep);
-	if (r_xprt->rx_ep.rep_connected == 1) {
-		r_xprt->rx_ep.rep_connected = -EIO;
-		rpcrdma_conn_func(&r_xprt->rx_ep);
-	}
 	return;
 
 out_badversion:
@@ -1416,7 +1417,5 @@ out_shortreply:
  * receive buffer before returning.
  */
 repost:
-	r_xprt->rx_stats.bad_reply_count++;
-	if (rpcrdma_ep_post_recv(&r_xprt->rx_ia, rep))
-		rpcrdma_recv_buffer_put(rep);
+	rpcrdma_recv_buffer_put(rep);
 }

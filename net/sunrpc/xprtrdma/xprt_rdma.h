@@ -397,12 +397,11 @@ struct rpcrdma_buffer {
 	struct rpcrdma_sendctx	**rb_sc_ctxs;
 
 	spinlock_t		rb_lock;	/* protect buf lists */
-	int			rb_send_count, rb_recv_count;
 	struct list_head	rb_send_bufs;
 	struct list_head	rb_recv_bufs;
 	u32			rb_max_requests;
 	u32			rb_credits;	/* most recent credit grant */
-	unsigned int		rb_reps;
+	int			rb_reps, rb_posted_receives;
 
 	u32			rb_bc_srv_max_requests;
 	spinlock_t		rb_reqslock;	/* protect rb_allreqs */
@@ -558,7 +557,7 @@ void rpcrdma_ep_disconnect(struct rpcrdma_ep *, struct rpcrdma_ia *);
 
 int rpcrdma_ep_post(struct rpcrdma_ia *, struct rpcrdma_ep *,
 				struct rpcrdma_req *);
-int rpcrdma_ep_post_recv(struct rpcrdma_ia *, struct rpcrdma_rep *);
+void rpcrdma_ep_post_recvs(struct rpcrdma_xprt *r_xprt);
 
 /*
  * Buffer calls - xprtrdma/verbs.c
@@ -599,8 +598,6 @@ rpcrdma_dma_map_regbuf(struct rpcrdma_ia *ia, struct rpcrdma_regbuf *rb)
 		return true;
 	return __rpcrdma_dma_map_regbuf(ia, rb);
 }
-
-int rpcrdma_ep_post_extra_recv(struct rpcrdma_xprt *, unsigned int);
 
 int rpcrdma_alloc_wq(void);
 void rpcrdma_destroy_wq(void);
