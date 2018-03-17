@@ -28,7 +28,7 @@ So, for us to determine in which direction our mini-movable plant pot is facing,
 
 ### Motor Driver
 An essential part of the system was to move the plant pot itself. To do this we will demonstrate using a small motor car which will be controlled via this motor driver circuit:
-![alt text](https://github.com/FrazLaw/RoboPot/Hardward/blob/master/SchematicMotor.PNG)
+![alt text](https://github.com/FrazLaw/RoboPot/Hardware/blob/master/SchematicMotor.PNG)
 
 
 
