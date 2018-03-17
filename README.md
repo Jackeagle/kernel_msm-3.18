@@ -10,7 +10,7 @@ The RoboPot graphical user interface will be accessable via a website which prov
 Thanks for taking the time to have a look at the Robopot hardware and software designs. We hope this inspires you to take your imaginative ideas and apply them in Robotic projects!
 
 
-![alt text](https://github.com/FrazLaw/RoboPot/Hardware/blob/master/RoboPot.png)
+![alt text](https://github.com/FrazLaw/RoboPot/blob/master/RoboPot.png)
 
 # HARDWARE SCHEMATICS
 
