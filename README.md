@@ -16,7 +16,7 @@ Thanks for taking the time to have a look at the Robopot hardware and software d
 
 ### Ambient Light Sensors
 Light sensors are used to measure the ambient light reaching each area of the garden. In our demo, four light sensors are used, with the garden area divided into four quadrants. Each light sensor PCB uses the OPT3001 ambient light sensor module and an I2C range extender IC, the P82B715. The I2C data communication and power supply connections to the central hub are achieved through standard ethernet cables. The schematic of this light sensor PCB is shown below:
-![alt text](https://github.com/FrazLaw/RoboPot/blob/master/lightsensor2_sch.png)
+![alt text](https://github.com/FrazLaw/RoboPot/blob/master/Hardware/lightsensor2_sch.png)
 
 ### Garden Hub
 The garden hub uses a Raspberry Pi Zero to receive the I2C data from all the remote ambient light sensors. The connections to the remote light sensor modules are made with standard ethernet cables. The I2C bus and the ambient light sensors are powered from the Pi's 3.3V output. The program on the Pi Zero collates the data from the sensors and deposits it into a file to be sent to the RoboPot Pi. The data can then be graphically displayed on the GUI webpage to the user. The PCB of the garden hub is as shown as below:
