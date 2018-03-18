@@ -1,0 +1,27 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "30c465aa_c44f7237",
+        "filename": "/COMMIT_MSG",
+        "patchSetId": 1
+      },
+      "lineNbr": 12,
+      "author": {
+        "id": 1125653
+      },
+      "writtenOn": "2018-03-18T10:02:45Z",
+      "side": 1,
+      "message": "This patch does not \"fix\" anything really, it\u0027s not a bugfix, all you are doing is cleaning up and removing a redundant line.",
+      "range": {
+        "startLine": 12,
+        "startChar": 0,
+        "endLine": 12,
+        "endChar": 74
+      },
+      "revId": "feb678e157e01a45cba9a376fe3133cc1e62e80a",
+      "serverId": "85c56323-6fa9-3386-8a01-6480fb634889",
+      "unresolved": true
+    }
+  ]
+}
