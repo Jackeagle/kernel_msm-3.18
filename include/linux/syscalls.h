@@ -982,6 +982,7 @@ ssize_t ksys_pwrite64(unsigned int fd, const char __user *buf,
 		      size_t count, loff_t pos);
 int ksys_fallocate(int fd, int mode, loff_t offset, loff_t len);
 int ksys_setsid(void);
+ssize_t ksys_readahead(int fd, loff_t offset, size_t count);
 
 /*
  * The following kernel syscall equivalents are just wrappers to fs-internal
