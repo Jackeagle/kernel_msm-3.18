@@ -350,7 +350,7 @@ restart:
 	if (error <= 0)
 		return error;
 
-	error = xfs_break_layouts(inode, iolock);
+	error = xfs_break_layouts(inode, iolock, BREAK_WRITE);
 	if (error)
 		return error;
 
@@ -752,6 +752,34 @@ buffered:
 	return ret;
 }
 
+int
+xfs_break_layouts(
+	struct inode		*inode,
+	uint			*iolock,
+	enum layout_break_reason reason)
+{
+	struct xfs_inode	*ip = XFS_I(inode);
+	bool			did_unlock = false;
+	int			error = 0;
+
+	ASSERT(xfs_isilocked(ip, XFS_IOLOCK_SHARED | XFS_IOLOCK_EXCL
+				| (reason == BREAK_UNMAPI
+					? XFS_MMAPLOCK_EXCL : 0)));
+
+	switch (reason) {
+	case BREAK_UNMAPI:
+		/* fall through */
+	case BREAK_WRITE:
+		error = xfs_break_leased_layouts(inode, iolock, &did_unlock);
+		break;
+	default:
+		error = -EINVAL;
+		break;
+	}
+
+	return error;
+}
+
 #define	XFS_FALLOC_FL_SUPPORTED						\
 		(FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE |		\
 		 FALLOC_FL_COLLAPSE_RANGE | FALLOC_FL_ZERO_RANGE |	\
@@ -778,7 +806,7 @@ xfs_file_fallocate(
 		return -EOPNOTSUPP;
 
 	xfs_ilock(ip, iolock);
-	error = xfs_break_layouts(inode, &iolock);
+	error = xfs_break_layouts(inode, &iolock, BREAK_UNMAPI);
 	if (error)
 		goto out_unlock;
 
