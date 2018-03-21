@@ -726,6 +726,11 @@ struct btrfs_delayed_root;
  * (device replace, resize, device add/delete, balance)
  */
 #define BTRFS_FS_EXCL_OP			16
+/*
+ * Indicate that balance has been set up from the ioctl and is in the main
+ * phase. The fs_info::balance_ctl is initialized.
+ */
+#define BTRFS_FS_BALANCE_RUNNING		17
 
 struct btrfs_fs_info {
 	u8 fsid[BTRFS_FSID_SIZE];
@@ -991,7 +996,6 @@ struct btrfs_fs_info {
 	/* restriper state */
 	spinlock_t balance_lock;
 	struct mutex balance_mutex;
-	atomic_t balance_running;
 	atomic_t balance_pause_req;
 	atomic_t balance_cancel_req;
 	struct btrfs_balance_control *balance_ctl;
