@@ -20,16 +20,19 @@ Light sensors are used to measure the ambient light reaching each area of the ga
 
 ### Garden Hub
 The garden hub uses a Raspberry Pi Zero to receive the I2C data from all the remote ambient light sensors. The connections to the remote light sensor modules are made with standard ethernet cables. The I2C bus and the ambient light sensors are powered from the Pi's 3.3V output. The program on the Pi Zero collates the data from the sensors and deposits it into a file to be sent to the RoboPot Pi. The data can then be graphically displayed on the GUI webpage to the user. The PCB of the garden hub is as shown as below:
-![alt text](https://github.com/FrazLaw/RoboPot/blob/master/zerohub2_sch.png)
+![alt text](https://github.com/FrazLaw/RoboPot/blob/master/Hardware/zerohub2_sch.png)
 
 ### Magnetometer Schematic
 So, for us to determine in which direction our mini-movable plant pot is facing, we needed to add a magnetometer. This enables us to then feedback to the GUI and indicate which position we are at. This feedback network, in conjuction with the proximity sensor, is essential ot compile the information into a reliable position. 
 ![alt text](https://github.com/FrazLaw/RoboPot/blob/master/Hardware/SchematicPic.PNG)
 
+### Proximity Sensor
+The proximity sensor PCB gives the robot the ability to recognise the distance between its front face and a garden wall. The schematic for this sensor is given here:
+![alt text](RoboPot/Hardware/VL53L0X PCB Rev2 Schematic.pdf)
+
 ### Motor Driver
 An essential part of the system was to move the plant pot itself. To do this we will demonstrate using a small motor car which will be controlled via this motor driver circuit:
 ![alt text](https://github.com/FrazLaw/RoboPot/blob/master/Hardware/SchematicMotor.PNG)
-
 
 
 
