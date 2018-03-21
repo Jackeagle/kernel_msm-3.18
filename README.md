@@ -12,6 +12,54 @@ Thanks for taking the time to have a look at the Robopot hardware and software d
 
 ![alt text](https://github.com/FrazLaw/RoboPot/blob/master/RoboPot.png)
 
+# Software Requirements
+
+### Robot Control Software Requirements
+
+1- Implement I2C communication protocols to retrieve data from magnemometer and proximity sensor.
+2- Implement PWM and GPIO signals to interface with motor control circuitry and control robot motor speed.
+3- Use data from magnemometer and proximity sensor to calculate robot position in garden.
+4- Read text file to retrieve robot repositioning request and desired location.
+5- Write to text file to allow GUI update of robot position.
+
+### GUI Software Requirements
+
+1- GUI to be accessable from a web page hosted on Apache server on Raspberry Pi.
+2- Use HTML, PHP and Javascript to create webpage.
+3- Provide buttons to allow user to set requested position of robot.
+4- Write to text file to allow robot to be updated on requested robot position.
+5- Read from text file to update GUI on present robot location and ambient light levels.
+6- Display the location of the robot in garden.
+7- Display ambient light levels in Lux of ambient light sensors.
+
+### Garden Sensor Software Requirements
+
+1- Implement I2C communication protocols to retrieve data from ambient light sensor.
+2- Use SSH to access Raspberry Pi CLI.
+3- Write to text file to update GUI on ambient light levels.
+
+# Hardware Requirements
+
+### Robot Hardware Requirements
+
+1- Raspberry Pi to provide read sensor, motor control, wifi communication and web server hosting functionality.
+2- DC Motors to actuate robot wheels.
+3- Use STM VL53L0X chip as proximity sensor.
+4- Use STM LSM303DLHC chip as magnemometer.
+5- Use STM L298 chip as motor driver
+6- Provide power supplies for Raspberry Pi and motor driver circuitry. Other Sensors shall take power from raspberry pi.
+7- Use 9V battery as power supply.
+
+### Garden Sensor Hardware Requirements
+
+1- Use Raspberry Pi Zero to provide read sensor and wifi communication functionality.
+2- Use a collection of sensor modules to gather data from around the garden area.
+3- Use a garden hub PCB to interface sensor modules to Raspberry Pi Zero.
+4- Use Texas Instruments OPT3001 as ambient light sensor.
+5- Use NXP P82B715 as I2C buffer chips.
+6- Use 5V mini USB wall socket power supply to power system.
+7- Use ethernet cables to conduct signals between sensor modules and garden hub.
+
 # HARDWARE SCHEMATICS
 
 ### Ambient Light Sensors
