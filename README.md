@@ -28,7 +28,7 @@ So, for us to determine in which direction our mini-movable plant pot is facing,
 
 ### Proximity Sensor
 The proximity sensor PCB gives the robot the ability to recognise the distance between its front face and a garden wall. The schematic for this sensor is given here:
-![alt text](https://github.com/FrazLaw/RoboPot/blob/master/Hardware/VL53L0X PCB Rev2 Schematic.pdf)
+![alt text](https://github.com/FrazLaw/RoboPot/blob/master/Hardware/VL53L0XPCB_Rev2_Schematic.pdf)
 
 ### Motor Driver
 An essential part of the system was to move the plant pot itself. To do this we will demonstrate using a small motor car which will be controlled via this motor driver circuit:
