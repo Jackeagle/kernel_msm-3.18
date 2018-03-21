@@ -84,6 +84,12 @@ Thanks for taking the time to have a look at the Robopot hardware and software d
 
 7- Use ethernet cables to conduct signals between sensor modules and garden hub.
 
+# Robot Chassis
+
+The Robot Chassis and motors were purchased [here!](https://www.amazon.co.uk/dp/B00GLO5SMY/ref=pe_3187911_189395841_TE_3p_dp_1)
+
+![alt text](https://github.com/FrazLaw/RoboPot/blob/master/RobotChassis.png)
+
 # HARDWARE SCHEMATICS
 
 ### Ambient Light Sensors
