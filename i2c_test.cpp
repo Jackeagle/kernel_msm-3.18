@@ -39,50 +39,50 @@ LSM303AGR::LSM303AGR()
 
 int LSM303AGR::getFileDescriptor()
 {
-cout << fd << endl;
-return fd;
+	cout << fd << endl;
+	return fd;
 
 }
 
 int LSM303AGR::dataAvailable(){
-int status;
-status = wiringPiI2CReadReg8(fd,STATUS_REG_M);//data output X register, not really a status reg
-cout << status << endl;
+	int status;
+	status = wiringPiI2CReadReg8(fd,STATUS_REG_M);//data output X register, not really a status reg
+	cout << status << endl;
 }
 
 int LSM303AGR::configure(){
-alastair = wiringPiI2CWriteReg8(fd, CFG_REG_A_M, 0x00);
+	alastair = wiringPiI2CWriteReg8(fd, CFG_REG_A_M, 0x00);//copnfigure with default settings
 }
 
 int LSM303AGR::readCh1(){
-msbX = wiringPiI2CReadReg8(fd, OUTX_H_REG_M);//68h and 69h for X output registers, 69 is MSB(?)
-lsbX = wiringPiI2CReadReg8(fd, OUTX_L_REG_M);
-printf("%d", msbX);
-printf("\n");
-printf("%d", lsbX);
-printf("\n\n");
-return 0;
+	msbX = wiringPiI2CReadReg8(fd, OUTX_H_REG_M);//68h and 69h for X output registers, 69 is MSB(?)
+	lsbX = wiringPiI2CReadReg8(fd, OUTX_L_REG_M);
+	printf("%d", msbX);
+	printf("\n");
+	printf("%d", lsbX);
+	printf("\n\n");
+	return 0;
 //cout <<"\r" <<  msbX << "\n" << lsbX << "\n";
 }
 
 int LSM303AGR::readCh2(){
-msbY = wiringPiI2CReadReg8(fd, OUTY_H_REG_M);//6Ah and 6Bh for y output registers,
-lsbY = wiringPiI2CReadReg8(fd, OUTY_L_REG_M);
-printf("%d", msbY);
-printf("\n");
-printf("%d", lsbY);
-printf("\n\n");
-return 0;
+	msbY = wiringPiI2CReadReg8(fd, OUTY_H_REG_M);//6Ah and 6Bh for y output registers,
+	lsbY = wiringPiI2CReadReg8(fd, OUTY_L_REG_M);
+	printf("%d", msbY);
+	printf("\n");
+	printf("%d", lsbY);
+	printf("\n\n");
+	return 0;
 //cout << msbY << "\n" << lsbY << "\n" << "\r";
 }
 
 int LSM303AGR::readCh3(){
-msbZ = wiringPiI2CReadReg8(fd, OUTZ_H_REG_M);//same again, different regs
-lsbZ = wiringPiI2CReadReg8(fd, OUTZ_L_REG_M);
-printf("%d", msbZ);
-printf("\n");
-printf("%d", lsbZ);
-printf("\n\n");
+	msbZ = wiringPiI2CReadReg8(fd, OUTZ_H_REG_M);//same again, different regs
+	lsbZ = wiringPiI2CReadReg8(fd, OUTZ_L_REG_M);
+	printf("%d", msbZ);
+	printf("\n");
+	printf("%d", lsbZ);
+	printf("\n\n");
 return 0;
 //cout << msbZ << "\n" << lsbZ << "\n" << "\r";
 }
@@ -100,5 +100,10 @@ lsm.configure();
 
 		usleep(2000000); //2 seconds
 	}
-
+/*calculations for compass headings
+Direction (y>0) =  90 - [arctan(x/y)]*180/pi
+Direction (y<0) = 270 - [arcTAN(x/y)]*180/pi
+Direction (y=0, x<0) = 180
+Direction (y=o, x>0) = 0
+*/
 }
