@@ -961,7 +961,7 @@ qlt_send_first_logo(struct scsi_qla_host *vha, qlt_port_logo_t *logo)
 	    logo->cmd_count, res);
 }
 
-static void qlt_free_session_done(struct work_struct *work)
+void qlt_free_session_done(struct work_struct *work)
 {
 	struct fc_port *sess = container_of(work, struct fc_port,
 	    free_work);
@@ -1169,11 +1169,14 @@ void qlt_unreg_sess(struct fc_port *sess)
 	sess->last_rscn_gen = sess->rscn_gen;
 	sess->last_login_gen = sess->login_gen;
 
-	if (sess->nvme_flag & NVME_FLAG_REGISTERED)
+	if (sess->nvme_flag & NVME_FLAG_REGISTERED &&
+	    !(sess->nvme_flag & NVME_FLAG_DELETING)) {
+		sess->nvme_flag |= NVME_FLAG_DELETING;
 		schedule_work(&sess->nvme_del_work);
-
-	INIT_WORK(&sess->free_work, qlt_free_session_done);
-	schedule_work(&sess->free_work);
+	} else {
+		INIT_WORK(&sess->free_work, qlt_free_session_done);
+		schedule_work(&sess->free_work);
+	}
 }
 EXPORT_SYMBOL(qlt_unreg_sess);
 
@@ -2023,7 +2026,7 @@ static void qlt_24xx_handle_abts(struct scsi_qla_host *vha,
 	sess = ha->tgt.tgt_ops->find_sess_by_s_id(vha, s_id);
 	if (!sess) {
 		ql_dbg(ql_dbg_tgt_mgt, vha, 0xf012,
-		    "qla_target(%d): task abort for non-existant session\n",
+		    "qla_target(%d): task abort for non-existent session\n",
 		    vha->vp_idx);
 		spin_unlock_irqrestore(&ha->tgt.sess_lock, flags);
 
