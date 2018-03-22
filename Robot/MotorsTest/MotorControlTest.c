@@ -41,7 +41,9 @@ int main(void)
 		pwmWrite(pin1, PWM_set);
 		pwmWrite(pin0, PWM_set);
 		digitalWrite(pin26, 0);
-		digitalWrite(pin24, 0);		
+		digitalWrite(pin24, 0);	
+		digitalWrite(pin1, 0);
+		digitalWrite(pin0, 0);
 	}
 	
 }
