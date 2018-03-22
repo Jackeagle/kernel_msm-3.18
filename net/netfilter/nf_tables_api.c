@@ -74,15 +74,77 @@ static void nft_trans_destroy(struct nft_trans *trans)
 	kfree(trans);
 }
 
+/* removal requests are queued in the commit_list, but not acted upon
+ * until after all new rules are in place.
+ *
+ * Therefore, nf_register_net_hook(net, &nat_hook) runs before pending
+ * nf_unregister_net_hook().
+ *
+ * nf_register_net_hook thus fails if a nat hook is already in place
+ * even if the conflicting hook is about to be removed.
+ *
+ * If collision is detected, search commit_log for DELCHAIN matching
+ * the new nat hooknum; if we find one collision is temporary:
+ *
+ * Either transaction is aborted (new/colliding hook is removed), or
+ * transaction is committed (old hook is removed).
+ */
+static bool nf_tables_allow_nat_conflict(const struct net *net,
+					 const struct nf_hook_ops *ops)
+{
+	const struct nft_trans *trans;
+	bool ret = false;
+
+	if (!ops->nat_hook)
+		return false;
+
+	list_for_each_entry(trans, &net->nft.commit_list, list) {
+		const struct nf_hook_ops *pending_ops;
+		const struct nft_chain *pending;
+
+		if (trans->msg_type != NFT_MSG_NEWCHAIN &&
+		    trans->msg_type != NFT_MSG_DELCHAIN)
+			continue;
+
+		pending = trans->ctx.chain;
+		if (!nft_is_base_chain(pending))
+			continue;
+
+		pending_ops = &nft_base_chain(pending)->ops;
+		if (pending_ops->nat_hook &&
+		    pending_ops->pf == ops->pf &&
+		    pending_ops->hooknum == ops->hooknum) {
+			/* other hook registration already pending? */
+			if (trans->msg_type == NFT_MSG_NEWCHAIN)
+				return false;
+
+			ret = true;
+		}
+	}
+
+	return ret;
+}
+
 static int nf_tables_register_hook(struct net *net,
 				   const struct nft_table *table,
 				   struct nft_chain *chain)
 {
+	struct nf_hook_ops *ops;
+	int ret;
+
 	if (table->flags & NFT_TABLE_F_DORMANT ||
 	    !nft_is_base_chain(chain))
 		return 0;
 
-	return nf_register_net_hook(net, &nft_base_chain(chain)->ops);
+	ops = &nft_base_chain(chain)->ops;
+	ret = nf_register_net_hook(net, ops);
+	if (ret == -EBUSY && nf_tables_allow_nat_conflict(net, ops)) {
+		ops->nat_hook = false;
+		ret = nf_register_net_hook(net, ops);
+		ops->nat_hook = true;
+	}
+
+	return ret;
 }
 
 static void nf_tables_unregister_hook(struct net *net,
@@ -1911,6 +1973,7 @@ static const struct nla_policy nft_rule_policy[NFTA_RULE_MAX + 1] = {
 	[NFTA_RULE_POSITION]	= { .type = NLA_U64 },
 	[NFTA_RULE_USERDATA]	= { .type = NLA_BINARY,
 				    .len = NFT_USERDATA_MAXLEN },
+	[NFTA_RULE_ID]		= { .type = NLA_U32 },
 };
 
 static int nf_tables_fill_rule_info(struct sk_buff *skb, struct net *net,
@@ -2446,6 +2509,9 @@ EXPORT_SYMBOL_GPL(nft_unregister_set);
 
 static bool nft_set_ops_candidate(const struct nft_set_ops *ops, u32 flags)
 {
+	if ((flags & NFT_SET_EVAL) && !ops->update)
+		return false;
+
 	return (flags & ops->features) == (flags & NFT_SET_FEATURES);
 }
 
@@ -2510,7 +2576,7 @@ nft_select_set_ops(const struct nft_ctx *ctx,
 				if (est.space == best.space &&
 				    est.lookup < best.lookup)
 					break;
-			} else if (est.size < best.size) {
+			} else if (est.size < best.size || !bops) {
 				break;
 			}
 			continue;
@@ -3315,6 +3381,8 @@ static const struct nla_policy nft_set_elem_policy[NFTA_SET_ELEM_MAX + 1] = {
 	[NFTA_SET_ELEM_TIMEOUT]		= { .type = NLA_U64 },
 	[NFTA_SET_ELEM_USERDATA]	= { .type = NLA_BINARY,
 					    .len = NFT_USERDATA_MAXLEN },
+	[NFTA_SET_ELEM_EXPR]		= { .type = NLA_NESTED },
+	[NFTA_SET_ELEM_OBJREF]		= { .type = NLA_STRING },
 };
 
 static const struct nla_policy nft_set_elem_list_policy[NFTA_SET_ELEM_LIST_MAX + 1] = {
