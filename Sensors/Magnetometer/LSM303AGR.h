@@ -5,8 +5,8 @@
 
 class LSM303AGR
 {
-	uint8_t msbX;
-	uint8_t lsbX;
+	int msbX;
+	int lsbX;
 	int msbY;
 	int lsbY;
 	int msbZ;
