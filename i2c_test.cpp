@@ -57,9 +57,17 @@ int LSM303AGR::configure(){
 int LSM303AGR::readCh1(){
 	msbX = wiringPiI2CReadReg8(fd, OUTX_H_REG_M);//68h and 69h for X output registers, 69 is MSB(?)
 	lsbX = wiringPiI2CReadReg8(fd, OUTX_L_REG_M);
-	printf("%d", msbX);
-	printf("\n");
-	printf("%d", lsbX);
+	uint16_t byte1 = msbX;
+	byte1<<8;
+	uint16_t byte2 = lsbX;
+	uint16_t result = (msbX|lsbX);
+	if (msbX>127){
+		printf("-");
+		result=(~result)+1;
+	}
+	//printf("%d", msbX);
+	//printf("\n");
+	printf("%d", result);
 	printf("\n\n");
 	return 0;
 //cout <<"\r" <<  msbX << "\n" << lsbX << "\n";
