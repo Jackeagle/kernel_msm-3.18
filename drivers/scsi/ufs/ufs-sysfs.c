@@ -3,6 +3,7 @@
 
 #include <linux/err.h>
 #include <linux/string.h>
+#include <linux/bitfield.h>
 #include <asm/unaligned.h>
 
 #include "ufs.h"
@@ -57,29 +58,8 @@ static ssize_t rpm_lvl_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	struct ufs_hba *hba = dev_get_drvdata(dev);
-	int curr_len;
-	u8 lvl;
 
-	curr_len = snprintf(buf, PAGE_SIZE,
-			    "\nCurrent Runtime PM level [%d] => dev_state [%s] link_state [%s]\n",
-			    hba->rpm_lvl,
-			    ufschd_ufs_dev_pwr_mode_to_string(
-				ufs_pm_lvl_states[hba->rpm_lvl].dev_state),
-			    ufschd_uic_link_state_to_string(
-				ufs_pm_lvl_states[hba->rpm_lvl].link_state));
-
-	curr_len += snprintf((buf + curr_len), (PAGE_SIZE - curr_len),
-			     "\nAll available Runtime PM levels info:\n");
-	for (lvl = UFS_PM_LVL_0; lvl < UFS_PM_LVL_MAX; lvl++)
-		curr_len += snprintf((buf + curr_len), (PAGE_SIZE - curr_len),
-				     "\tRuntime PM level [%d] => dev_state [%s] link_state [%s]\n",
-				    lvl,
-				    ufschd_ufs_dev_pwr_mode_to_string(
-					ufs_pm_lvl_states[lvl].dev_state),
-				    ufschd_uic_link_state_to_string(
-					ufs_pm_lvl_states[lvl].link_state));
-
-	return curr_len;
+	return sprintf(buf, "%d\n", hba->rpm_lvl);
 }
 
 static ssize_t rpm_lvl_store(struct device *dev,
@@ -88,33 +68,30 @@ static ssize_t rpm_lvl_store(struct device *dev,
 	return ufs_sysfs_pm_lvl_store(dev, attr, buf, count, true);
 }
 
+static ssize_t rpm_target_dev_state_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%s\n", ufschd_ufs_dev_pwr_mode_to_string(
+			ufs_pm_lvl_states[hba->rpm_lvl].dev_state));
+}
+
+static ssize_t rpm_target_link_state_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%s\n", ufschd_uic_link_state_to_string(
+			ufs_pm_lvl_states[hba->rpm_lvl].link_state));
+}
+
 static ssize_t spm_lvl_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	struct ufs_hba *hba = dev_get_drvdata(dev);
-	int curr_len;
-	u8 lvl;
 
-	curr_len = snprintf(buf, PAGE_SIZE,
-			    "\nCurrent System PM level [%d] => dev_state [%s] link_state [%s]\n",
-			    hba->spm_lvl,
-			    ufschd_ufs_dev_pwr_mode_to_string(
-				ufs_pm_lvl_states[hba->spm_lvl].dev_state),
-			    ufschd_uic_link_state_to_string(
-				ufs_pm_lvl_states[hba->spm_lvl].link_state));
-
-	curr_len += snprintf((buf + curr_len), (PAGE_SIZE - curr_len),
-			     "\nAll available System PM levels info:\n");
-	for (lvl = UFS_PM_LVL_0; lvl < UFS_PM_LVL_MAX; lvl++)
-		curr_len += snprintf((buf + curr_len), (PAGE_SIZE - curr_len),
-				     "\tSystem PM level [%d] => dev_state [%s] link_state [%s]\n",
-				    lvl,
-				    ufschd_ufs_dev_pwr_mode_to_string(
-					ufs_pm_lvl_states[lvl].dev_state),
-				    ufschd_uic_link_state_to_string(
-					ufs_pm_lvl_states[lvl].link_state));
-
-	return curr_len;
+	return sprintf(buf, "%d\n", hba->spm_lvl);
 }
 
 static ssize_t spm_lvl_store(struct device *dev,
@@ -123,12 +100,113 @@ static ssize_t spm_lvl_store(struct device *dev,
 	return ufs_sysfs_pm_lvl_store(dev, attr, buf, count, false);
 }
 
+static ssize_t spm_target_dev_state_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%s\n", ufschd_ufs_dev_pwr_mode_to_string(
+				ufs_pm_lvl_states[hba->spm_lvl].dev_state));
+}
+
+static ssize_t spm_target_link_state_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%s\n", ufschd_uic_link_state_to_string(
+				ufs_pm_lvl_states[hba->spm_lvl].link_state));
+}
+
+static void ufshcd_auto_hibern8_update(struct ufs_hba *hba, u32 ahit)
+{
+	unsigned long flags;
+
+	if (!(hba->capabilities & MASK_AUTO_HIBERN8_SUPPORT))
+		return;
+
+	spin_lock_irqsave(hba->host->host_lock, flags);
+	if (hba->ahit == ahit)
+		goto out_unlock;
+	hba->ahit = ahit;
+	if (!pm_runtime_suspended(hba->dev))
+		ufshcd_writel(hba, hba->ahit, REG_AUTO_HIBERNATE_IDLE_TIMER);
+out_unlock:
+	spin_unlock_irqrestore(hba->host->host_lock, flags);
+}
+
+/* Convert Auto-Hibernate Idle Timer register value to microseconds */
+static int ufshcd_ahit_to_us(u32 ahit)
+{
+	int timer = FIELD_GET(UFSHCI_AHIBERN8_TIMER_MASK, ahit);
+	int scale = FIELD_GET(UFSHCI_AHIBERN8_SCALE_MASK, ahit);
+
+	for (; scale > 0; --scale)
+		timer *= UFSHCI_AHIBERN8_SCALE_FACTOR;
+
+	return timer;
+}
+
+/* Convert microseconds to Auto-Hibernate Idle Timer register value */
+static u32 ufshcd_us_to_ahit(unsigned int timer)
+{
+	unsigned int scale;
+
+	for (scale = 0; timer > UFSHCI_AHIBERN8_TIMER_MASK; ++scale)
+		timer /= UFSHCI_AHIBERN8_SCALE_FACTOR;
+
+	return FIELD_PREP(UFSHCI_AHIBERN8_TIMER_MASK, timer) |
+	       FIELD_PREP(UFSHCI_AHIBERN8_SCALE_MASK, scale);
+}
+
+static ssize_t auto_hibern8_show(struct device *dev,
+				 struct device_attribute *attr, char *buf)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+
+	if (!(hba->capabilities & MASK_AUTO_HIBERN8_SUPPORT))
+		return -EOPNOTSUPP;
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", ufshcd_ahit_to_us(hba->ahit));
+}
+
+static ssize_t auto_hibern8_store(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf, size_t count)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+	unsigned int timer;
+
+	if (!(hba->capabilities & MASK_AUTO_HIBERN8_SUPPORT))
+		return -EOPNOTSUPP;
+
+	if (kstrtouint(buf, 0, &timer))
+		return -EINVAL;
+
+	if (timer > UFSHCI_AHIBERN8_MAX)
+		return -EINVAL;
+
+	ufshcd_auto_hibern8_update(hba, ufshcd_us_to_ahit(timer));
+
+	return count;
+}
+
 static DEVICE_ATTR_RW(rpm_lvl);
+static DEVICE_ATTR_RO(rpm_target_dev_state);
+static DEVICE_ATTR_RO(rpm_target_link_state);
 static DEVICE_ATTR_RW(spm_lvl);
+static DEVICE_ATTR_RO(spm_target_dev_state);
+static DEVICE_ATTR_RO(spm_target_link_state);
+static DEVICE_ATTR_RW(auto_hibern8);
 
 static struct attribute *ufs_sysfs_ufshcd_attrs[] = {
 	&dev_attr_rpm_lvl.attr,
+	&dev_attr_rpm_target_dev_state.attr,
+	&dev_attr_rpm_target_link_state.attr,
 	&dev_attr_spm_lvl.attr,
+	&dev_attr_spm_target_dev_state.attr,
+	&dev_attr_spm_target_link_state.attr,
+	&dev_attr_auto_hibern8.attr,
 	NULL
 };
 
