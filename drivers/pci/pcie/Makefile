@@ -2,8 +2,7 @@
 #
 # Makefile for PCI Express features and port driver
 
-pcieportdrv-y			:= portdrv_core.o portdrv_pci.o portdrv_bus.o
-pcieportdrv-$(CONFIG_ACPI)	+= portdrv_acpi.o
+pcieportdrv-y			:= portdrv_core.o portdrv_pci.o
 
 obj-$(CONFIG_PCIEPORTBUS)	+= pcieportdrv.o
 
