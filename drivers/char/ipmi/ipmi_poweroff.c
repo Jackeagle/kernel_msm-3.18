@@ -453,6 +453,13 @@ static int ipmi_dell_chassis_detect(ipmi_user_t user)
 	    ipmi_version_major <= 1 &&
 	    ipmi_version_minor < 5)
 		return 1;
+
+	/* BMC in HP C8000 can handle chassis functions too. */
+	if (IS_ENABLED(CONFIG_PARISC) &&
+	    mfg_id == 0x0b && prod_id == 0x8201 &&
+	    ipmi_version == 1)
+		return 1;
+
 	return 0;
 }
 
