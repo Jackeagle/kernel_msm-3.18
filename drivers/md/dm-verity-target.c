@@ -39,7 +39,35 @@
 /* only two elements in static scatter list: salt and data */
 #define SG_FIXED_ITEMS	2
 
+struct dm_verity_io_data {
+	atomic_t expected_reqs;
+	atomic_t err;
+	int total_reqs;
+	struct dm_verity_req_data *reqdata_arr;
+	struct dm_verity_io *io;
+};
+
+#define MAX_DIGEST_SIZE 64 /* as big as sha512 digest size */
+
+struct dm_verity_req_data {
+	u8 want_digest[MAX_DIGEST_SIZE];
+	u8 real_digest[MAX_DIGEST_SIZE];
+	struct dm_verity_fec_io fec_io;
+	unsigned int iblock;	/* block index in the request */
+	unsigned int digest_size;
+	struct scatterlist *sg;
+	struct dm_verity_io_data *iodata;
+	/*
+	 * req field is the last on purpose since it's not fixed in size and
+	 * its size is calculated using ahash_request_alloc or an addition of
+	 * the required size is done with +crypto_ahash_reqsize(v->tfm)
+	 */
+	struct ahash_request *req;
+};
+
 static unsigned dm_verity_prefetch_cluster = DM_VERITY_DEFAULT_PREFETCH_SIZE;
+static void verity_finish_io(struct dm_verity_io *io, blk_status_t status);
+static void verity_release_req(struct dm_verity_io_data *iodata);
 
 module_param_named(prefetch_cluster, dm_verity_prefetch_cluster, uint, S_IRUGO | S_IWUSR);
 
@@ -248,7 +276,7 @@ out:
  */
 static int verity_verify_level(struct dm_verity *v, struct dm_verity_io *io,
 			       sector_t block, int level, bool skip_unverified,
-			       u8 *want_digest)
+			       u8 *want_digest, struct dm_verity_fec_io *fec_io)
 {
 	struct dm_buffer *buf;
 	struct buffer_aux *aux;
@@ -282,7 +310,7 @@ static int verity_verify_level(struct dm_verity *v, struct dm_verity_io *io,
 			aux->hash_verified = 1;
 		else if (verity_fec_decode(v, io,
 					   DM_VERITY_BLOCK_TYPE_METADATA,
-					   hash_block, data, NULL) == 0)
+					   hash_block, data, NULL, fec_io) == 0)
 			aux->hash_verified = 1;
 		else if (verity_handle_err(v,
 					   DM_VERITY_BLOCK_TYPE_METADATA,
@@ -306,7 +334,9 @@ release_ret_r:
  * of the hash tree if necessary.
  */
 int verity_hash_for_block(struct dm_verity *v, struct dm_verity_io *io,
-			  sector_t block, u8 *digest, bool *is_zero)
+			  sector_t block, u8 *digest,
+			  struct dm_verity_fec_io *fec_io,
+			  bool *is_zero)
 {
 	int r = 0, i;
 
@@ -318,7 +348,7 @@ int verity_hash_for_block(struct dm_verity *v, struct dm_verity_io *io,
 		 * function returns 1 and we fall back to whole
 		 * chain verification.
 		 */
-		r = verity_verify_level(v, io, block, 0, true, digest);
+		r = verity_verify_level(v, io, block, 0, true, digest, fec_io);
 		if (likely(r <= 0))
 			goto out;
 	}
@@ -326,7 +356,7 @@ int verity_hash_for_block(struct dm_verity *v, struct dm_verity_io *io,
 	memcpy(digest, v->root_digest, v->digest_size);
 
 	for (i = v->levels - 1; i >= 0; i--) {
-		r = verity_verify_level(v, io, block, i, false, digest);
+		r = verity_verify_level(v, io, block, i, false, digest, fec_io);
 		if (unlikely(r))
 			goto out;
 	}
@@ -450,25 +480,92 @@ static inline void verity_bv_skip_block(struct dm_verity *v,
 	bio_advance_iter(bio, iter, 1 << v->data_dev_block_bits);
 }
 
+
+static void verity_cb_complete(struct dm_verity_io_data *iodata, int err)
+{
+	struct dm_verity_io *io = iodata->io;
+
+	/* save last error occurred */
+	if (err)
+		atomic_set(&iodata->err, err);
+	if (atomic_dec_and_test(&iodata->expected_reqs)) {
+		verity_release_req(iodata);
+		verity_finish_io(io, errno_to_blk_status(err));
+	}
+}
+
+static void __single_block_req_done(struct dm_verity_req_data *req_data, int err)
+{
+	struct dm_verity_io *io = req_data->iodata->io;
+	struct dm_verity *v = io->v;
+	sector_t cur_block = io->block + req_data->iblock;
+
+	if (err == -EINPROGRESS)
+		return;
+
+	WARN_ON((err != 0) || (req_data == NULL) || (req_data->iodata == NULL));
+	if ((err != 0) || (req_data == NULL) || (req_data->iodata == NULL))
+		goto complete;
+
+	kfree(req_data->sg);
+
+	if (likely(memcmp(req_data->real_digest, req_data->want_digest,
+			  req_data->digest_size) == 0)) {
+		if (v->validated_blocks)
+			set_bit(cur_block, v->validated_blocks);
+	} else if (verity_fec_decode(v, io, DM_VERITY_BLOCK_TYPE_DATA,
+				     cur_block, NULL, &io->iter,
+				     &req_data->fec_io) == 0) {
+		/* fallthru */
+	} else if (verity_handle_err(v, DM_VERITY_BLOCK_TYPE_DATA,
+				     cur_block)) {
+		err = -EIO;
+	}
+complete:
+	ahash_request_free(req_data->req);
+	verity_cb_complete(req_data->iodata, err);
+}
+
+static void single_block_req_done(struct crypto_async_request *req, int err)
+{
+	__single_block_req_done(req->data, err);
+}
+
+static void verity_release_req(struct dm_verity_io_data *iodata)
+{
+	kfree(iodata->reqdata_arr);
+	kfree(iodata);
+}
 /*
  * Verify one "dm_verity_io" structure.
  */
-static int verity_verify_io(struct dm_verity_io *io)
+static void verity_verify_io(struct dm_verity_io *io)
 {
 	bool is_zero;
 	struct dm_verity *v = io->v;
-	struct bvec_iter start;
-	unsigned b;
-	struct crypto_wait wait;
-	struct scatterlist *sg;
+	unsigned int b = 0, blocks = 0;
+	struct dm_verity_io_data *iodata = NULL;
+	struct dm_verity_req_data *reqdata_arr = NULL;
+	struct scatterlist *sg = NULL;
 	int r;
 
-	for (b = 0; b < io->n_blocks; b++) {
+	iodata = kmalloc(sizeof(*iodata), GFP_NOIO);
+	reqdata_arr = kmalloc_array(io->n_blocks,
+				    sizeof(struct dm_verity_req_data), GFP_NOIO);
+	if (unlikely((iodata == NULL) || (reqdata_arr == NULL))) {
+		WARN_ON((iodata == NULL) || (reqdata_arr == NULL));
+		goto err_memfree;
+	}
+	atomic_set(&iodata->expected_reqs, io->n_blocks);
+	iodata->reqdata_arr = reqdata_arr;
+	iodata->io = io;
+	iodata->total_reqs = blocks = io->n_blocks;
+
+	for (b = 0; b < blocks; b++) {
 		unsigned int nents;
 		unsigned int total_len = 0;
 		unsigned int num_of_buffs = 0;
 		sector_t cur_block = io->block + b;
-		struct ahash_request *req = verity_io_hash_req(v, io);
 
 		if (v->validated_blocks &&
 		    likely(test_bit(cur_block, v->validated_blocks))) {
@@ -476,80 +573,83 @@ static int verity_verify_io(struct dm_verity_io *io)
 			continue;
 		}
 
+		reqdata_arr[b].req = ahash_request_alloc(v->tfm, GFP_NOIO);
+		if (unlikely(reqdata_arr[b].req == NULL))
+			goto err_memfree;
+		ahash_request_set_tfm(reqdata_arr[b].req, v->tfm);
+
 		/* +1 for the salt buffer */
 		num_of_buffs = verity_calc_buffs_for_bv(v, io, &io->iter) + 1;
 		WARN_ON(num_of_buffs < 1);
-
 		sg = kmalloc_array(num_of_buffs, sizeof(struct scatterlist),
 				   GFP_NOIO);
-		if (!sg)
-			return -ENOMEM;
+		if (!sg) {
+			DMERR_LIMIT("%s: kmalloc_array failed", __func__);
+			goto err_memfree;
+		}
 		sg_init_table(sg, num_of_buffs);
+		// FIXME: if we 'err_memfree' (or continue;) below how does this sg get kfree()'d?
 
 		r = verity_hash_for_block(v, io, cur_block,
-					  verity_io_want_digest(v, io),
-					  &is_zero);
+					  reqdata_arr[b].want_digest,
+					  &reqdata_arr[b].fec_io, &is_zero);
 		if (unlikely(r < 0))
 			goto err_memfree;
 
 		if (is_zero) {
 			/*
 			 * If we expect a zero block, don't validate, just
-			 * return zeros.
+			 * return zeroes.
 			 */
 			r = verity_for_bv_block(v, io, &io->iter,
 						verity_bv_zero);
 			if (unlikely(r < 0))
 				goto err_memfree;
-
+			verity_cb_complete(iodata, r);
 			continue;
 		}
 
-		ahash_request_set_tfm(req, v->tfm);
-		ahash_request_set_callback(req, CRYPTO_TFM_REQ_MAY_SLEEP |
-					   CRYPTO_TFM_REQ_MAY_BACKLOG,
-					   crypto_req_done, (void *)&wait);
 		nents = 0;
 		total_len = 0;
 		if (verity_is_salt_required(v, START_SG))
 			verity_add_salt(v, sg, &nents, &total_len);
 
-		start = io->iter;
 		verity_for_io_block(v, io, &io->iter, sg, &nents, &total_len);
 		if (verity_is_salt_required(v, END_SG))
 			verity_add_salt(v, sg, &nents, &total_len);
+
+		reqdata_arr[b].iodata = iodata;
+		reqdata_arr[b].sg = sg;
+		reqdata_arr[b].digest_size = v->digest_size;
+		reqdata_arr[b].iblock = b;
 		/*
 		 * Need to mark end of chain, since we might
 		 * have allocated more than we actually use.
 		 */
 		sg_mark_end(&sg[nents-1]);
-		ahash_request_set_crypt(req, sg, verity_io_real_digest(v, io),
-					total_len);
-		crypto_init_wait(&wait);
-		r = crypto_wait_req(crypto_ahash_digest(req), &wait);
-		if (unlikely(r < 0))
-			goto err_memfree;
-		kfree(sg);
 
-		if (likely(memcmp(verity_io_real_digest(v, io),
-				  verity_io_want_digest(v, io), v->digest_size) == 0)) {
-			if (v->validated_blocks)
-				set_bit(cur_block, v->validated_blocks);
-			continue;
+		ahash_request_set_tfm(reqdata_arr[b].req, v->tfm);
+		ahash_request_set_callback(reqdata_arr[b].req,
+					   CRYPTO_TFM_REQ_MAY_SLEEP |
+					   CRYPTO_TFM_REQ_MAY_BACKLOG,
+					   single_block_req_done, &reqdata_arr[b]);
+		ahash_request_set_crypt(reqdata_arr[b].req, sg,
+					reqdata_arr[b].real_digest, total_len);
+		r = crypto_ahash_digest(reqdata_arr[b].req);
+		if (r == 0) {
+			/* digest completed already, callback won't be called. */
+			__single_block_req_done(&reqdata_arr[b], r);
 		}
-		else if (verity_fec_decode(v, io, DM_VERITY_BLOCK_TYPE_DATA,
-					   cur_block, NULL, &start) == 0)
-			continue;
-		else if (verity_handle_err(v, DM_VERITY_BLOCK_TYPE_DATA,
-					   cur_block))
-			return -EIO;
 	}
-
-	return 0;
+	return;
 
 err_memfree:
-	kfree(sg);
-	return r;
+	/*
+	 * reduce expected requests by the number of unsent
+	 * requests, -1 accounting for the current block
+	 */
+	atomic_sub(blocks - b - 1, &iodata->expected_reqs);
+	verity_cb_complete(iodata, -EIO);
 }
 
 /*
@@ -572,7 +672,7 @@ static void verity_work(struct work_struct *w)
 {
 	struct dm_verity_io *io = container_of(w, struct dm_verity_io, work);
 
-	verity_finish_io(io, errno_to_blk_status(verity_verify_io(io)));
+	verity_verify_io(io);
 }
 
 static void verity_end_io(struct bio *bio)
