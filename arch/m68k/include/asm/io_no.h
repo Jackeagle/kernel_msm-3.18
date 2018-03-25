@@ -25,6 +25,7 @@
 #define writew __raw_writew
 #define writel __raw_writel
 
+#include <asm/kmap.h>
 #include <asm/virtconvert.h>
 #include <asm-generic/io.h>
 
