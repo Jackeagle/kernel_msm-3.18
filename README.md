@@ -42,6 +42,7 @@ Thanks for taking the time to have a look at the Robopot hardware and software d
 6- Display the location of the robot in garden.
 
 7- Display ambient light levels in Lux of ambient light sensors.
+![alt text](https://github.com/FrazLaw/RoboPot/blob/master/buttons.PNG)
 
 ### Garden Sensor Software Requirements
 
