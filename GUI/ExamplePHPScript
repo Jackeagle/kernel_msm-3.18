@@ -4,3 +4,5 @@
 	fwrite($myfile, $txt);
 	fclose($myfile);
 ?>
+
+//puts character into text file in memory directory. This can be translated to position in the garden.
