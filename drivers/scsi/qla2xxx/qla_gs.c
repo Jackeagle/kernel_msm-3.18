@@ -3177,6 +3177,7 @@ done_free_sp:
 	sp->free(sp);
 	fcport->flags &= ~FCF_ASYNC_SENT;
 done:
+	fcport->flags &= ~FCF_ASYNC_ACTIVE;
 	return rval;
 }
 
@@ -3368,6 +3369,7 @@ done_free_sp:
 	sp->free(sp);
 	fcport->flags &= ~FCF_ASYNC_SENT;
 done:
+	fcport->flags &= ~FCF_ASYNC_ACTIVE;
 	return rval;
 }
 
@@ -3968,6 +3970,9 @@ out:
 	spin_lock_irqsave(&vha->work_lock, flags);
 	vha->scan.scan_flags &= ~SF_SCANNING;
 	spin_unlock_irqrestore(&vha->work_lock, flags);
+
+	if ((rp->fc4type == FC4_TYPE_FCP_SCSI) && vha->flags.nvme_enabled)
+	  qla24xx_async_gpnft(vha, FC4_TYPE_NVME, sp);
 }
 
 static void qla2x00_find_free_fcp_nvme_slot(struct scsi_qla_host *vha,
