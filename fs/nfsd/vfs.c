@@ -881,19 +881,7 @@ static int nfsd_direct_splice_actor(struct pipe_inode_info *pipe,
 	return __splice_from_pipe(pipe, sd, nfsd_splice_actor);
 }
 
-static __be32
-nfsd_finish_read(struct file *file, unsigned long *count, int host_err)
-{
-	if (host_err >= 0) {
-		nfsdstats.io_read += host_err;
-		*count = host_err;
-		fsnotify_access(file);
-		return 0;
-	} else 
-		return nfserrno(host_err);
-}
-
-__be32 nfsd_splice_read(struct svc_rqst *rqstp,
+int nfsd_splice_read(struct svc_rqst *rqstp,
 		     struct file *file, loff_t offset, unsigned long *count)
 {
 	struct splice_desc sd = {
@@ -902,23 +890,18 @@ __be32 nfsd_splice_read(struct svc_rqst *rqstp,
 		.pos		= offset,
 		.u.data		= rqstp,
 	};
-	int host_err;
 
 	rqstp->rq_next_page = rqstp->rq_respages + 1;
-	host_err = splice_direct_to_actor(file, &sd, nfsd_direct_splice_actor);
-	return nfsd_finish_read(file, count, host_err);
+	return splice_direct_to_actor(file, &sd, nfsd_direct_splice_actor);
 }
 
-__be32 nfsd_readv(struct file *file, loff_t offset, struct kvec *vec, int vlen,
-		unsigned long *count)
+int nfsd_readv(struct file *file, loff_t offset, struct kvec *vec, int vlen,
+	       unsigned long *count)
 {
 	struct iov_iter iter;
-	int host_err;
 
 	iov_iter_kvec(&iter, READ | ITER_KVEC, vec, vlen, *count);
-	host_err = vfs_iter_read(file, &iter, &offset, 0);
-
-	return nfsd_finish_read(file, count, host_err);
+	return vfs_iter_read(file, &iter, &offset, 0);
 }
 
 /*
@@ -1025,6 +1008,7 @@ __be32 nfsd_read(struct svc_rqst *rqstp, struct svc_fh *fhp,
 {
 	struct file *file;
 	struct raparms	*ra;
+	int host_err;
 	__be32 err;
 
 	trace_nfsd_read_start(rqstp, fhp, offset, *count);
@@ -1034,14 +1018,24 @@ __be32 nfsd_read(struct svc_rqst *rqstp, struct svc_fh *fhp,
 
 	ra = nfsd_init_raparms(file);
 
-	trace_nfsd_read_opened(rqstp, fhp, offset, *count);
-
-	if (file->f_op->splice_read && test_bit(RQ_SPLICE_OK, &rqstp->rq_flags))
-		err = nfsd_splice_read(rqstp, file, offset, count);
-	else
-		err = nfsd_readv(file, offset, vec, vlen, count);
-
-	trace_nfsd_read_io_done(rqstp, fhp, offset, *count);
+	if (file->f_op->splice_read &&
+	    test_bit(RQ_SPLICE_OK, &rqstp->rq_flags)) {
+		trace_nfsd_read_splice(rqstp, fhp, offset, *count);
+		host_err = nfsd_splice_read(rqstp, file, offset, count);
+	} else {
+		trace_nfsd_read_vector(rqstp, fhp, offset, *count);
+		host_err = nfsd_readv(file, offset, vec, vlen, count);
+	}
+	if (host_err >= 0) {
+		trace_nfsd_read_io_done(rqstp, fhp, offset, host_err);
+		nfsdstats.io_read += host_err;
+		*count = host_err;
+		fsnotify_access(file);
+		err = nfs_ok;
+	} else  {
+		trace_nfsd_read_err(rqstp, fhp, offset, host_err);
+		err = nfserrno(host_err);
+	}
 
 	if (ra)
 		nfsd_put_raparams(file, ra);
