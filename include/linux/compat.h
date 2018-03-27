@@ -7,8 +7,7 @@
  */
 
 #include <linux/types.h>
-
-#ifdef CONFIG_COMPAT
+#include <linux/compat_time.h>
 
 #include <linux/stat.h>
 #include <linux/param.h>	/* for HZ */
@@ -21,8 +20,11 @@
 #include <linux/unistd.h>
 
 #include <asm/compat.h>
+
+#ifdef CONFIG_COMPAT
 #include <asm/siginfo.h>
 #include <asm/signal.h>
+#endif
 
 #ifndef COMPAT_USE_64BIT_TIME
 #define COMPAT_USE_64BIT_TIME 0
@@ -61,6 +63,8 @@
 		return C_SYSC##name(__MAP(x,__SC_DELOUSE,__VA_ARGS__));	\
 	}								\
 	static inline long C_SYSC##name(__MAP(x,__SC_DECL,__VA_ARGS__))
+
+#ifdef CONFIG_COMPAT
 
 #ifndef compat_user_stack_pointer
 #define compat_user_stack_pointer() current_user_stack_pointer()
@@ -267,8 +271,6 @@ extern int compat_get_timespec(struct timespec *, const void __user *);
 extern int compat_put_timespec(const struct timespec *, void __user *);
 extern int compat_get_timeval(struct timeval *, const void __user *);
 extern int compat_put_timeval(const struct timeval *, void __user *);
-extern int compat_get_timespec64(struct timespec64 *, const void __user *);
-extern int compat_put_timespec64(const struct timespec64 *, void __user *);
 extern int get_compat_itimerspec64(struct itimerspec64 *its,
 			const struct compat_itimerspec __user *uits);
 extern int put_compat_itimerspec64(const struct itimerspec64 *its,
@@ -897,7 +899,9 @@ static inline struct compat_timeval ns_to_compat_timeval(s64 nsec)
 #else /* !CONFIG_COMPAT */
 
 #define is_compat_task() (0)
+#ifndef in_compat_syscall
 static inline bool in_compat_syscall(void) { return false; }
+#endif
 
 #endif /* CONFIG_COMPAT */
 
