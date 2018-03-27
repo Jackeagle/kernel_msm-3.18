@@ -708,7 +708,6 @@ void __init early_init_devtree(void *params)
 	of_scan_flat_dt(early_init_dt_scan_chosen_ppc, boot_command_line);
 
 	/* Scan memory nodes and rebuild MEMBLOCKs */
-	of_scan_flat_dt(early_init_dt_scan_root, NULL);
 	of_scan_flat_dt(early_init_dt_scan_memory_ppc, NULL);
 
 	parse_early_param();
@@ -798,14 +797,13 @@ void __init early_init_devtree(void *params)
 void __init early_get_first_memblock_info(void *params, phys_addr_t *size)
 {
 	/* Setup flat device-tree pointer */
-	initial_boot_params = params;
+	early_init_dt_verify(params);
 
 	/*
 	 * Scan the memory nodes and set add_mem_to_memblock to 0 to avoid
 	 * mess the memblock.
 	 */
 	add_mem_to_memblock = 0;
-	of_scan_flat_dt(early_init_dt_scan_root, NULL);
 	of_scan_flat_dt(early_init_dt_scan_memory_ppc, NULL);
 	add_mem_to_memblock = 1;
 

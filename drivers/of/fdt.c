@@ -1215,6 +1215,9 @@ bool __init early_init_dt_verify(void *params)
 	if (fdt_check_header(params))
 		return false;
 
+	/* Initialize {size,address}-cells info */
+	of_scan_flat_dt(early_init_dt_scan_root, NULL);
+
 	/* Setup flat device-tree pointer */
 	initial_boot_params = params;
 	of_fdt_crc32 = crc32_be(~0, initial_boot_params,
@@ -1227,9 +1230,6 @@ void __init early_init_dt_scan_nodes(void)
 {
 	/* Retrieve various information from the /chosen node */
 	_early_init_dt_scan_chosen(boot_command_line);
-
-	/* Initialize {size,address}-cells info */
-	of_scan_flat_dt(early_init_dt_scan_root, NULL);
 
 	/* Setup memory, calling early_init_dt_add_memory_arch */
 	of_scan_flat_dt(early_init_dt_scan_memory, NULL);
