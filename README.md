@@ -39,9 +39,9 @@ Thanks for taking the time to have a look at the Robopot hardware and software d
 
 5- Read from text file to update GUI on present robot location and ambient light levels.
 
-6- Display the location of the robot in garden.
+6- Display present location of the robot in garden every second.
 
-7- Display ambient light levels in Lux of ambient light sensors.
+7- Display present ambient light levels in Lux of ambient light sensors every 5 seconds.
 ![alt text](https://github.com/FrazLaw/RoboPot/blob/master/buttons.PNG)
 
 ### Garden Sensor Software Requirements
