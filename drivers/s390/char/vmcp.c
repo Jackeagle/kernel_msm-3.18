@@ -23,6 +23,7 @@
 #include <linux/mutex.h>
 #include <linux/cma.h>
 #include <linux/mm.h>
+#include <asm/compat.h>
 #include <asm/cpcmd.h>
 #include <asm/debug.h>
 #include <asm/vmcp.h>
