@@ -76,4 +76,4 @@ $(src)/sha256-core.S_shipped: $(src)/sha512-armv8.pl
 $(src)/sha512-core.S_shipped: $(src)/sha512-armv8.pl
 	$(call cmd,perlasm)
 
-.PRECIOUS: $(obj)/sha256-core.S $(obj)/sha512-core.S
+targets += sha256-core.S sha512-core.S
