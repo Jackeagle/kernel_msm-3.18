@@ -1290,7 +1290,7 @@ static struct cpuhp_step cpuhp_bp_states[] = {
 		.cant_stop		= true,
 	},
 	/*
-	 * Handled on controll processor until the plugged processor manages
+	 * Handled on control processor until the plugged processor manages
 	 * this itself.
 	 */
 	[CPUHP_TEARDOWN_CPU] = {
