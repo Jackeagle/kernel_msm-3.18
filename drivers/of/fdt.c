@@ -986,29 +986,19 @@ int __init early_init_dt_scan_chosen_stdout(void)
 /**
  * early_init_dt_scan_root - fetch the top level address and size cells
  */
-int __init early_init_dt_scan_root(unsigned long node, const char *uname,
-				   int depth, void *data)
+static void __init early_init_dt_scan_root(void)
 {
-	const __be32 *prop;
+	unsigned long node = of_get_flat_dt_root();
 
-	if (depth != 0)
-		return 0;
-
-	dt_root_size_cells = OF_ROOT_NODE_SIZE_CELLS_DEFAULT;
-	dt_root_addr_cells = OF_ROOT_NODE_ADDR_CELLS_DEFAULT;
-
-	prop = of_get_flat_dt_prop(node, "#size-cells", NULL);
-	if (prop)
-		dt_root_size_cells = be32_to_cpup(prop);
+	dt_root_size_cells = fdt_size_cells(initial_boot_params, node);
+	if (dt_root_size_cells < 0)
+		dt_root_size_cells = OF_ROOT_NODE_SIZE_CELLS_DEFAULT;
 	pr_debug("dt_root_size_cells = %x\n", dt_root_size_cells);
 
-	prop = of_get_flat_dt_prop(node, "#address-cells", NULL);
-	if (prop)
-		dt_root_addr_cells = be32_to_cpup(prop);
+	dt_root_addr_cells = fdt_address_cells(initial_boot_params, node);
+	if (dt_root_addr_cells < 0)
+		dt_root_addr_cells = OF_ROOT_NODE_ADDR_CELLS_DEFAULT;
 	pr_debug("dt_root_addr_cells = %x\n", dt_root_addr_cells);
-
-	/* break now */
-	return 1;
 }
 
 u64 __init dt_mem_next_cell(int s, const __be32 **cellp)
@@ -1216,7 +1206,7 @@ bool __init early_init_dt_verify(void *params)
 		return false;
 
 	/* Initialize {size,address}-cells info */
-	of_scan_flat_dt(early_init_dt_scan_root, NULL);
+	early_init_dt_scan_root();
 
 	/* Setup flat device-tree pointer */
 	initial_boot_params = params;
