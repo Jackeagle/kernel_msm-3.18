@@ -76,8 +76,8 @@ void btrfs_leak_debug_check(void)
 
 	while (!list_empty(&buffers)) {
 		eb = list_entry(buffers.next, struct extent_buffer, leak_list);
-		pr_err("BTRFS: buffer leak start %llu len %lu refs %d\n",
-		       eb->start, eb->len, atomic_read(&eb->refs));
+		pr_err("BTRFS: buffer leak start %llu len %lu refs %d bflags %lu\n",
+		       eb->start, eb->len, atomic_read(&eb->refs), eb->bflags);
 		list_del(&eb->leak_list);
 		kmem_cache_free(extent_buffer_cache, eb);
 	}
@@ -187,7 +187,7 @@ free_state_cache:
 	return -ENOMEM;
 }
 
-void extent_io_exit(void)
+void __cold extent_io_exit(void)
 {
 	btrfs_leak_debug_check();
 
@@ -2258,7 +2258,7 @@ int btrfs_get_io_failure_record(struct inode *inode, u64 start, u64 end,
 	return 0;
 }
 
-bool btrfs_check_repairable(struct inode *inode, struct bio *failed_bio,
+bool btrfs_check_repairable(struct inode *inode, unsigned failed_bio_pages,
 			   struct io_failure_record *failrec, int failed_mirror)
 {
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
@@ -2282,7 +2282,7 @@ bool btrfs_check_repairable(struct inode *inode, struct bio *failed_bio,
 	 *	a) deliver good data to the caller
 	 *	b) correct the bad sectors on disk
 	 */
-	if (failed_bio->bi_vcnt > 1) {
+	if (failed_bio_pages > 1) {
 		/*
 		 * to fulfill b), we need to know the exact failing sectors, as
 		 * we don't want to rewrite any more than the failed ones. thus,
@@ -2375,6 +2375,7 @@ static int bio_readpage_error(struct bio *failed_bio, u64 phy_offset,
 	int read_mode = 0;
 	blk_status_t status;
 	int ret;
+	unsigned failed_bio_pages = bio_pages_all(failed_bio);
 
 	BUG_ON(bio_op(failed_bio) == REQ_OP_WRITE);
 
@@ -2382,13 +2383,13 @@ static int bio_readpage_error(struct bio *failed_bio, u64 phy_offset,
 	if (ret)
 		return ret;
 
-	if (!btrfs_check_repairable(inode, failed_bio, failrec,
+	if (!btrfs_check_repairable(inode, failed_bio_pages, failrec,
 				    failed_mirror)) {
 		free_io_failure(failure_tree, tree, failrec);
 		return -EIO;
 	}
 
-	if (failed_bio->bi_vcnt > 1)
+	if (failed_bio_pages > 1)
 		read_mode |= REQ_FAILFAST_DEV;
 
 	phy_offset >>= inode->i_sb->s_blocksize_bits;
@@ -2725,7 +2726,7 @@ static int __must_check submit_one_bio(struct bio *bio, int mirror_num,
 				       unsigned long bio_flags)
 {
 	blk_status_t ret = 0;
-	struct bio_vec *bvec = bio->bi_io_vec + bio->bi_vcnt - 1;
+	struct bio_vec *bvec = bio_last_bvec_all(bio);
 	struct page *page = bvec->bv_page;
 	struct extent_io_tree *tree = bio->bi_private;
 	u64 start;
@@ -2743,20 +2744,21 @@ static int __must_check submit_one_bio(struct bio *bio, int mirror_num,
 	return blk_status_to_errno(ret);
 }
 
-static int merge_bio(struct extent_io_tree *tree, struct page *page,
-		     unsigned long offset, size_t size, struct bio *bio,
-		     unsigned long bio_flags)
-{
-	int ret = 0;
-	if (tree->ops)
-		ret = tree->ops->merge_bio_hook(page, offset, size, bio,
-						bio_flags);
-	return ret;
-
-}
-
 /*
  * @opf:	bio REQ_OP_* and REQ_* flags as one value
+ * @tree:	tree so we can call our merge_bio hook
+ * @wbc:	optional writeback control for io accounting
+ * @page:	page to add to the bio
+ * @pg_offset:	offset of the new bio or to check whether we are adding
+ *              a contiguous page to the previous one
+ * @size:	portion of page that we want to write
+ * @offset:	starting offset in the page
+ * @bdev:	attach newly created bios to this bdev
+ * @bio_ret:	must be valid pointer, newly allocated bio will be stored there
+ * @end_io_func:     end_io callback for new bio
+ * @mirror_num:	     desired mirror to read/write
+ * @prev_bio_flags:  flags of previous bio to see if we can merge the current one
+ * @bio_flags:	flags of the current bio to see if we can merge them
  */
 static int submit_extent_page(unsigned int opf, struct extent_io_tree *tree,
 			      struct writeback_control *wbc,
@@ -2772,21 +2774,27 @@ static int submit_extent_page(unsigned int opf, struct extent_io_tree *tree,
 {
 	int ret = 0;
 	struct bio *bio;
-	int contig = 0;
-	int old_compressed = prev_bio_flags & EXTENT_BIO_COMPRESSED;
 	size_t page_size = min_t(size_t, size, PAGE_SIZE);
 	sector_t sector = offset >> 9;
 
-	if (bio_ret && *bio_ret) {
+	ASSERT(bio_ret);
+
+	if (*bio_ret) {
+		bool contig;
+		bool can_merge = true;
+
 		bio = *bio_ret;
-		if (old_compressed)
+		if (prev_bio_flags & EXTENT_BIO_COMPRESSED)
 			contig = bio->bi_iter.bi_sector == sector;
 		else
 			contig = bio_end_sector(bio) == sector;
 
-		if (prev_bio_flags != bio_flags || !contig ||
+		if (tree->ops && tree->ops->merge_bio_hook(page, offset,
+					page_size, bio, bio_flags))
+			can_merge = false;
+
+		if (prev_bio_flags != bio_flags || !contig || !can_merge ||
 		    force_bio_submit ||
-		    merge_bio(tree, page, pg_offset, page_size, bio, bio_flags) ||
 		    bio_add_page(bio, page, page_size, pg_offset) < page_size) {
 			ret = submit_one_bio(bio, mirror_num, prev_bio_flags);
 			if (ret < 0) {
@@ -2812,10 +2820,7 @@ static int submit_extent_page(unsigned int opf, struct extent_io_tree *tree,
 		wbc_account_io(wbc, page, page_size);
 	}
 
-	if (bio_ret)
-		*bio_ret = bio;
-	else
-		ret = submit_one_bio(bio, mirror_num, bio_flags);
+	*bio_ret = bio;
 
 	return ret;
 }
@@ -2885,8 +2890,7 @@ static int __do_readpage(struct extent_io_tree *tree,
 {
 	struct inode *inode = page->mapping->host;
 	u64 start = page_offset(page);
-	u64 page_end = start + PAGE_SIZE - 1;
-	u64 end;
+	const u64 end = start + PAGE_SIZE - 1;
 	u64 cur = start;
 	u64 extent_offset;
 	u64 last_byte = i_size_read(inode);
@@ -2904,7 +2908,6 @@ static int __do_readpage(struct extent_io_tree *tree,
 
 	set_page_extent_mapped(page);
 
-	end = page_end;
 	if (!PageUptodate(page)) {
 		if (cleancache_get_page(page) == 0) {
 			BUG_ON(blocksize != PAGE_SIZE);
@@ -5227,11 +5230,6 @@ void set_extent_buffer_uptodate(struct extent_buffer *eb)
 		page = eb->pages[i];
 		SetPageUptodate(page);
 	}
-}
-
-int extent_buffer_uptodate(struct extent_buffer *eb)
-{
-	return test_bit(EXTENT_BUFFER_UPTODATE, &eb->bflags);
 }
 
 int read_extent_buffer_pages(struct extent_io_tree *tree,
