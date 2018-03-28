@@ -1439,7 +1439,9 @@ static bool check_conflicting_actions(u32 action1, u32 action2)
 	if (xored_actions & (MLX5_FLOW_CONTEXT_ACTION_DROP  |
 			     MLX5_FLOW_CONTEXT_ACTION_ENCAP |
 			     MLX5_FLOW_CONTEXT_ACTION_DECAP |
-			     MLX5_FLOW_CONTEXT_ACTION_MOD_HDR))
+			     MLX5_FLOW_CONTEXT_ACTION_MOD_HDR  |
+			     MLX5_FLOW_CONTEXT_ACTION_VLAN_POP |
+			     MLX5_FLOW_CONTEXT_ACTION_VLAN_PUSH))
 		return true;
 
 	return false;
@@ -1647,7 +1649,6 @@ try_add_to_existing_fg(struct mlx5_flow_table *ft,
 
 	list_for_each_entry(iter, match_head, list) {
 		nested_down_read_ref_node(&iter->g->node, FS_LOCK_PARENT);
-		ida_pre_get(&iter->g->fte_allocator, GFP_KERNEL);
 	}
 
 search_again_locked:
