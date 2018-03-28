@@ -66,7 +66,7 @@ static blk_status_t pmem_clear_poison(struct pmem_device *pmem,
 		rc = BLK_STS_IOERR;
 	if (cleared > 0 && cleared / 512) {
 		cleared /= 512;
-		dev_dbg(dev, "%s: %#llx clear %ld sector%s\n", __func__,
+		dev_dbg(dev, "%#llx clear %ld sector%s\n",
 				(unsigned long long) sector, cleared,
 				cleared > 1 ? "s" : "");
 		badblocks_clear(&pmem->bb, sector, cleared);
@@ -408,7 +408,8 @@ static int pmem_attach_disk(struct device *dev,
 	nvdimm_badblocks_populate(nd_region, &pmem->bb, &bb_res);
 	disk->bb = &pmem->bb;
 
-	dax_dev = alloc_dax(pmem, disk->disk_name, &pmem_dax_ops);
+	dax_dev = alloc_dax_devmap(pmem, disk->disk_name, &pmem_dax_ops,
+			&pmem->pgmap);
 	if (!dax_dev) {
 		put_disk(disk);
 		return -ENOMEM;
@@ -547,17 +548,7 @@ static struct nd_device_driver nd_pmem_driver = {
 	.type = ND_DRIVER_NAMESPACE_IO | ND_DRIVER_NAMESPACE_PMEM,
 };
 
-static int __init pmem_init(void)
-{
-	return nd_driver_register(&nd_pmem_driver);
-}
-module_init(pmem_init);
-
-static void pmem_exit(void)
-{
-	driver_unregister(&nd_pmem_driver.drv);
-}
-module_exit(pmem_exit);
+module_nd_driver(nd_pmem_driver);
 
 MODULE_AUTHOR("Ross Zwisler <ross.zwisler@linux.intel.com>");
 MODULE_LICENSE("GPL v2");
