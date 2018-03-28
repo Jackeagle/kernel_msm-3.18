@@ -80,6 +80,8 @@ next/soc
 		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-soc-4.17-2
 	omap/soc-pt2
 		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v4.17/soc-pt2-signed
+	rockchip/soc32
+		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v4.17-rockchip-soc32-1
 
 next/dt
 	patch
@@ -202,6 +204,12 @@ next/dt
 		git://git.infradead.org/linux-mvebu tags/mvebu-dt-4.17-2
 	mvebu/dt-spdx
 		git://git.infradead.org/linux-mvebu tags/mvebu-dt-4.17-spdx
+	rockchip/dt
+		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v4.17-rockchip-dts32-1
+	rockchip/dt64
+		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v4.17-rockchip-dts64-1
+	uniphier/dt-2
+		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/masahiroy/linux-uniphier tags/uniphier-dt-v4.17-2
 
 next/drivers
 	patch
@@ -239,6 +247,10 @@ next/drivers
 		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/agross/linux tags/qcom-drivers-for-4.17
 	scmi/fixes
 		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/scmi-fixes-4.17
+	drivers/reset-2
+		git://git.pengutronix.de/git/pza/linux tags/reset-for-4.17-2
+	rockchip/drivers
+		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v4.17-rockchip-drivers-1
 
 fixes
 	patch
