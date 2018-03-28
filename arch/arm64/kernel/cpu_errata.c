@@ -78,6 +78,8 @@ cpu_enable_trap_ctr_access(const struct arm64_cpu_capabilities *__unused)
 	config_sctlr_el1(SCTLR_EL1_UCT, 0);
 }
 
+atomic_t arm64_el2_vector_last_slot = ATOMIC_INIT(-1);
+
 #ifdef CONFIG_HARDEN_BRANCH_PREDICTOR
 #include <asm/mmu_context.h>
 #include <asm/cacheflush.h>
@@ -85,8 +87,6 @@ cpu_enable_trap_ctr_access(const struct arm64_cpu_capabilities *__unused)
 DEFINE_PER_CPU_READ_MOSTLY(struct bp_hardening_data, bp_hardening_data);
 
 #ifdef CONFIG_KVM
-extern char __qcom_hyp_sanitize_link_stack_start[];
-extern char __qcom_hyp_sanitize_link_stack_end[];
 extern char __smccc_workaround_1_smc_start[];
 extern char __smccc_workaround_1_smc_end[];
 extern char __smccc_workaround_1_hvc_start[];
@@ -108,7 +108,6 @@ static void __install_bp_hardening_cb(bp_hardening_cb_t fn,
 				      const char *hyp_vecs_start,
 				      const char *hyp_vecs_end)
 {
-	static int last_slot = -1;
 	static DEFINE_SPINLOCK(bp_lock);
 	int cpu, slot = -1;
 
@@ -121,10 +120,8 @@ static void __install_bp_hardening_cb(bp_hardening_cb_t fn,
 	}
 
 	if (slot == -1) {
-		last_slot++;
-		BUG_ON(((__bp_harden_hyp_vecs_end - __bp_harden_hyp_vecs_start)
-			/ SZ_2K) <= last_slot);
-		slot = last_slot;
+		slot = atomic_inc_return(&arm64_el2_vector_last_slot);
+		BUG_ON(slot >= BP_HARDEN_EL2_SLOTS);
 		__copy_hyp_vect_bpi(slot, hyp_vecs_start, hyp_vecs_end);
 	}
 
@@ -133,8 +130,6 @@ static void __install_bp_hardening_cb(bp_hardening_cb_t fn,
 	spin_unlock(&bp_lock);
 }
 #else
-#define __qcom_hyp_sanitize_link_stack_start	NULL
-#define __qcom_hyp_sanitize_link_stack_end	NULL
 #define __smccc_workaround_1_smc_start		NULL
 #define __smccc_workaround_1_smc_end		NULL
 #define __smccc_workaround_1_hvc_start		NULL
@@ -179,12 +174,25 @@ static void call_hvc_arch_workaround_1(void)
 	arm_smccc_1_1_hvc(ARM_SMCCC_ARCH_WORKAROUND_1, NULL);
 }
 
+static void qcom_link_stack_sanitization(void)
+{
+	u64 tmp;
+
+	asm volatile("mov	%0, x30		\n"
+		     ".rept	16		\n"
+		     "bl	. + 4		\n"
+		     ".endr			\n"
+		     "mov	x30, %0		\n"
+		     : "=&r" (tmp));
+}
+
 static void
 enable_smccc_arch_workaround_1(const struct arm64_cpu_capabilities *entry)
 {
 	bp_hardening_cb_t cb;
 	void *smccc_start, *smccc_end;
 	struct arm_smccc_res res;
+	u32 midr = read_cpuid_id();
 
 	if (!entry->matches(entry, SCOPE_LOCAL_CPU))
 		return;
@@ -217,30 +225,15 @@ enable_smccc_arch_workaround_1(const struct arm64_cpu_capabilities *entry)
 		return;
 	}
 
+	if (((midr & MIDR_CPU_MODEL_MASK) == MIDR_QCOM_FALKOR) ||
+	    ((midr & MIDR_CPU_MODEL_MASK) == MIDR_QCOM_FALKOR_V1))
+		cb = qcom_link_stack_sanitization;
+
 	install_bp_hardening_cb(entry, cb, smccc_start, smccc_end);
 
 	return;
 }
 
-static void qcom_link_stack_sanitization(void)
-{
-	u64 tmp;
-
-	asm volatile("mov	%0, x30		\n"
-		     ".rept	16		\n"
-		     "bl	. + 4		\n"
-		     ".endr			\n"
-		     "mov	x30, %0		\n"
-		     : "=&r" (tmp));
-}
-
-static void
-qcom_enable_link_stack_sanitization(const struct arm64_cpu_capabilities *entry)
-{
-	install_bp_hardening_cb(entry, qcom_link_stack_sanitization,
-				__qcom_hyp_sanitize_link_stack_start,
-				__qcom_hyp_sanitize_link_stack_end);
-}
 #endif	/* CONFIG_HARDEN_BRANCH_PREDICTOR */
 
 #define CAP_MIDR_RANGE(model, v_min, r_min, v_max, r_max)	\
@@ -499,6 +492,18 @@ const struct arm64_cpu_capabilities arm64_errata[] = {
 	{
 		.capability = ARM64_HARDEN_BP_POST_GUEST_EXIT,
 		ERRATA_MIDR_RANGE_LIST(qcom_bp_harden_cpus),
+	},
+#endif
+#ifdef CONFIG_HARDEN_EL2_VECTORS
+	{
+		.desc = "Cortex-A57 EL2 vector hardening",
+		.capability = ARM64_HARDEN_EL2_VECTORS,
+		ERRATA_MIDR_ALL_VERSIONS(MIDR_CORTEX_A57),
+	},
+	{
+		.desc = "Cortex-A72 EL2 vector hardening",
+		.capability = ARM64_HARDEN_EL2_VECTORS,
+		ERRATA_MIDR_ALL_VERSIONS(MIDR_CORTEX_A72),
 	},
 #endif
 	{
