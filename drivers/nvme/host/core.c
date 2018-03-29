@@ -1448,6 +1448,8 @@ static void __nvme_revalidate_disk(struct gendisk *disk, struct nvme_id_ns *id)
 	if (ns->noiob)
 		nvme_set_chunk_size(ns);
 	nvme_update_disk_info(disk, ns, id);
+	if (ns->ndev)
+		nvme_nvm_update_nvm_info(ns);
 #ifdef CONFIG_NVME_MULTIPATH
 	if (ns->head->disk)
 		nvme_update_disk_info(ns->head->disk, ns, id);
@@ -2217,8 +2219,8 @@ out_unlock:
 }
 
 int nvme_get_log_ext(struct nvme_ctrl *ctrl, struct nvme_ns *ns,
-			    u8 log_page, void *log,
-			    size_t size, size_t offset)
+		     u8 log_page, void *log,
+		     size_t size, size_t offset)
 {
 	struct nvme_command c = { };
 	unsigned long dwlen = size / 4 - 1;
