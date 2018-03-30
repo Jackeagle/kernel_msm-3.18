@@ -4908,16 +4908,13 @@ static int maybe_insert_hole(struct btrfs_root *root, struct inode *inode,
 
 	ret = btrfs_drop_extents(trans, root, inode, offset, offset + len, 1);
 	if (ret) {
-		btrfs_abort_transaction(trans, ret);
 		btrfs_end_transaction(trans);
 		return ret;
 	}
 
 	ret = btrfs_insert_file_extent(trans, root, btrfs_ino(BTRFS_I(inode)),
 			offset, 0, 0, len, 0, len, 0, 0, 0);
-	if (ret)
-		btrfs_abort_transaction(trans, ret);
-	else
+	if (!ret)
 		btrfs_update_inode(trans, root, inode);
 	btrfs_end_transaction(trans);
 	return ret;
