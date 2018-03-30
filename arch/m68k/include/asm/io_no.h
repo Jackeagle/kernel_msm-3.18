@@ -45,6 +45,64 @@
 #define PCI_IOBASE	((void __iomem *) PCI_IO_PA)
 #define PCI_SPACE_LIMIT	PCI_IO_MASK
 
+/*
+ * The ColdFire SoC internal peripherals are mapped into virtual address
+ * space using the ACR registers of the cache control unit. This means we
+ * are using a 1:1 physical:virtual mapping for them. We can quickly
+ * determine if we are accessing an internal peripheral device given the
+ * physical or vitrual address using the same range check.
+ */
+static int __cf_internalio(unsigned long addr)
+{
+	return (addr >= IOMEMBASE) && (addr <= IOMEMBASE + IOMEMSIZE - 1);
+}
+
+static int cf_internalio(const volatile void __iomem *addr)
+{
+	return __cf_internalio((unsigned long) addr);
+}
+
+/*
+ * We need to treat built-in peripherals and bus based address ranges
+ * differently. Local built-in peripherals (and the ColdFire SoC parts
+ * have quite a lot of them) are always native endian - which is big
+ * endian on m68k/ColdFire. Bus based address ranges, like the PIC bus,
+ * are accessed little endian - so we need to byte swap those.
+ */
+#define readw readw
+static inline u16 readw(const volatile void __iomem *addr)
+{
+	if (cf_internalio(addr))
+		return __raw_readw(addr);
+	return __le16_to_cpu(__raw_readw(addr));
+}
+
+#define readl readl
+static inline u32 readl(const volatile void __iomem *addr)
+{
+	if (cf_internalio(addr))
+		return __raw_readl(addr);
+	return __le32_to_cpu(__raw_readl(addr));
+}
+
+#define writew writew
+static inline void writew(u16 value, volatile void __iomem *addr)
+{
+	if (cf_internalio(addr))
+		__raw_writew(value, addr);
+	else
+		__raw_writew(__cpu_to_le16(value), addr);
+}
+
+#define writel writel
+static inline void writel(u32 value, volatile void __iomem *addr)
+{
+	if (cf_internalio(addr))
+		__raw_writel(value, addr);
+	else
+		__raw_writel(__cpu_to_le32(value), addr);
+}
+
 #else
 
 #define readb __raw_readb
