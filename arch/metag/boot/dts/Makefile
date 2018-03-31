@@ -12,5 +12,3 @@ endif
 
 dtb-$(CONFIG_METAG_BUILTIN_DTB)	+= $(builtindtb-y).dtb
 obj-$(CONFIG_METAG_BUILTIN_DTB)	+= $(builtindtb-y).dtb.o
-
-.SECONDARY: $(obj)/$(builtindtb-y).dtb.S
