@@ -53,15 +53,12 @@ body {
 	float: left;
 }
 
-.btn-group button {
-	background-color: Green;
-	border: 2px solid white;
-	color: white;
-	padding: 48px 48px;
-	cursor: pointer;
-	float: left;
+.button:hover { 
+	background-color: #3e8e41;
 }
-.btn-group:after {
+
+
+.button:after {
     content: "";
     clear: both;
     display: table;
@@ -130,20 +127,20 @@ This is our solution to moveable plant pots remotely controlled via a web interf
 		<td>"Value?"</td>
 	</tr>
 </table>
-<button class = "button" id="test" onclick="changeColour(this)"></button>
+
 <script>
 function changeColour(elem) {	
 	document.getElementById(elem.id).style.background ="#ff6600";
 		setInterval(function(){  
 			document.getElementById(elem.id).style.background ="#008000";
-		},3000);
+		},2000);
 }
 </script>
 
-<button class="button" style="margin-left: 39.6%" id="A" onclick="changeColour(this);myFunction(this)"></button>
-<button class="button" id="B" onclick="changeColour(this);myFunction(this);"></button>
-<button class="button" id="C" onclick="changeColour(this);myFunction(this)"></button>
-<button class="button" id="D" onclick="changeColour(this);myFunction(this)"></button>
+<button class="button" style="margin-left: 39.6%" id="A" onclick="myFunction(this)"></button>
+<button class="button" id="B" onclick="myFunction(this);"></button>
+<button class="button" id="C" onclick="myFunction(this)"></button>
+<button class="button" id="D" onclick="myFunction(this)"></button>
 
 
 <button class="button" style="margin-left: 39.6%" id="E" onclick="myFunction(this)"></button>
@@ -174,6 +171,55 @@ function changeColour(elem) {
 		request.open('POST', 'lightsensorvalue1.php', true); //actually opening and sending the files 
 		request.send();
 	},1000);		//wait
+</script>
+
+<script>	//position script
+	setInterval(function(){ //wait function 
+		var request = new XMLHttpRequest(); //XMLHttpRequest is in-built function
+		request.onreadystatechange = function(){
+			if (request.readyState == 4 && request.status == 200){ //server status and checks 
+				//console.log(request.responseText); //request.responseText is the actual value that is being sent, .log isn't actually displaying the data
+				if (request.responseText == 'A'){
+					document.getElementById("A").style.background ="#ff6600";
+				} else if (request.responseText == 'B'){
+					document.getElementById("B").style.background ="#ff6600";
+				} else if (request.responseText == 'C'){
+					document.getElementById("C").style.background ="#ff6600";
+				} else if (request.responseText == 'D'){
+					document.getElementById("D").style.background ="#ff6600";
+				} else if (request.responseText == 'E'){
+					document.getElementById("E").style.background ="#ff6600";
+				} else if (request.responseText == 'F'){
+					document.getElementById("F").style.background ="#ff6600";
+				} else if (request.responseText == 'G'){
+					document.getElementById("G").style.background ="#ff6600";
+				} else if (request.responseText == 'H'){
+					document.getElementById("H").style.background ="#ff6600";
+				} else if (request.responseText == 'I'){
+					document.getElementById("I").style.background ="#ff6600";
+				} else if (request.responseText == 'J'){
+					document.getElementById("J").style.background ="#ff6600";
+				} else if (request.responseText == 'K'){
+					document.getElementById("K").style.background ="#ff6600";
+				} else if (request.responseText == 'L'){
+					document.getElementById("L").style.background ="#ff6600";
+				} else if (request.responseText == 'M'){
+					document.getElementById("M").style.background ="#ff6600";
+				} else if (request.responseText == 'N'){
+					document.getElementById("N").style.background ="#ff6600";
+				} else if (request.responseText == 'O'){
+					document.getElementById("O").style.background ="#ff6600";
+				} else if (request.responseText == 'P'){
+					document.getElementById("P").style.background ="#ff6600";
+				} else { 
+					document.getElementById("A").style.background ="#ff6600";
+				}
+			}
+		}		
+		request.open('POST', 'positionupdate.php', true); //actually opening and sending the files 
+		request.send();	
+	},3000);		//wait
+	
 </script>
 
 <script>
