@@ -54,7 +54,7 @@ body {
 }
 
 .button:hover { 
-	background-color: #3e8e41;
+	opacity: 0.7;
 }
 
 
@@ -96,7 +96,8 @@ tr {
 
 <body style="overflow: auto;">
 
-<a href="#" class="fa fa-facebook"></a> <a href="#" class="fa fa-instagram"></a>	
+<a href="https://www.facebook.com/ENG5220RoboPot/" class="fa fa-facebook"></a> 
+<a href="#" class="fa fa-instagram"></a>	
 <h1>RoboPot</h1>
 
 <h3>Group 7 - Fraser Law, Fraser Menzies and Alastair Thurlbeck</h3>
@@ -129,6 +130,7 @@ This is our solution to moveable plant pots remotely controlled via a web interf
 </table>
 
 <script>
+
 function changeColour(elem) {	
 	document.getElementById(elem.id).style.background ="#ff6600";
 		setInterval(function(){  
@@ -175,6 +177,22 @@ function changeColour(elem) {
 
 <script>	//position script
 	setInterval(function(){ //wait function 
+	document.getElementById("A").style.background ="#008000";
+	document.getElementById("B").style.background ="#008000";
+	document.getElementById("C").style.background ="#008000";
+	document.getElementById("D").style.background ="#008000";
+	document.getElementById("E").style.background ="#008000";
+	document.getElementById("F").style.background ="#008000";
+	document.getElementById("G").style.background ="#008000";
+	document.getElementById("H").style.background ="#008000";
+	document.getElementById("I").style.background ="#008000";
+	document.getElementById("J").style.background ="#008000";
+	document.getElementById("K").style.background ="#008000";
+	document.getElementById("L").style.background ="#008000";
+	document.getElementById("M").style.background ="#008000";
+	document.getElementById("N").style.background ="#008000";
+	document.getElementById("O").style.background ="#008000";
+	document.getElementById("P").style.background ="#008000";
 		var request = new XMLHttpRequest(); //XMLHttpRequest is in-built function
 		request.onreadystatechange = function(){
 			if (request.readyState == 4 && request.status == 200){ //server status and checks 
