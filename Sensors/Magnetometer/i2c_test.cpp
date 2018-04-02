@@ -88,32 +88,62 @@ int main(){
 LSM303AGR lsm;
 
 lsm.configure();
-	for (int i = 0; i<100; i++){
+	for (int i = 0; i<1000; i++){
 
 //		lsm.readCh1();
-		int y = lsm.readCh1();
+//		int y = lsm.readCh1();
 //		lsm.readCh2();
-		int x = lsm.readCh2();
+//		int x = lsm.readCh2();
 //		lsm.readCh3();
 		printf("--------------------------------------------\n");
+		int sum = 0;
+		float average = 0;
+		float compass[10];
+		float direction; //compass coordingate
 
-		int direction; //compass coordingate
-		if (y > 0){
-			direction = 90 - (atan(x/y)*180/PI)
-			printf("Direction = %d", direction);
-		} else if (y < 0){
-			direction = 270 - (atan(x/y)*180/PI)
-			printf("Direction = %d", direction);
-		} else if (y == 0 && x < 0){
-			direction = 180;
-			printf("Direction = %d", direction);
-		} else if (y == 0 && x > 0){
-			direction == 0;
-			printf("Direction = %d", direction);
-		} else {
-			printf("Direction = error");
+		for (int j = 0; j < 10; j++){
+		//	int sum = 0;
+		//	int average = 0;
+		//	int size = 0;
+			int x = lsm.readCh1();
+			int y = lsm.readCh2();
+			if (y > 0){
+				direction = (90 - (atan(x/y)*(180/PI)));
+		//	printf("Direction = %d\n", direction);
+		//		direction = compass[j];
+				compass[j] = direction;
+			} else if (y < 0){
+				direction = (270 - (atan(x/y)*(180/PI)));
+		//	printf("Direction = %d\n", direction);
+		//		return direction;
+		//		direction = compass[j];
+				compass[j] = direction;
+			} else if (y == 0 && x < 0){
+				direction = 180;
+		//	printf("Direction = %d\n", direction);
+		//		return direction;
+		//		direction = compass[j];
+				compass[j] = direction;
+			} else if (y == 0 && x > 0){
+				direction == 0;
+		//	printf("Direction = %d\n", direction);
+		//		return direction;
+		//		direction = compass[j];
+				compass[j] = direction;
+			} else {
+				printf("Direction = error\n");
+		//		return 0;
+			}
+		sum += compass[j];
+//		average = sum/10;
+//		return average = sum/size;
+
+
+//		cout << "Average = " << average << endl;
 		}
-		usleep(2000000); //2 seconds
+	average = sum/10;
+	cout << "average direction = " << average << endl;
+	sleep(1); //1 second(s)
 	}
 /*calculations for compass headings
 Direction (y>0) =  90 - [arctan(x/y)]*180/pi
