@@ -54,7 +54,7 @@ int LSM303AGR::dataAvailable(){
 }
 
 int LSM303AGR::configure(){
-	alastair = wiringPiI2CWriteReg8(fd, CFG_REG_A_M, 0x00);//copnfigure with default settings
+	alastair = wiringPiI2CWriteReg8(fd, CFG_REG_A_M, 0x00);//configure with default settings
 }
 
 int LSM303AGR::readCh1(){
@@ -74,9 +74,12 @@ int LSM303AGR::readCh2(){
 	return yresult;
 }
 //not actually required to calculate the compas rotation
-//int LSM303AGR::readCh3(){
-//	msbZ = wiringPiI2CReadReg8(fd, OUTZ_H_REG_M);//same again, different regs
-//	lsbZ = wiringPiI2CReadReg8(fd, OUTZ_L_REG_M);
+int LSM303AGR::readCh3(){
+	msbZ = wiringPiI2CReadReg8(fd, OUTZ_H_REG_M);//same again, different regs
+	lsbZ = wiringPiI2CReadReg8(fd, OUTZ_L_REG_M);
+	zresult = (msbZ << 8) |  (lsbZ);
+	return zresult;
+}
 //	printf("%d", msbZ);
 //	printf("\n");
 //	printf("%d", lsbZ);
@@ -88,14 +91,14 @@ int main(){
 LSM303AGR lsm;
 
 lsm.configure();
-	for (int i = 0; i<1000; i++){
+	for (int i = 0; i<100000; i++){
 
 //		lsm.readCh1();
 //		int y = lsm.readCh1();
 //		lsm.readCh2();
 //		int x = lsm.readCh2();
 //		lsm.readCh3();
-		printf("--------------------------------------------\n");
+//		printf("--------------------------------------------\n");
 		int sum = 0;
 		float average = 0;
 		float compass[10];
@@ -105,15 +108,19 @@ lsm.configure();
 		//	int sum = 0;
 		//	int average = 0;
 		//	int size = 0;
-			int x = lsm.readCh1();
-			int y = lsm.readCh2();
+			float x = lsm.readCh1();
+			float y = lsm.readCh2();
+			float z = lsm.readCh3();
+			float coord = x/y;
+//			printf("coord = %f\n", coord);
+//			printf("atan(coord) = %f\n", atan (coord));
 			if (y > 0){
-				direction = (90 - (atan(x/y)*(180/PI)));
+				direction = 90 - atan(coord)*(180/PI);
 		//	printf("Direction = %d\n", direction);
 		//		direction = compass[j];
 				compass[j] = direction;
 			} else if (y < 0){
-				direction = (270 - (atan(x/y)*(180/PI)));
+				direction = 270 - atan(coord)*(180/PI);
 		//	printf("Direction = %d\n", direction);
 		//		return direction;
 		//		direction = compass[j];
@@ -134,6 +141,7 @@ lsm.configure();
 				printf("Direction = error\n");
 		//		return 0;
 			}
+//		cout <<
 		sum += compass[j];
 //		average = sum/10;
 //		return average = sum/size;
@@ -143,7 +151,7 @@ lsm.configure();
 		}
 	average = sum/10;
 	cout << "average direction = " << average << endl;
-	sleep(1); //1 second(s)
+//	sleep(1); //1 second(s)
 	}
 /*calculations for compass headings
 Direction (y>0) =  90 - [arctan(x/y)]*180/pi
