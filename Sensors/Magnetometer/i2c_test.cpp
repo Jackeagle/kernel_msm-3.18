@@ -5,7 +5,10 @@
 #include "LSM303AGR.h"
 #include <unistd.h>
 #include <stdio.h>
+#include <math.h>
 
+
+#define PI 3.14159265
 #define ACC_ADDR 0x19
 #define MAG_ADDR 0x1E
 //default addresses
@@ -57,27 +60,29 @@ int LSM303AGR::configure(){
 int LSM303AGR::readCh1(){
 	msbX = wiringPiI2CReadReg8(fd, OUTX_H_REG_M);//68h and 69h for X output registers, 69 is MSB(?)
 	lsbX = wiringPiI2CReadReg8(fd, OUTX_L_REG_M);
-	int16_t result = (msbX<<8 | lsbX);//the value is a 16-bit signed integer. Therefore, shift the 8 bits read before (msbX) and input the latter 8 bits on the end.
-	printf("%d\n\n",result);
+	xresult = (msbX<<8 | lsbX);//the value is a 16-bit signed integer. Therefore, shift the 8 bits read before (msbX) and input the latter 8 bits on the end.
+//	printf("%d\n\n",xresult);
+	return xresult;
 //	return(wiringPiI2CReadReg8(fd, OUTX_H_REG_M) << 8) | wiringPiI2CReadReg8(fd, OUTX_L_REG_M);
 }
 
 int LSM303AGR::readCh2(){
 	msbY = wiringPiI2CReadReg8(fd, OUTY_H_REG_M);//6Ah and 6Bh for y output registers,
 	lsbY = wiringPiI2CReadReg8(fd, OUTY_L_REG_M);
-	int16_t result = (msbY << 8) | (lsbY);
-	printf("%d\n\n", result);
+	yresult = (msbY << 8) | (lsbY);
+//	printf("%d\n\n", yresult);
+	return yresult;
 }
 //not actually required to calculate the compas rotation
-int LSM303AGR::readCh3(){
-	msbZ = wiringPiI2CReadReg8(fd, OUTZ_H_REG_M);//same again, different regs
-	lsbZ = wiringPiI2CReadReg8(fd, OUTZ_L_REG_M);
-	printf("%d", msbZ);
-	printf("\n");
-	printf("%d", lsbZ);
-	printf("\n\n");
+//int LSM303AGR::readCh3(){
+//	msbZ = wiringPiI2CReadReg8(fd, OUTZ_H_REG_M);//same again, different regs
+//	lsbZ = wiringPiI2CReadReg8(fd, OUTZ_L_REG_M);
+//	printf("%d", msbZ);
+//	printf("\n");
+//	printf("%d", lsbZ);
+//	printf("\n\n");
 //cout << msbZ << "\n" << lsbZ << "\n" << "\r";
-}
+//}
 
 int main(){
 LSM303AGR lsm;
@@ -85,11 +90,29 @@ LSM303AGR lsm;
 lsm.configure();
 	for (int i = 0; i<100; i++){
 
-		lsm.readCh1();
-		lsm.readCh2();
-		lsm.readCh3();
+//		lsm.readCh1();
+		int y = lsm.readCh1();
+//		lsm.readCh2();
+		int x = lsm.readCh2();
+//		lsm.readCh3();
 		printf("--------------------------------------------\n");
 
+		int direction; //compass coordingate
+		if (y > 0){
+			direction = 90 - (atan(x/y)*180/PI)
+			printf("Direction = %d", direction);
+		} else if (y < 0){
+			direction = 270 - (atan(x/y)*180/PI)
+			printf("Direction = %d", direction);
+		} else if (y == 0 && x < 0){
+			direction = 180;
+			printf("Direction = %d", direction);
+		} else if (y == 0 && x > 0){
+			direction == 0;
+			printf("Direction = %d", direction);
+		} else {
+			printf("Direction = error");
+		}
 		usleep(2000000); //2 seconds
 	}
 /*calculations for compass headings
