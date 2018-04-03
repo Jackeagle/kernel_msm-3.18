@@ -68,7 +68,7 @@ int pcibios_enable_device(struct pci_dev *dev, int mask)
 	if ((err = pcibios_enable_resources(dev, mask)) < 0)
 		return err;
 
-	if (!dev->msi_enabled)
+	if (!pci_dev_msi_enabled(dev))
 		pcibios_enable_irq(dev);
 	return 0;
 }

@@ -399,10 +399,12 @@ int pcibios_enable_device(struct pci_dev *dev, int mask)
 {
 	int err;
 
-	err = pci_enable_resources(dev, mask);
-	if (err == 0)
+	if ((err = pci_enable_resources(dev, mask)) < 0)
+		return err;
+
+	if (!pci_dev_msi_enabled(dev))
 		pcibios_enable_irq(dev);
-	return err;
+	return 0;
 }
 
 /*
