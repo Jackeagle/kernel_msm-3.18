@@ -13,6 +13,9 @@ class LSM303AGR
 	int lsbZ;
 	int fd;
 	int alastair;
+	int16_t xresult;
+	int16_t yresult;
+	int16_t zresult;
 public:
 	LSM303AGR();
 	int configure();
