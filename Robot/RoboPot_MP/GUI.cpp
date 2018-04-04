@@ -11,7 +11,6 @@ GUI::~GUI()
 
 int GUI::Setup()
 {
-
 	Send(SetupFile, SetupMessage);
 }
 

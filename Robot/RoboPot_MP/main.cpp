@@ -17,100 +17,66 @@ location class
 #include "Move.h"
 #include "Project_Config.h"
 
-//Function Declarations
-
-
-//Calculates coordinates from location reference
-//@Param int ref - Location reference
-//@Param int *x - x coordinate
-//@Param int *y - y coordinate
-void Find_Direction(int *Direction);
-
-//Reads proximity sensor
-//@Param int *Proximity - Distance of robot to object in front
-void Find_Pot(char* Pot, int Direction, int Proximity);
-
-//Turns robot
-//@Param char *Direction- required direction to be pointed in
-void Turn(char Direction);
-
-
-
 int main()
 {
-	char Pot = 'a';    //robot location
-	int Turn_1 = 0;
-	int Turn_2 = 0;
-	int Move_x = 0;
-	int Move_y = 0;
-	int i;
+	char Pot_Location = 'a'; //Initialise Pot Location to 'a'
+	char Destination;
+	int Face_EastOrWest_Flag = 0;
+	int Face_NorthOrSouth_Flag = 0;
+	int Move_EastOrWest_Flag = 0;
+	int Move_NorthOrSouth_Flag = 0;
 
-	GUI interface;
+	//Declare class objects
+	GUI interface;	
 	Location loc;
 	Move motors;
 
-	motors.Setup();
-	interface.Setup();
-	loc.Setup();
-
-	//Check Drive Function
-	char cmd = interface.Read_Cmd(cmdfile);
-
-	while (1) {
-		if (interface.Read_Cmd(cmdfile)!= cmd) {
-		
-			motors.Drive();
-
-			cmd = interface.Read_Cmd(cmdfile);
-		}
-	}
-
-	/*
+	motors.Initialise(); //Initialise Motors
+	
 	while (1)
 	{
-		bool Move_Flag = interface.Check_Cmd(cmdfile);
+		bool Move_Flag = interface.Check_Cmd(cmdfile); //Check for destination request from GUI
 
-		if ( Move_Flag == true)
+		if ( Move_Flag == true)	//If destination is sent from GUI
 		{
-			char cmd = interface.Read_Cmd(cmdfile);
+			Destination = interface.Read_Cmd(cmdfile);	//Read destination
 
-			if ( cmd != Pot)
+			if ( Destination != Pot_Location)	//If Destination is different from initial location
 			{
-				loc.Find_Pot();
-				loc.Find_Path(cmd, &Pot, &Turn_1, &Turn_2, &Move_x, &Move_y);
+				Pot_Location = loc.Find_Pot();
+				loc.Find_Path(Destination, Pot_Location, &X_Bearing, &Y_Bearing, &X_PathLength, &Y_PathLength,);
 
-				if (&Move_x != 0)
+				if (&X_PathLength, != 0)
 				{
-					Turn(&Turn_1);
-					for (i = 0; i<Move_x; i++)
+					Motors.Turn(&X_Bearing);
+					for (i = 0; i<X_PathLength; i++)
 					{
-						Drive();
-						Find_Location(&Pot, Direction, Proximity);
-						interface.Send(ToGUI, &Pot);
+						motors.Drive();
+						Pot_Location = loc.Find_Pot();
+						interface.Send(ToGUI, &Pot_Location);
 					}
 				}
 
-				if (&Move_y != 0)
+				if (&Y_PathLength, != 0)
 				{
-					Turn(&Turn_2);
-					for (i = 0; i<Move_y; i++)
+					Motors.Turn(&Y_Bearing);
+					for (i = 0; i<Y_PathLength; i++)
 					{
-						Drive();
-						Find_Location(&Pot, Direction, Proximity);
-						interface.Send(ToGUI, &Pot);
+						motors.Drive();
+						Pot_Location = loc.Find_Pot();
+						interface.Send(ToGUI, &Pot_Location);
 					}
 				}
-				if (cmd == Location)
+				if (Destination == Pot_Location)
 				{
-					Move_Flag = 0;
+					Move_Flag = false;
 				}
 
 			}
 			else {
-				Move_Flag = 0;
+				Move_Flag = false;
 			}
 		}
 	}
-	*/
 
 }

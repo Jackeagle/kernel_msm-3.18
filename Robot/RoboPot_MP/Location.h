@@ -4,29 +4,27 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <vector>
+#include <cmath>
 #include "vl53l0x_api.h"
 #include "vl53l0x_platform.h"
+#include "Project_Config.h"
+#include "Move.h"
 
-
-#define NORTH 1
-#define EAST 2
-#define SOUTH 3
-#define WEST 4
 
 class Location
 {
 public:
 	Location();
 	~Location();
-	int Setup();
-	char Find_Pot();
-	void Find_Path(char Destination, char *Pot, int *Turn_1, int *Turn_2, int *Move_x, int *Move_y);
-	int Find_Direction();
-	int Find_Proximity();
+	int Setup(); //Sets bearings and initial location of pot
+	char Find_Pot();	//returns character representing location of Pot
+	void Find_Path(char Destination, char Pot_Start_Position, int *X_Bearing, int *Y_BearingY, int *X_PathLength, int *Y_PathLength);
+	int Find_Direction(); //Returns present bearing 0-360degrees
+	int Find_Proximity(); // Returns distance to front wall
 private:
-
+	void Find_coordinates(char ref, int *x, int *y); //converts abcd etc into x and y coordinates
 	
-	void Find_coordinates(char ref, int *x, int *y);
+	const char Location_ref[4][4] = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l','m', 'n', 'o', 'p' };
 };
 
 #endif
