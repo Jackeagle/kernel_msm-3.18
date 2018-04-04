@@ -254,13 +254,6 @@ static u32 inactive_time;
 static u8 del_beacon;
 static u32 clients_count;
 
-static u8 *join_req;
-static u8 *info_element;
-static u8 mode_11i;
-static u8 auth_type;
-static u32 join_req_size;
-static u32 info_element_size;
-static struct wilc_vif *join_req_vif;
 #define REAL_JOIN_REQ 0
 #define FLUSHED_JOIN_REQ 1
 #define FLUSHED_BYTE_POS 79
@@ -943,12 +936,12 @@ static s32 handle_connect(struct wilc_vif *vif,
 	}
 
 	if (conn_attr->bssid) {
-		hif_drv->usr_conn_req.bssid = kmalloc(6, GFP_KERNEL);
+		hif_drv->usr_conn_req.bssid = kmemdup(conn_attr->bssid, 6,
+						      GFP_KERNEL);
 		if (!hif_drv->usr_conn_req.bssid) {
 			result = -ENOMEM;
 			goto error;
 		}
-		memcpy(hif_drv->usr_conn_req.bssid, conn_attr->bssid, 6);
 	}
 
 	hif_drv->usr_conn_req.ssid_len = conn_attr->ssid_len;
@@ -967,15 +960,13 @@ static s32 handle_connect(struct wilc_vif *vif,
 
 	hif_drv->usr_conn_req.ies_len = conn_attr->ies_len;
 	if (conn_attr->ies) {
-		hif_drv->usr_conn_req.ies = kmalloc(conn_attr->ies_len,
+		hif_drv->usr_conn_req.ies = kmemdup(conn_attr->ies,
+						    conn_attr->ies_len,
 						    GFP_KERNEL);
 		if (!hif_drv->usr_conn_req.ies) {
 			result = -ENOMEM;
 			goto error;
 		}
-		memcpy(hif_drv->usr_conn_req.ies,
-		       conn_attr->ies,
-		       conn_attr->ies_len);
 	}
 
 	hif_drv->usr_conn_req.security = conn_attr->security;
@@ -1007,20 +998,11 @@ static s32 handle_connect(struct wilc_vif *vif,
 	wid_list[wid_cnt].size = hif_drv->usr_conn_req.ies_len;
 	wid_cnt++;
 
-	if (memcmp("DIRECT-", conn_attr->ssid, 7)) {
-		info_element_size = hif_drv->usr_conn_req.ies_len;
-		info_element = kmalloc(info_element_size, GFP_KERNEL);
-		memcpy(info_element, hif_drv->usr_conn_req.ies,
-		       info_element_size);
-	}
 	wid_list[wid_cnt].id = (u16)WID_11I_MODE;
 	wid_list[wid_cnt].type = WID_CHAR;
 	wid_list[wid_cnt].size = sizeof(char);
 	wid_list[wid_cnt].val = (s8 *)&hif_drv->usr_conn_req.security;
 	wid_cnt++;
-
-	if (memcmp("DIRECT-", conn_attr->ssid, 7))
-		mode_11i = hif_drv->usr_conn_req.security;
 
 	wid_list[wid_cnt].id = (u16)WID_AUTH_TYPE;
 	wid_list[wid_cnt].type = WID_CHAR;
@@ -1028,18 +1010,11 @@ static s32 handle_connect(struct wilc_vif *vif,
 	wid_list[wid_cnt].val = (s8 *)&hif_drv->usr_conn_req.auth_type;
 	wid_cnt++;
 
-	if (memcmp("DIRECT-", conn_attr->ssid, 7))
-		auth_type = (u8)hif_drv->usr_conn_req.auth_type;
-
 	wid_list[wid_cnt].id = (u16)WID_JOIN_REQ_EXTENDED;
 	wid_list[wid_cnt].type = WID_STR;
 	wid_list[wid_cnt].size = 112;
 	wid_list[wid_cnt].val = kmalloc(wid_list[wid_cnt].size, GFP_KERNEL);
 
-	if (memcmp("DIRECT-", conn_attr->ssid, 7)) {
-		join_req_size = wid_list[wid_cnt].size;
-		join_req = kmalloc(join_req_size, GFP_KERNEL);
-	}
 	if (!wid_list[wid_cnt].val) {
 		result = -EFAULT;
 		goto error;
@@ -1131,11 +1106,6 @@ static s32 handle_connect(struct wilc_vif *vif,
 
 	cur_byte = wid_list[wid_cnt].val;
 	wid_cnt++;
-
-	if (memcmp("DIRECT-", conn_attr->ssid, 7)) {
-		memcpy(join_req, cur_byte, join_req_size);
-		join_req_vif = vif;
-	}
 
 	if (conn_attr->bssid)
 		memcpy(wilc_connected_ssid,
@@ -1266,16 +1236,6 @@ static s32 handle_connect_timeout(struct wilc_vif *vif)
 
 	eth_zero_addr(wilc_connected_ssid);
 
-	if (join_req && join_req_vif == vif) {
-		kfree(join_req);
-		join_req = NULL;
-	}
-
-	if (info_element && join_req_vif == vif) {
-		kfree(info_element);
-		info_element = NULL;
-	}
-
 	return result;
 }
 
@@ -1352,6 +1312,152 @@ static s32 host_int_get_assoc_res_info(struct wilc_vif *vif,
 				       u32 max_assoc_resp_info_len,
 				       u32 *rcvd_assoc_resp_info_len);
 
+static inline void host_int_free_user_conn_req(struct host_if_drv *hif_drv)
+{
+	hif_drv->usr_conn_req.ssid_len = 0;
+	kfree(hif_drv->usr_conn_req.ssid);
+	hif_drv->usr_conn_req.ssid = NULL;
+	kfree(hif_drv->usr_conn_req.bssid);
+	hif_drv->usr_conn_req.bssid = NULL;
+	hif_drv->usr_conn_req.ies_len = 0;
+	kfree(hif_drv->usr_conn_req.ies);
+	hif_drv->usr_conn_req.ies = NULL;
+}
+
+static inline void host_int_parse_assoc_resp_info(struct wilc_vif *vif,
+						  u8 mac_status)
+{
+	struct connect_resp_info *connect_resp_info = NULL;
+	struct connect_info conn_info;
+	struct host_if_drv *hif_drv = vif->hif_drv;
+
+	memset(&conn_info, 0, sizeof(struct connect_info));
+
+	if (mac_status == MAC_CONNECTED) {
+		u32 rcvd_assoc_resp_info_len;
+
+		memset(rcv_assoc_resp, 0, MAX_ASSOC_RESP_FRAME_SIZE);
+
+		host_int_get_assoc_res_info(vif, rcv_assoc_resp,
+					    MAX_ASSOC_RESP_FRAME_SIZE,
+					    &rcvd_assoc_resp_info_len);
+
+		if (rcvd_assoc_resp_info_len != 0) {
+			s32 err = 0;
+
+			err = wilc_parse_assoc_resp_info(rcv_assoc_resp, rcvd_assoc_resp_info_len,
+							 &connect_resp_info);
+			if (err) {
+				netdev_err(vif->ndev,
+					   "wilc_parse_assoc_resp_info() returned error %d\n",
+					   err);
+			} else {
+				conn_info.status = connect_resp_info->status;
+
+				if (conn_info.status == SUCCESSFUL_STATUSCODE &&
+				    connect_resp_info->ies) {
+					conn_info.resp_ies = kmemdup(connect_resp_info->ies,
+								     connect_resp_info->ies_len,
+								     GFP_KERNEL);
+					if (conn_info.resp_ies)
+						conn_info.resp_ies_len = connect_resp_info->ies_len;
+				}
+
+				kfree(connect_resp_info->ies);
+				kfree(connect_resp_info);
+			}
+		}
+	}
+
+	if (mac_status == MAC_CONNECTED &&
+	    conn_info.status != SUCCESSFUL_STATUSCODE) {
+		netdev_err(vif->ndev,
+			   "Received MAC status is MAC_CONNECTED while the received status code in Asoc Resp is not SUCCESSFUL_STATUSCODE\n");
+		eth_zero_addr(wilc_connected_ssid);
+	} else if (mac_status == MAC_DISCONNECTED)    {
+		netdev_err(vif->ndev, "Received MAC status is MAC_DISCONNECTED\n");
+		eth_zero_addr(wilc_connected_ssid);
+	}
+
+	if (hif_drv->usr_conn_req.bssid) {
+		memcpy(conn_info.bssid, hif_drv->usr_conn_req.bssid, 6);
+
+		if (mac_status == MAC_CONNECTED &&
+		    conn_info.status == SUCCESSFUL_STATUSCODE) {
+			memcpy(hif_drv->assoc_bssid,
+			       hif_drv->usr_conn_req.bssid, ETH_ALEN);
+		}
+	}
+
+	if (hif_drv->usr_conn_req.ies) {
+		conn_info.req_ies = kmemdup(conn_info.req_ies,
+					    hif_drv->usr_conn_req.ies_len,
+					    GFP_KERNEL);
+		if (conn_info.req_ies)
+			conn_info.req_ies_len = hif_drv->usr_conn_req.ies_len;
+	}
+
+	del_timer(&hif_drv->connect_timer);
+	hif_drv->usr_conn_req.conn_result(CONN_DISCONN_EVENT_CONN_RESP,
+					  &conn_info, mac_status, NULL,
+					  hif_drv->usr_conn_req.arg);
+
+	if (mac_status == MAC_CONNECTED &&
+	    conn_info.status == SUCCESSFUL_STATUSCODE) {
+		wilc_set_power_mgmt(vif, 0, 0);
+
+		hif_drv->hif_state = HOST_IF_CONNECTED;
+
+		wilc_optaining_ip = true;
+		mod_timer(&wilc_during_ip_timer,
+			  jiffies + msecs_to_jiffies(10000));
+	} else {
+		hif_drv->hif_state = HOST_IF_IDLE;
+		scan_while_connected = false;
+	}
+
+	kfree(conn_info.resp_ies);
+	conn_info.resp_ies = NULL;
+
+	kfree(conn_info.req_ies);
+	conn_info.req_ies = NULL;
+	host_int_free_user_conn_req(hif_drv);
+}
+
+static inline void host_int_handle_disconnect(struct wilc_vif *vif)
+{
+	struct disconnect_info disconn_info;
+	struct host_if_drv *hif_drv = vif->hif_drv;
+
+	memset(&disconn_info, 0, sizeof(struct disconnect_info));
+
+	if (hif_drv->usr_scan_req.scan_result) {
+		del_timer(&hif_drv->scan_timer);
+		handle_scan_done(vif, SCAN_EVENT_ABORTED);
+	}
+
+	disconn_info.reason = 0;
+	disconn_info.ie = NULL;
+	disconn_info.ie_len = 0;
+
+	if (hif_drv->usr_conn_req.conn_result) {
+		wilc_optaining_ip = false;
+		wilc_set_power_mgmt(vif, 0, 0);
+
+		hif_drv->usr_conn_req.conn_result(CONN_DISCONN_EVENT_DISCONN_NOTIF,
+						  NULL, 0, &disconn_info,
+						  hif_drv->usr_conn_req.arg);
+	} else {
+		netdev_err(vif->ndev, "Connect result NULL\n");
+	}
+
+	eth_zero_addr(hif_drv->assoc_bssid);
+
+	host_int_free_user_conn_req(hif_drv);
+	hif_drv->hif_state = HOST_IF_IDLE;
+	scan_while_connected = false;
+}
+
 static s32 handle_rcvd_gnrl_async_info(struct wilc_vif *vif,
 				       struct rcvd_async_info *rcvd_info)
 {
@@ -1364,22 +1470,27 @@ static s32 handle_rcvd_gnrl_async_info(struct wilc_vif *vif,
 	u8 mac_status;
 	u8 mac_status_reason_code;
 	u8 mac_status_additional_info;
-	struct connect_info conn_info;
-	struct disconnect_info disconn_info;
-	s32 err = 0;
 	struct host_if_drv *hif_drv = vif->hif_drv;
+
+	if (!rcvd_info->buffer) {
+		netdev_err(vif->ndev, "Received buffer is NULL\n");
+		return -EINVAL;
+	}
 
 	if (!hif_drv) {
 		netdev_err(vif->ndev, "Driver handler is NULL\n");
+		kfree(rcvd_info->buffer);
+		rcvd_info->buffer = NULL;
 		return -ENODEV;
 	}
 
 	if (hif_drv->hif_state == HOST_IF_WAITING_CONN_RESP ||
 	    hif_drv->hif_state == HOST_IF_CONNECTED ||
 	    hif_drv->usr_scan_req.scan_result) {
-		if (!rcvd_info->buffer ||
-		    !hif_drv->usr_conn_req.conn_result) {
+		if (!hif_drv->usr_conn_req.conn_result) {
 			netdev_err(vif->ndev, "driver is null\n");
+			kfree(rcvd_info->buffer);
+			rcvd_info->buffer = NULL;
 			return -EINVAL;
 		}
 
@@ -1387,6 +1498,8 @@ static s32 handle_rcvd_gnrl_async_info(struct wilc_vif *vif,
 
 		if ('I' != msg_type) {
 			netdev_err(vif->ndev, "Received Message incorrect.\n");
+			kfree(rcvd_info->buffer);
+			rcvd_info->buffer = NULL;
 			return -EFAULT;
 		}
 
@@ -1398,153 +1511,10 @@ static s32 handle_rcvd_gnrl_async_info(struct wilc_vif *vif,
 		mac_status_reason_code = rcvd_info->buffer[8];
 		mac_status_additional_info = rcvd_info->buffer[9];
 		if (hif_drv->hif_state == HOST_IF_WAITING_CONN_RESP) {
-			u32 rcvd_assoc_resp_info_len = 0;
-			struct connect_resp_info *connect_resp_info = NULL;
-
-			memset(&conn_info, 0, sizeof(struct connect_info));
-
-			if (mac_status == MAC_CONNECTED) {
-				memset(rcv_assoc_resp, 0, MAX_ASSOC_RESP_FRAME_SIZE);
-
-				host_int_get_assoc_res_info(vif,
-							    rcv_assoc_resp,
-							    MAX_ASSOC_RESP_FRAME_SIZE,
-							    &rcvd_assoc_resp_info_len);
-
-				if (rcvd_assoc_resp_info_len != 0) {
-					err = wilc_parse_assoc_resp_info(rcv_assoc_resp, rcvd_assoc_resp_info_len,
-									 &connect_resp_info);
-					if (err) {
-						netdev_err(vif->ndev, "wilc_parse_assoc_resp_info() returned error %d\n", err);
-					} else {
-						conn_info.status = connect_resp_info->status;
-
-						if (conn_info.status == SUCCESSFUL_STATUSCODE && connect_resp_info->ies) {
-							conn_info.resp_ies_len = connect_resp_info->ies_len;
-							conn_info.resp_ies = kmalloc(connect_resp_info->ies_len, GFP_KERNEL);
-							memcpy(conn_info.resp_ies, connect_resp_info->ies,
-							       connect_resp_info->ies_len);
-						}
-
-						if (connect_resp_info) {
-							kfree(connect_resp_info->ies);
-							kfree(connect_resp_info);
-						}
-					}
-				}
-			}
-
-			if (mac_status == MAC_CONNECTED &&
-			    conn_info.status != SUCCESSFUL_STATUSCODE)	{
-				netdev_err(vif->ndev, "Received MAC status is MAC_CONNECTED while the received status code in Asoc Resp is not SUCCESSFUL_STATUSCODE\n");
-				eth_zero_addr(wilc_connected_ssid);
-			} else if (mac_status == MAC_DISCONNECTED)    {
-				netdev_err(vif->ndev, "Received MAC status is MAC_DISCONNECTED\n");
-				eth_zero_addr(wilc_connected_ssid);
-			}
-
-			if (hif_drv->usr_conn_req.bssid) {
-				memcpy(conn_info.bssid, hif_drv->usr_conn_req.bssid, 6);
-
-				if (mac_status == MAC_CONNECTED &&
-				    conn_info.status == SUCCESSFUL_STATUSCODE)	{
-					memcpy(hif_drv->assoc_bssid,
-					       hif_drv->usr_conn_req.bssid, ETH_ALEN);
-				}
-			}
-
-			if (hif_drv->usr_conn_req.ies) {
-				conn_info.req_ies_len = hif_drv->usr_conn_req.ies_len;
-				conn_info.req_ies = kmalloc(hif_drv->usr_conn_req.ies_len, GFP_KERNEL);
-				memcpy(conn_info.req_ies,
-				       hif_drv->usr_conn_req.ies,
-				       hif_drv->usr_conn_req.ies_len);
-			}
-
-			del_timer(&hif_drv->connect_timer);
-			hif_drv->usr_conn_req.conn_result(CONN_DISCONN_EVENT_CONN_RESP,
-							  &conn_info,
-							  mac_status,
-							  NULL,
-							  hif_drv->usr_conn_req.arg);
-
-			if (mac_status == MAC_CONNECTED &&
-			    conn_info.status == SUCCESSFUL_STATUSCODE)	{
-				wilc_set_power_mgmt(vif, 0, 0);
-
-				hif_drv->hif_state = HOST_IF_CONNECTED;
-
-				wilc_optaining_ip = true;
-				mod_timer(&wilc_during_ip_timer,
-					  jiffies + msecs_to_jiffies(10000));
-			} else {
-				hif_drv->hif_state = HOST_IF_IDLE;
-				scan_while_connected = false;
-			}
-
-			kfree(conn_info.resp_ies);
-			conn_info.resp_ies = NULL;
-
-			kfree(conn_info.req_ies);
-			conn_info.req_ies = NULL;
-			hif_drv->usr_conn_req.ssid_len = 0;
-			kfree(hif_drv->usr_conn_req.ssid);
-			hif_drv->usr_conn_req.ssid = NULL;
-			kfree(hif_drv->usr_conn_req.bssid);
-			hif_drv->usr_conn_req.bssid = NULL;
-			hif_drv->usr_conn_req.ies_len = 0;
-			kfree(hif_drv->usr_conn_req.ies);
-			hif_drv->usr_conn_req.ies = NULL;
+			host_int_parse_assoc_resp_info(vif, mac_status);
 		} else if ((mac_status == MAC_DISCONNECTED) &&
 			   (hif_drv->hif_state == HOST_IF_CONNECTED)) {
-			memset(&disconn_info, 0, sizeof(struct disconnect_info));
-
-			if (hif_drv->usr_scan_req.scan_result) {
-				del_timer(&hif_drv->scan_timer);
-				handle_scan_done(vif, SCAN_EVENT_ABORTED);
-			}
-
-			disconn_info.reason = 0;
-			disconn_info.ie = NULL;
-			disconn_info.ie_len = 0;
-
-			if (hif_drv->usr_conn_req.conn_result) {
-				wilc_optaining_ip = false;
-				wilc_set_power_mgmt(vif, 0, 0);
-
-				hif_drv->usr_conn_req.conn_result(CONN_DISCONN_EVENT_DISCONN_NOTIF,
-								  NULL,
-								  0,
-								  &disconn_info,
-								  hif_drv->usr_conn_req.arg);
-			} else {
-				netdev_err(vif->ndev, "Connect result NULL\n");
-			}
-
-			eth_zero_addr(hif_drv->assoc_bssid);
-
-			hif_drv->usr_conn_req.ssid_len = 0;
-			kfree(hif_drv->usr_conn_req.ssid);
-			hif_drv->usr_conn_req.ssid = NULL;
-			kfree(hif_drv->usr_conn_req.bssid);
-			hif_drv->usr_conn_req.bssid = NULL;
-			hif_drv->usr_conn_req.ies_len = 0;
-			kfree(hif_drv->usr_conn_req.ies);
-			hif_drv->usr_conn_req.ies = NULL;
-
-			if (join_req && join_req_vif == vif) {
-				kfree(join_req);
-				join_req = NULL;
-			}
-
-			if (info_element && join_req_vif == vif) {
-				kfree(info_element);
-				info_element = NULL;
-			}
-
-			hif_drv->hif_state = HOST_IF_IDLE;
-			scan_while_connected = false;
-
+			host_int_handle_disconnect(vif);
 		} else if ((mac_status == MAC_DISCONNECTED) &&
 			   (hif_drv->usr_scan_req.scan_result)) {
 			del_timer(&hif_drv->scan_timer);
@@ -1878,16 +1848,6 @@ static void handle_disconnect(struct wilc_vif *vif)
 	kfree(conn_req->ies);
 	conn_req->ies = NULL;
 
-	if (join_req && join_req_vif == vif) {
-		kfree(join_req);
-		join_req = NULL;
-	}
-
-	if (info_element && join_req_vif == vif) {
-		kfree(info_element);
-		info_element = NULL;
-	}
-
 out:
 
 	complete(&hif_drv->comp_test_disconn_block);
@@ -1980,7 +1940,6 @@ static s32 handle_get_inactive_time(struct wilc_vif *vif,
 				    struct sta_inactive_t *hif_sta_inactive)
 {
 	s32 result = 0;
-	u8 *stamac;
 	struct wid wid;
 	struct host_if_drv *hif_drv = vif->hif_drv;
 
@@ -1991,11 +1950,11 @@ static s32 handle_get_inactive_time(struct wilc_vif *vif,
 	if (!wid.val)
 		return -ENOMEM;
 
-	stamac = wid.val;
-	ether_addr_copy(stamac, hif_sta_inactive->mac);
+	ether_addr_copy(wid.val, hif_sta_inactive->mac);
 
 	result = wilc_send_config_pkt(vif, SET_CFG, &wid, 1,
 				      wilc_get_vif_idx(vif));
+	kfree(wid.val);
 
 	if (result) {
 		netdev_err(vif->ndev, "Failed to SET inactive time\n");
@@ -2296,6 +2255,7 @@ static int handle_remain_on_chan(struct wilc_vif *vif,
 
 	result = wilc_send_config_pkt(vif, SET_CFG, &wid, 1,
 				      wilc_get_vif_idx(vif));
+	kfree(wid.val);
 	if (result != 0)
 		netdev_err(vif->ndev, "Failed to set remain on channel\n");
 
@@ -2340,6 +2300,7 @@ static int handle_register_frame(struct wilc_vif *vif,
 
 	result = wilc_send_config_pkt(vif, SET_CFG, &wid, 1,
 				      wilc_get_vif_idx(vif));
+	kfree(wid.val);
 	if (result) {
 		netdev_err(vif->ndev, "Failed to frame register\n");
 		result = -EINVAL;
@@ -2371,6 +2332,7 @@ static u32 handle_listen_state_expired(struct wilc_vif *vif,
 
 		result = wilc_send_config_pkt(vif, SET_CFG, &wid, 1,
 					      wilc_get_vif_idx(vif));
+		kfree(wid.val);
 		if (result != 0) {
 			netdev_err(vif->ndev, "Failed to set remain channel\n");
 			goto _done_;
@@ -2775,7 +2737,7 @@ int wilc_set_wep_default_keyid(struct wilc_vif *vif, u8 index)
 int wilc_add_wep_key_bss_sta(struct wilc_vif *vif, const u8 *key, u8 len,
 			     u8 index)
 {
-	int result = 0;
+	int result;
 	struct host_if_msg msg;
 	struct host_if_drv *hif_drv = vif->hif_drv;
 
@@ -2798,17 +2760,20 @@ int wilc_add_wep_key_bss_sta(struct wilc_vif *vif, const u8 *key, u8 len,
 	msg.body.key_info.attr.wep.index = index;
 
 	result = wilc_enqueue_cmd(&msg);
-	if (result)
+	if (result) {
 		netdev_err(vif->ndev, "STA - WEP Key\n");
-	wait_for_completion(&hif_drv->comp_test_key_block);
+		kfree(msg.body.key_info.attr.wep.key);
+		return result;
+	}
 
-	return result;
+	wait_for_completion(&hif_drv->comp_test_key_block);
+	return 0;
 }
 
 int wilc_add_wep_key_bss_ap(struct wilc_vif *vif, const u8 *key, u8 len,
 			    u8 index, u8 mode, enum AUTHTYPE auth_type)
 {
-	int result = 0;
+	int result;
 	struct host_if_msg msg;
 	struct host_if_drv *hif_drv = vif->hif_drv;
 
@@ -2833,20 +2798,21 @@ int wilc_add_wep_key_bss_ap(struct wilc_vif *vif, const u8 *key, u8 len,
 	msg.body.key_info.attr.wep.auth_type = auth_type;
 
 	result = wilc_enqueue_cmd(&msg);
-
-	if (result)
+	if (result) {
 		netdev_err(vif->ndev, "AP - WEP Key\n");
-	else
-		wait_for_completion(&hif_drv->comp_test_key_block);
+		kfree(msg.body.key_info.attr.wep.key);
+		return result;
+	}
 
-	return result;
+	wait_for_completion(&hif_drv->comp_test_key_block);
+	return 0;
 }
 
 int wilc_add_ptk(struct wilc_vif *vif, const u8 *ptk, u8 ptk_key_len,
 		 const u8 *mac_addr, const u8 *rx_mic, const u8 *tx_mic,
 		 u8 mode, u8 cipher_mode, u8 index)
 {
-	int result = 0;
+	int result;
 	struct host_if_msg msg;
 	struct host_if_drv *hif_drv = vif->hif_drv;
 	u8 key_len = ptk_key_len;
@@ -2891,13 +2857,14 @@ int wilc_add_ptk(struct wilc_vif *vif, const u8 *ptk, u8 ptk_key_len,
 	msg.vif = vif;
 
 	result = wilc_enqueue_cmd(&msg);
-
-	if (result)
+	if (result) {
 		netdev_err(vif->ndev, "PTK Key\n");
-	else
-		wait_for_completion(&hif_drv->comp_test_key_block);
+		kfree(msg.body.key_info.attr.wpa.key);
+		return result;
+	}
 
-	return result;
+	wait_for_completion(&hif_drv->comp_test_key_block);
+	return 0;
 }
 
 int wilc_add_rx_gtk(struct wilc_vif *vif, const u8 *rx_gtk, u8 gtk_key_len,
@@ -2905,7 +2872,7 @@ int wilc_add_rx_gtk(struct wilc_vif *vif, const u8 *rx_gtk, u8 gtk_key_len,
 		    const u8 *rx_mic, const u8 *tx_mic, u8 mode,
 		    u8 cipher_mode)
 {
-	int result = 0;
+	int result;
 	struct host_if_msg msg;
 	struct host_if_drv *hif_drv = vif->hif_drv;
 	u8 key_len = gtk_key_len;
@@ -2944,8 +2911,10 @@ int wilc_add_rx_gtk(struct wilc_vif *vif, const u8 *rx_gtk, u8 gtk_key_len,
 	msg.body.key_info.attr.wpa.key = kmemdup(rx_gtk,
 						 key_len,
 						 GFP_KERNEL);
-	if (!msg.body.key_info.attr.wpa.key)
+	if (!msg.body.key_info.attr.wpa.key) {
+		kfree(msg.body.key_info.attr.wpa.seq);
 		return -ENOMEM;
+	}
 
 	if (rx_mic)
 		memcpy(msg.body.key_info.attr.wpa.key + 16, rx_mic,
@@ -2960,12 +2929,15 @@ int wilc_add_rx_gtk(struct wilc_vif *vif, const u8 *rx_gtk, u8 gtk_key_len,
 	msg.body.key_info.attr.wpa.seq_len = key_rsc_len;
 
 	result = wilc_enqueue_cmd(&msg);
-	if (result)
+	if (result) {
 		netdev_err(vif->ndev, "RX GTK\n");
-	else
-		wait_for_completion(&hif_drv->comp_test_key_block);
+		kfree(msg.body.key_info.attr.wpa.seq);
+		kfree(msg.body.key_info.attr.wpa.key);
+		return result;
+	}
 
-	return result;
+	wait_for_completion(&hif_drv->comp_test_key_block);
+	return 0;
 }
 
 int wilc_set_pmkid_info(struct wilc_vif *vif,
@@ -3524,12 +3496,15 @@ void wilc_network_info_received(struct wilc *wilc, u8 *buffer, u32 length)
 	msg.vif = vif;
 
 	msg.body.net_info.len = length;
-	msg.body.net_info.buffer = kmalloc(length, GFP_KERNEL);
-	memcpy(msg.body.net_info.buffer, buffer, length);
+	msg.body.net_info.buffer = kmemdup(buffer, length, GFP_KERNEL);
+	if (!msg.body.net_info.buffer)
+		return;
 
 	result = wilc_enqueue_cmd(&msg);
-	if (result)
+	if (result) {
 		netdev_err(vif->ndev, "message parameters (%d)\n", result);
+		kfree(msg.body.net_info.buffer);
+	}
 }
 
 void wilc_gnrl_async_info_received(struct wilc *wilc, u8 *buffer, u32 length)
@@ -3571,12 +3546,17 @@ void wilc_gnrl_async_info_received(struct wilc *wilc, u8 *buffer, u32 length)
 	msg.vif = vif;
 
 	msg.body.async_info.len = length;
-	msg.body.async_info.buffer = kmalloc(length, GFP_KERNEL);
-	memcpy(msg.body.async_info.buffer, buffer, length);
+	msg.body.async_info.buffer = kmemdup(buffer, length, GFP_KERNEL);
+	if (!msg.body.async_info.buffer) {
+		mutex_unlock(&hif_deinit_lock);
+		return;
+	}
 
 	result = wilc_enqueue_cmd(&msg);
-	if (result)
+	if (result) {
 		netdev_err(vif->ndev, "synchronous info (%d)\n", result);
+		kfree(msg.body.async_info.buffer);
+	}
 
 	mutex_unlock(&hif_deinit_lock);
 }
@@ -3777,8 +3757,10 @@ int wilc_add_station(struct wilc_vif *vif, struct add_sta_param *sta_param)
 	}
 
 	result = wilc_enqueue_cmd(&msg);
-	if (result)
+	if (result) {
 		netdev_err(vif->ndev, "wilc_mq_send fail\n");
+		kfree(add_sta_info->rates);
+	}
 	return result;
 }
 
@@ -3861,8 +3843,10 @@ int wilc_edit_station(struct wilc_vif *vif,
 	}
 
 	result = wilc_enqueue_cmd(&msg);
-	if (result)
+	if (result) {
 		netdev_err(vif->ndev, "wilc_mq_send fail\n");
+		kfree(add_sta_info->rates);
+	}
 
 	return result;
 }

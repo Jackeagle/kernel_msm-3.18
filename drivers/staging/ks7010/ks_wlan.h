@@ -54,7 +54,7 @@ struct ks_wlan_parameter {
 #define BEACON_LOST_COUNT_MAX 65535
 	u32 beacon_lost_count;	/*  Beacon Lost Count */
 	u32 rts;	/*  RTS Threashold */
-	u32 fragment;	/*  Fragmentation Threashold */
+	u32 fragment;	/*  Fragmentation Threshold */
 	u32 privacy_invoked;
 	u32 wep_index;
 	struct {
@@ -87,7 +87,7 @@ enum {
 #define SME_WEP_VAL2        BIT(6)
 #define SME_WEP_VAL3        BIT(7)
 #define SME_WEP_VAL4        BIT(8)
-#define SME_WEP_VAL_MASK    (SME_WEP_VAL1 | SME_WEP_VAL2 | SME_WEP_VAL3 | SME_WEP_VAL4)
+#define SME_WEP_VAL_MASK    GENMASK(8, 5)
 #define SME_RSN             BIT(9)
 #define SME_RSN_MULTICAST   BIT(10)
 #define SME_RSN_UNICAST	    BIT(11)
@@ -406,7 +406,6 @@ struct ks_wlan_private {
 	struct tasklet_struct rx_bh_task;
 
 	struct net_device *net_dev;
-	int reg_net;	/* register_netdev */
 	struct net_device_stats nstats;
 	struct iw_statistics wstats;
 
@@ -456,7 +455,7 @@ struct ks_wlan_private {
 	unsigned char firmware_version[128 + 1];
 	int version_size;
 
-	int mac_address_valid;	/* Mac Address Status */
+	bool mac_address_valid;	/* Mac Address Status */
 
 	int dev_state;
 
