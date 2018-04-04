@@ -2,7 +2,7 @@
 #include <fstream>
 
 using namespace std;
-int main(int argc, char* argv[])
+int main()
 {
 	ofstream datatest;
 	datatest.open ("datatest.csv");
