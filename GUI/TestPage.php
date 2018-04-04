@@ -19,11 +19,17 @@
   color: white;
   float: left;
 }
-.fa-instagram {
-  background: #ff6600;
+.fa-youtube-square {
+  background: red;
   color: white;
   float: left;
 }
+.fa-github {
+	background: black;
+	color: white;
+	float: left;
+}
+
 h1 {
 	color: white;
 	text-shadow: 1px 1px 5px black, 0 0 25px green, 0 0 5px lawngreen;
@@ -97,7 +103,8 @@ tr {
 <body style="overflow: auto;">
 
 <a href="https://www.facebook.com/ENG5220RoboPot/" class="fa fa-facebook"></a> 
-<a href="#" class="fa fa-instagram"></a>	
+<a href="https://github.com/FrazLaw/RoboPot" class="fa fa-github"></a>
+<a href="https://www.youtube.com/channel/UCD5ITvIJ00v1beTOdpyzPOQ" class="fa fa-youtube-square"></a>	
 <h1>RoboPot</h1>
 
 <h3>Group 7 - Fraser Law, Fraser Menzies and Alastair Thurlbeck</h3>
