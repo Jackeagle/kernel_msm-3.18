@@ -1401,7 +1401,7 @@ static bool rbd_img_is_write(struct rbd_img_request *img_req)
 	case OBJ_OP_DISCARD:
 		return true;
 	default:
-		rbd_assert(0);
+		BUG();
 	}
 }
 
@@ -2475,7 +2475,7 @@ again:
 		}
 		return false;
 	default:
-		rbd_assert(0);
+		BUG();
 	}
 }
 
@@ -2503,7 +2503,7 @@ static bool __rbd_obj_handle_request(struct rbd_obj_request *obj_req)
 		}
 		return false;
 	default:
-		rbd_assert(0);
+		BUG();
 	}
 }
 
