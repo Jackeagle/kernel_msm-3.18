@@ -579,11 +579,16 @@ static int walk_down_tree(struct btrfs_root *root, struct btrfs_path *path,
 
 	while (level >= 0) {
 		if (level) {
+			struct btrfs_key first_key;
+
 			block_bytenr = btrfs_node_blockptr(path->nodes[level],
 							   path->slots[level]);
 			gen = btrfs_node_ptr_generation(path->nodes[level],
 							path->slots[level]);
-			eb = read_tree_block(fs_info, block_bytenr, gen);
+			btrfs_node_key_to_cpu(path->nodes[level], &first_key,
+					      path->slots[level]);
+			eb = read_tree_block(fs_info, block_bytenr, gen,
+					     level - 1, &first_key);
 			if (IS_ERR(eb))
 				return PTR_ERR(eb);
 			if (!extent_buffer_uptodate(eb)) {
@@ -606,8 +611,7 @@ static int walk_down_tree(struct btrfs_root *root, struct btrfs_path *path,
 }
 
 /* Walk up to the next node that needs to be processed */
-static int walk_up_tree(struct btrfs_root *root, struct btrfs_path *path,
-			int *level)
+static int walk_up_tree(struct btrfs_path *path, int *level)
 {
 	int l;
 
@@ -984,7 +988,6 @@ void btrfs_free_ref_tree_range(struct btrfs_fs_info *fs_info, u64 start,
 int btrfs_build_ref_tree(struct btrfs_fs_info *fs_info)
 {
 	struct btrfs_path *path;
-	struct btrfs_root *root;
 	struct extent_buffer *eb;
 	u64 bytenr = 0, num_bytes = 0;
 	int ret, level;
@@ -1014,7 +1017,7 @@ int btrfs_build_ref_tree(struct btrfs_fs_info *fs_info)
 				     &bytenr, &num_bytes);
 		if (ret)
 			break;
-		ret = walk_up_tree(root, path, &level);
+		ret = walk_up_tree(path, &level);
 		if (ret < 0)
 			break;
 		if (ret > 0) {
