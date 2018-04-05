@@ -1,24 +1,11 @@
 ![alt text](https://github.com/FrazLaw/RoboPot/blob/master/Heading.PNG)
 # RoboPot
 We are creating a web-based, plant pot positioning system with integrated light sensing features.  The plant pot will be controlled via a web based GUI - HTML and JavaScript based - with ambient light sensors in order to determine the optimum positioning of the plant pot for maximum illumination. 
+Links:
 
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+Facebook - https://www.facebook.com/ENG5220RoboPot/
+Youtube  - https://www.youtube.com/channel/UCD5ITvIJ00v1beTOdpyzPOQ
 
-.fa {
-  padding: 20px;
-  font-size: 30px;
-  width: 50px;
-  text-align: center;
-  text-decoration: none;
-  margin: 5px 2px;
-}
-.fa-facebook {
-  background: #3B5998;
-  color: white;
-  float: left;
-}
-
-<a href="https://www.facebook.com/ENG5220RoboPot/" class="fa fa-facebook"></a> 
 ### System Description
 
 Robopot allows the keen, technically minded gardener to position their beloved plants wherever they wish within the vicinity of their patio or small garden.
