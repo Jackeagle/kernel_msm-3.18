@@ -82,6 +82,13 @@ next/soc
 		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v4.17/soc-pt2-signed
 	rockchip/soc32
 		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v4.17-rockchip-soc32-1
+	patch
+		ARM: omap2: fix am43xx build without L2X0
+		MAINTAINERS: update entry for ARM/berlin
+	<no branch> (f6adc9fd1ff9bbe766cbb68e84a0d97f54a4f436)
+		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/nsekhar/linux-davinci tags/davinci-for-v4.17/soc-2
+	patch
+		arm: npcm: modify configuration for the NPCM7xx BMC.
 
 next/dt
 	patch
@@ -210,6 +217,15 @@ next/dt
 		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v4.17-rockchip-dts64-1
 	uniphier/dt-2
 		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/masahiroy/linux-uniphier tags/uniphier-dt-v4.17-2
+	imx/dt-2
+		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-dt-4.17-2
+	patch
+		arm: dts: add watchdog device to NPCM750 device tree
+		arm: dts: modify UART compatible name in NPCM750 device tree
+		arm: dts: modify timer register size in NPCM750 device tree
+		arm: dts: modify clock binding in NPCM750 device tree
+		arm: dts: modify Makefile NPCM750 configuration name
+		arm: dts: modify Nuvoton NPCM7xx device tree structure
 
 next/drivers
 	patch
@@ -252,24 +268,3 @@ next/drivers
 	rockchip/drivers
 		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v4.17-rockchip-drivers-1
 
-fixes
-	patch
-		ARM: ux500: Fix PMU IRQ regression
-	<no branch> (970656b3246d30955894951ed16bd658e42d8c24)
-		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-fixes-4.16-2
-	<no branch> (c4dc56be7e26040bfc60ce73425353516a356955)
-		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/nsekhar/linux-davinci tags/davinci-fixes-for-v4.16
-	<no branch> (c535d632aecc6359d072374675a7787cbe71773b)
-		git://git.infradead.org/linux-mvebu tags/mvebu-fixes-4.16-2
-	<no branch> (4e943a890cef42e90f43ce6be64728a290b97c55)
-		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v4.16-rockchip-dts32fixes-2
-	<no branch> (835a1d5cdefffe08bec46efff11daea9b389baa9)
-		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v4.16-rockchip-dts64fixes-2
-	patch
-		ARM: dts: aspeed: Add default memory node
-	tegra/fixes
-		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-4.17-misc
-	<no branch> (eb85a355c3afd9379f5953cfe2df73632d14c884)
-		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v4.16/sram-fix-signed
-	<no branch> (0a815fc929e62f54a22a09e10e18f038e6d63c39)
-		ssh://gitolite.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-fixes-for-4.16
