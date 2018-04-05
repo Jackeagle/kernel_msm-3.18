@@ -18,7 +18,42 @@ int Location::Setup()
 
 char Location::Find_Pot()
 {
-
+	
+	int Proximity_North;
+	int Proximity_East;
+	int Proximity_South;
+	int Proximity_West;
+	
+	Move Navigate;
+	Location Check;
+	
+	Navigate.Turn(North_Bearing);
+	Proximity_North= Check.Find_Proximity/Unit_Length;
+	
+	Navigate.Turn(East_Bearing);
+	Proximity_East= Check.Find_Proximity/Unit_Length;
+	
+	Navigate.Turn(South_Bearing);
+	Proximity_South= Check.Find_Proximity/Unit_Length;
+	
+	Navigate.Turn(West_Bearing);
+	Proximity_West= Check.Find_Proximity/Unit_Length;
+	
+	//Confirm x coordinate using East and West Proximity Measurements
+	if((Proximity_East + Proximity_West) == 3*Unit_Length)
+	{
+		int x = Proximity_East;		
+	}
+	
+	//Confirm y coordinate using North and South Proximity Measurements
+	if((Proximity_North + Proximity_South) == 3*Unit_Length)
+	{
+		int y = Proximity_North;		
+	}
+	
+	
+	return Location_ref[x][y]
+	
 }
 
 int Location::Find_Direction()
@@ -52,44 +87,44 @@ int Location::Find_Proximity()
 			//printf("Measured distance: %i\n\n", RangingMeasurementData.RangeMilliMeter);
 			proximity_measurements += RangingMeasurementData.RangeMilliMeter;
 		}
-		return proximity_measurements /divisor;
+		return Round_Proximity((proximity_measurements /divisor), 50);
 	}
 }
 
-void Location::Find_Path(char Destination, char *Pot, int *Turn_1, int *Turn_2, int *Move_x, int *Move_y)
+void Location::Find_Path(char Destination, char Pot_Start_Position, int *X_Bearing, int *Y_Bearing, int *X_PathLength, int *Y_PathLength)
 {
-	int Dest_x = 0, Dest_y = 0; //destination coordinates
-	int Loc_x = 0, Loc_y = 0;
+	int Dest_x, Dest_y; //Destination coordinates
+	int Loc_x, Loc_y;	//Present Location Coordinates
 	Find_coordinates(Destination, &Dest_x, &Dest_y);
-	Find_coordinates(*Pot, &Loc_x, &Loc_y);
+	Find_coordinates(Pot_Start_Position,, &Loc_x, &Loc_y);
 
-	*Move_x = Dest_x - Loc_x;
-	*Move_y = Dest_y - Loc_y;
+	*X_PathLength = Dest_x - Loc_x;
+	*Y_PathLength = Dest_y - Loc_y;
 
-	if (*Move_x > 0)
+	if (*X_PathLength > 0)
 	{
-		*Turn_1 = EAST;
+		*Turn1_Flag = EAST;
 	}
-	else if (*Move_x < 0) 
+	else if (*X_PathLength < 0) 
 	{
-		*Turn_1 = WEST;
+		*Turn1_Flag = WEST;
 	}
 	else
 	{
-		*Turn_1 = NULL;
+		*Turn1_Flag = NULL;
 	}
 
-	if (*Move_y > 0)
+	if (*Y_PathLength > 0)
 	{
-		*Turn_2 = SOUTH;
+		*Turn2_Flag = SOUTH;
 	}
-	else if (*Move_y < 0)
+	else if (*Y_PathLength < 0)
 	{
-		*Turn_2 = NORTH;
+		*Turn2_Flag = NORTH;
 	}
 	else
 	{
-		*Turn_2 = NULL;
+		*Turn2_Flag = NULL;
 	}
 		
 }
@@ -97,7 +132,6 @@ void Location::Find_Path(char Destination, char *Pot, int *Turn_1, int *Turn_2, 
 void Location::Find_coordinates(char ref, int *x, int *y)
 {
 	int i, j;
-	const char Location_ref[4][4] = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l','m', 'n', 'o', 'p' };
 
 	for (i = 0;i<4;i++)
 	{
@@ -110,4 +144,9 @@ void Location::Find_coordinates(char ref, int *x, int *y)
 			}
 		}
 	}
+}
+
+int Location::Round_Proximity(int Proximity, Multiple)
+{	
+	return ((Proximity+Multiple/2)/Multiple)*Multiple;
 }

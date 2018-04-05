@@ -7,6 +7,19 @@
 
 //Project Configuration File
 
+
+const int Unit_Length = 500; //Unit length of garden is 500mm
+
+
+//-------------------------------------------
+//-----Bearing Configuration-----------
+//-------------------------------------------
+
+const int North_Bearing = 0;
+const int East_Bearing = 90;
+const int South_Bearing = 180;
+const int West_Bearing = 270;
+
 //-------------------------------------------
 //-----GUI Text File Configuration-----------
 //-------------------------------------------
