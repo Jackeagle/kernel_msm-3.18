@@ -216,7 +216,7 @@ int btrfs_delayed_ref_lock(struct btrfs_trans_handle *trans,
 	struct btrfs_delayed_ref_root *delayed_refs;
 
 	delayed_refs = &trans->transaction->delayed_refs;
-	assert_spin_locked(&delayed_refs->lock);
+	lockdep_assert_held(&delayed_refs->lock);
 	if (mutex_trylock(&head->mutex))
 		return 0;
 
@@ -239,7 +239,7 @@ static inline void drop_delayed_ref(struct btrfs_trans_handle *trans,
 				    struct btrfs_delayed_ref_head *head,
 				    struct btrfs_delayed_ref_node *ref)
 {
-	assert_spin_locked(&head->lock);
+	lockdep_assert_held(&head->lock);
 	rb_erase(&ref->ref_node, &head->ref_tree);
 	RB_CLEAR_NODE(&ref->ref_node);
 	if (!list_empty(&ref->add_list))
@@ -307,7 +307,7 @@ void btrfs_merge_delayed_refs(struct btrfs_trans_handle *trans,
 	struct rb_node *node;
 	u64 seq = 0;
 
-	assert_spin_locked(&head->lock);
+	lockdep_assert_held(&head->lock);
 
 	if (RB_EMPTY_ROOT(&head->ref_tree))
 		return;
@@ -336,9 +336,7 @@ again:
 	}
 }
 
-int btrfs_check_delayed_seq(struct btrfs_fs_info *fs_info,
-			    struct btrfs_delayed_ref_root *delayed_refs,
-			    u64 seq)
+int btrfs_check_delayed_seq(struct btrfs_fs_info *fs_info, u64 seq)
 {
 	struct seq_list *elem;
 	int ret = 0;
@@ -349,10 +347,9 @@ int btrfs_check_delayed_seq(struct btrfs_fs_info *fs_info,
 					struct seq_list, list);
 		if (seq >= elem->seq) {
 			btrfs_debug(fs_info,
-				"holding back delayed_ref %#x.%x, lowest is %#x.%x (%p)",
+				"holding back delayed_ref %#x.%x, lowest is %#x.%x",
 				(u32)(seq >> 32), (u32)seq,
-				(u32)(elem->seq >> 32), (u32)elem->seq,
-				delayed_refs);
+				(u32)(elem->seq >> 32), (u32)elem->seq);
 			ret = 1;
 		}
 	}
@@ -930,7 +927,7 @@ btrfs_find_delayed_ref_head(struct btrfs_delayed_ref_root *delayed_refs, u64 byt
 	return find_ref_head(&delayed_refs->href_root, bytenr, 0);
 }
 
-void btrfs_delayed_ref_exit(void)
+void __cold btrfs_delayed_ref_exit(void)
 {
 	kmem_cache_destroy(btrfs_delayed_ref_head_cachep);
 	kmem_cache_destroy(btrfs_delayed_tree_ref_cachep);

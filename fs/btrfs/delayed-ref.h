@@ -204,7 +204,7 @@ extern struct kmem_cache *btrfs_delayed_data_ref_cachep;
 extern struct kmem_cache *btrfs_delayed_extent_op_cachep;
 
 int __init btrfs_delayed_ref_init(void);
-void btrfs_delayed_ref_exit(void);
+void __cold btrfs_delayed_ref_exit(void);
 
 static inline struct btrfs_delayed_extent_op *
 btrfs_alloc_delayed_extent_op(void)
@@ -280,9 +280,7 @@ static inline void btrfs_delayed_ref_unlock(struct btrfs_delayed_ref_head *head)
 struct btrfs_delayed_ref_head *
 btrfs_select_ref_head(struct btrfs_trans_handle *trans);
 
-int btrfs_check_delayed_seq(struct btrfs_fs_info *fs_info,
-			    struct btrfs_delayed_ref_root *delayed_refs,
-			    u64 seq);
+int btrfs_check_delayed_seq(struct btrfs_fs_info *fs_info, u64 seq);
 
 /*
  * helper functions to cast a node into its container
