@@ -276,7 +276,6 @@ static int ks_wlan_set_essid(struct net_device *dev,
 		memset(priv->reg.ssid.body, 0, sizeof(priv->reg.ssid.body));
 		priv->reg.ssid.size = 0;
 	} else {
-#if 1
 		len = dwrq->length;
 		/* iwconfig uses nul termination in SSID.. */
 		if (len > 0 && extra[len - 1] == '\0')
@@ -286,28 +285,14 @@ static int ks_wlan_set_essid(struct net_device *dev,
 		if (len > IW_ESSID_MAX_SIZE)
 			return -EINVAL;
 
-#else
-		/* Check the size of the string */
-		if (dwrq->length > IW_ESSID_MAX_SIZE + 1)
-			return -E2BIG;
-
-#endif
-
 		/* Set the SSID */
 		memset(priv->reg.ssid.body, 0, sizeof(priv->reg.ssid.body));
-
-#if 1
 		memcpy(priv->reg.ssid.body, extra, len);
 		priv->reg.ssid.size = len;
-#else
-		memcpy(priv->reg.ssid.body, extra, dwrq->length);
-		priv->reg.ssid.size = dwrq->length;
-#endif
 	}
 	/* Write it to the card */
 	priv->need_commit |= SME_MODE_SET;
 
-//      return  -EINPROGRESS;   /* Call commit handler */
 	ks_wlan_setup_parameter(priv, priv->need_commit);
 	priv->need_commit = 0;
 	return 0;
@@ -2767,7 +2752,7 @@ int ks_wlan_set_mac_address(struct net_device *dev, void *addr)
 	memcpy(dev->dev_addr, mac_addr->sa_data, dev->addr_len);
 	memcpy(priv->eth_addr, mac_addr->sa_data, ETH_ALEN);
 
-	priv->mac_address_valid = 0;
+	priv->mac_address_valid = false;
 	hostif_sme_enqueue(priv, SME_MACADDRESS_SET_REQUEST);
 	netdev_info(dev, "ks_wlan:  MAC ADDRESS = %pM\n", priv->eth_addr);
 	return 0;
@@ -2890,7 +2875,7 @@ int ks_wlan_net_start(struct net_device *dev)
 	/* int rc; */
 
 	priv = netdev_priv(dev);
-	priv->mac_address_valid = 0;
+	priv->mac_address_valid = false;
 	priv->need_commit = 0;
 
 	priv->device_open_status = 1;
@@ -2912,7 +2897,7 @@ int ks_wlan_net_start(struct net_device *dev)
 
 	/* The ks_wlan-specific entries in the device structure. */
 	dev->netdev_ops = &ks_wlan_netdev_ops;
-	dev->wireless_handlers = (struct iw_handler_def *)&ks_wlan_handler_def;
+	dev->wireless_handlers = &ks_wlan_handler_def;
 	dev->watchdog_timeo = TX_TIMEOUT;
 
 	netif_carrier_off(dev);

@@ -476,26 +476,26 @@ static int wpa_set_auth_algs(struct net_device *dev, u32 value)
 	struct adapter *padapter = (struct adapter *) rtw_netdev_priv(dev);
 	int ret = 0;
 
-	if ((value & AUTH_ALG_SHARED_KEY) && (value & AUTH_ALG_OPEN_SYSTEM)) {
-		DBG_871X("wpa_set_auth_algs, AUTH_ALG_SHARED_KEY and  AUTH_ALG_OPEN_SYSTEM [value:0x%x]\n", value);
+	if ((value & WLAN_AUTH_SHARED_KEY) && (value & WLAN_AUTH_OPEN)) {
+		DBG_871X("wpa_set_auth_algs, WLAN_AUTH_SHARED_KEY and WLAN_AUTH_OPEN [value:0x%x]\n", value);
 		padapter->securitypriv.ndisencryptstatus = Ndis802_11Encryption1Enabled;
 		padapter->securitypriv.ndisauthtype = Ndis802_11AuthModeAutoSwitch;
 		padapter->securitypriv.dot11AuthAlgrthm = dot11AuthAlgrthm_Auto;
-	} else if (value & AUTH_ALG_SHARED_KEY)	{
-		DBG_871X("wpa_set_auth_algs, AUTH_ALG_SHARED_KEY  [value:0x%x]\n", value);
+	} else if (value & WLAN_AUTH_SHARED_KEY)	{
+		DBG_871X("wpa_set_auth_algs, WLAN_AUTH_SHARED_KEY  [value:0x%x]\n", value);
 		padapter->securitypriv.ndisencryptstatus = Ndis802_11Encryption1Enabled;
 
 		padapter->securitypriv.ndisauthtype = Ndis802_11AuthModeShared;
 		padapter->securitypriv.dot11AuthAlgrthm = dot11AuthAlgrthm_Shared;
-	} else if (value & AUTH_ALG_OPEN_SYSTEM) {
-		DBG_871X("wpa_set_auth_algs, AUTH_ALG_OPEN_SYSTEM\n");
+	} else if (value & WLAN_AUTH_OPEN) {
+		DBG_871X("wpa_set_auth_algs, WLAN_AUTH_OPEN\n");
 		/* padapter->securitypriv.ndisencryptstatus = Ndis802_11EncryptionDisabled; */
 		if (padapter->securitypriv.ndisauthtype < Ndis802_11AuthModeWPAPSK) {
 			padapter->securitypriv.ndisauthtype = Ndis802_11AuthModeOpen;
 			padapter->securitypriv.dot11AuthAlgrthm = dot11AuthAlgrthm_Open;
 		}
-	} else if (value & AUTH_ALG_LEAP) {
-		DBG_871X("wpa_set_auth_algs, AUTH_ALG_LEAP\n");
+	} else if (value & WLAN_AUTH_LEAP) {
+		DBG_871X("wpa_set_auth_algs, WLAN_AUTH_LEAP\n");
 	} else {
 		DBG_871X("wpa_set_auth_algs, error!\n");
 		ret = -EINVAL;
@@ -2131,75 +2131,65 @@ static int rtw_wx_set_gen_ie(struct net_device *dev,
 }
 
 static int rtw_wx_set_auth(struct net_device *dev,
-			     struct iw_request_info *info,
-			     union iwreq_data *wrqu, char *extra)
+			   struct iw_request_info *info,
+			   union iwreq_data *wrqu, char *extra)
 {
 	struct adapter *padapter = (struct adapter *)rtw_netdev_priv(dev);
 	struct iw_param *param = (struct iw_param*)&(wrqu->param);
 	int ret = 0;
 
 	switch (param->flags & IW_AUTH_INDEX) {
-
 	case IW_AUTH_WPA_VERSION:
 		break;
 	case IW_AUTH_CIPHER_PAIRWISE:
-
 		break;
 	case IW_AUTH_CIPHER_GROUP:
-
 		break;
 	case IW_AUTH_KEY_MGMT:
 		/*
 		 *  ??? does not use these parameters
 		 */
 		break;
-
 	case IW_AUTH_TKIP_COUNTERMEASURES:
-        {
-		if (param->value) {
-			/*  wpa_supplicant is enabling the tkip countermeasure. */
+		/* wpa_supplicant is setting the tkip countermeasure. */
+		if (param->value) /* enabling */
 			padapter->securitypriv.btkip_countermeasure = true;
-		} else {
-			/*  wpa_supplicant is disabling the tkip countermeasure. */
+		else /* disabling */
 			padapter->securitypriv.btkip_countermeasure = false;
-		}
 		break;
-        }
 	case IW_AUTH_DROP_UNENCRYPTED:
-		{
-			/* HACK:
-			 *
-			 * wpa_supplicant calls set_wpa_enabled when the driver
-			 * is loaded and unloaded, regardless of if WPA is being
-			 * used.  No other calls are made which can be used to
-			 * determine if encryption will be used or not prior to
-			 * association being expected.  If encryption is not being
-			 * used, drop_unencrypted is set to false, else true -- we
-			 * can use this to determine if the CAP_PRIVACY_ON bit should
-			 * be set.
-			 */
-
-			if (padapter->securitypriv.ndisencryptstatus == Ndis802_11Encryption1Enabled) {
-				break;/* it means init value, or using wep, ndisencryptstatus = Ndis802_11Encryption1Enabled, */
-						/*  then it needn't reset it; */
-			}
-
-			if (param->value) {
-				padapter->securitypriv.ndisencryptstatus = Ndis802_11EncryptionDisabled;
-				padapter->securitypriv.dot11PrivacyAlgrthm = _NO_PRIVACY_;
-				padapter->securitypriv.dot118021XGrpPrivacy = _NO_PRIVACY_;
-				padapter->securitypriv.dot11AuthAlgrthm = dot11AuthAlgrthm_Open; /* open system */
-				padapter->securitypriv.ndisauthtype =Ndis802_11AuthModeOpen;
-			}
-
-			break;
-		}
-
-	case IW_AUTH_80211_AUTH_ALG:
+		/* HACK:
+		 *
+		 * wpa_supplicant calls set_wpa_enabled when the driver
+		 * is loaded and unloaded, regardless of if WPA is being
+		 * used.  No other calls are made which can be used to
+		 * determine if encryption will be used or not prior to
+		 * association being expected.  If encryption is not being
+		 * used, drop_unencrypted is set to false, else true -- we
+		 * can use this to determine if the CAP_PRIVACY_ON bit should
+		 * be set.
+		 */
 
 		/*
+		 * This means init value, or using wep, ndisencryptstatus =
+		 * Ndis802_11Encryption1Enabled, then it needn't reset it;
+		 */
+		if (padapter->securitypriv.ndisencryptstatus == Ndis802_11Encryption1Enabled)
+			break;
+
+		if (param->value) {
+			padapter->securitypriv.ndisencryptstatus = Ndis802_11EncryptionDisabled;
+			padapter->securitypriv.dot11PrivacyAlgrthm = _NO_PRIVACY_;
+			padapter->securitypriv.dot118021XGrpPrivacy = _NO_PRIVACY_;
+			padapter->securitypriv.dot11AuthAlgrthm = dot11AuthAlgrthm_Open; /* open system */
+			padapter->securitypriv.ndisauthtype =Ndis802_11AuthModeOpen;
+		}
+
+		break;
+	case IW_AUTH_80211_AUTH_ALG:
+		/*
 		 *  It's the starting point of a link layer connection using wpa_supplicant
-		*/
+		 */
 		if (check_fwstate(&padapter->mlmepriv, _FW_LINKED)) {
 			LeaveAllPowerSaveMode(padapter);
 			rtw_disassoc_cmd(padapter, 500, false);
@@ -2208,11 +2198,8 @@ static int rtw_wx_set_auth(struct net_device *dev,
 			rtw_free_assoc_resources(padapter, 1);
 		}
 
-
 		ret = wpa_set_auth_algs(dev, (u32)param->value);
-
 		break;
-
 	case IW_AUTH_WPA_ENABLED:
 		break;
 	case IW_AUTH_RX_UNENCRYPTED_EAPOL:
@@ -2222,6 +2209,7 @@ static int rtw_wx_set_auth(struct net_device *dev,
 	default:
 		return -EOPNOTSUPP;
 	}
+
 	return ret;
 }
 
