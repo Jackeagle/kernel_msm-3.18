@@ -31,6 +31,8 @@ Thanks for taking the time to have a look at the Robopot hardware and software d
 
 5- Write to text file to allow GUI update of robot position.
 
+![alt text](https://github.com/FrazLaw/RoboPot/blob/master/robopot_main_flowchart.png)
+
 ### GUI Software Requirements
 
 1- GUI to be accessable from a web page hosted on Apache server on Raspberry Pi.
