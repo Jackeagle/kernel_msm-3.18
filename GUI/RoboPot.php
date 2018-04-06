@@ -19,11 +19,17 @@
   color: white;
   float: left;
 }
-.fa-instagram {
-  background: #ff6600;
+.fa-youtube-square {
+  background: red;
   color: white;
   float: left;
 }
+.fa-github {
+	background: black;
+	color: white;
+	float: left;
+}
+
 h1 {
 	color: white;
 	text-shadow: 1px 1px 5px black, 0 0 25px green, 0 0 5px lawngreen;
@@ -41,15 +47,24 @@ body {
 	background-image: url("https://images.pexels.com/photos/413195/pexels-photo-413195.jpeg?h=350&auto=compress&cs=tinysrgb");
 }
 
-.btn-group button {
-	background-color: green;
-	border: 2px solid white;
-	color: white;
-	padding: 48px 48px;
-	cursor: pointer;
+.button {
+    background: #008000; /* Green */
+    border: 2px solid white;
+    color: white;
+    padding: 48px 48px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    cursor: pointer;
 	float: left;
 }
-.btn-group:after {
+
+.button:hover { 
+	opacity: 0.7;
+}
+
+
+.button:after {
     content: "";
     clear: both;
     display: table;
@@ -85,9 +100,11 @@ tr {
 	<title>RoboPot</title>
 </head>
 
-<body>
+<body style="overflow: auto;" onload="position();lightsensing()">
 
-<a href="#" class="fa fa-facebook"></a> <a href="#" class="fa fa-instagram"></a>	
+<a href="https://www.facebook.com/ENG5220RoboPot/" class="fa fa-facebook"></a> 
+<a href="https://github.com/FrazLaw/RoboPot" class="fa fa-github"></a>
+<a href="https://www.youtube.com/channel/UCD5ITvIJ00v1beTOdpyzPOQ" class="fa fa-youtube-square"></a>	
 <h1>RoboPot</h1>
 
 <h3>Group 7 - Fraser Law, Fraser Menzies and Alastair Thurlbeck</h3>
@@ -119,32 +136,40 @@ This is our solution to moveable plant pots remotely controlled via a web interf
 	</tr>
 </table>
 
-<div class="btn-group" style="margin-top: 1%">
-	<button style="margin-left: 39.6%" id="A" onclick="myFunction(this)"></button>
-	<button id="B" onclick="myFunction(this)"></button>
-	<button id="C" onclick="myFunction(this)"></button>
-	<button id="D" onclick="myFunction(this)"></button>
-</div>
-<div class="btn-group">
-	<button style="margin-left: 39.6%" id="E" onclick="myFunction(this)"></button>
-	<button id="F" onclick="myFunction(this)"></button>
-	<button id="G" onclick="myFunction(this)"></button>
-	<button id="H" onclick="myFunction(this)"></button>
-</div>
-<div class="btn-group">
-	<button style="margin-left: 39.6%" id="I" onclick="myFunction(this)"></button>
-	<button id="J" onclick="myFunction(this)"></button>
-	<button id="K" onclick="myFunction(this)"></button>
-	<button id="L" onclick="myFunction(this)"></button>
-</div>
-<div class="btn-group">
-	<button style="margin-left: 39.6%" id="M" onclick="myFunction(this)"></button>
-	<button id="N" onclick="myFunction(this)"></button>
-	<button id="O" onclick="myFunction(this)"></button>
-	<button id="P" onclick="myFunction(this)"></button>
-</div>
+<script>
+
+function changeColour(elem) {	
+	document.getElementById(elem.id).style.background ="#ff6600";
+		setInterval(function(){  
+			document.getElementById(elem.id).style.background ="#008000";
+		},2000);
+}
+</script>
+
+<button class="button" style="margin-left: 39.6%" id="A" onclick="myFunction(this)"></button>
+<button class="button" id="B" onclick="myFunction(this);"></button>
+<button class="button" id="C" onclick="myFunction(this)"></button>
+<button class="button" id="D" onclick="myFunction(this)"></button>
+
+
+<button class="button" style="margin-left: 39.6%" id="E" onclick="myFunction(this)"></button>
+<button class="button" id="F" onclick="myFunction(this)"></button>
+<button class="button" id="G" onclick="myFunction(this)"></button>
+<button class="button" id="H" onclick="myFunction(this)"></button>
+
+<button class="button" style="margin-left: 39.6%" id="I" onclick="myFunction(this)"></button>
+<button class="button" id="J" onclick="myFunction(this)"></button>
+<button class="button" id="K" onclick="myFunction(this)"></button>
+<button class="button" id="L" onclick="myFunction(this)"></button>
+
+
+<button class="button" style="margin-left: 39.6%" id="M" onclick="myFunction(this)"></button>
+<button class="button" id="N" onclick="myFunction(this)"></button>
+<button class="button" id="O" onclick="myFunction(this)"></button>
+<button class="button" id="P" onclick="myFunction(this)"></button>
 
 <script type="text/javascript">	 //script attribute 
+function lightsensing(){
 	setInterval(function(){ //wait function 
 		var request = new XMLHttpRequest(); //XMLHttpRequest is in-built function
 		request.onreadystatechange = function(){
@@ -155,7 +180,74 @@ This is our solution to moveable plant pots remotely controlled via a web interf
 		}		
 		request.open('POST', 'lightsensorvalue1.php', true); //actually opening and sending the files 
 		request.send();
-	},1000);		//wait
+	},1000);	
+}	//wait
+</script>
+
+<script>	//position script
+function position(){
+	setInterval(function(){ //wait function 
+	document.getElementById("A").style.background ="#008000";
+	document.getElementById("B").style.background ="#008000";
+	document.getElementById("C").style.background ="#008000";
+	document.getElementById("D").style.background ="#008000";
+	document.getElementById("E").style.background ="#008000";
+	document.getElementById("F").style.background ="#008000";
+	document.getElementById("G").style.background ="#008000";
+	document.getElementById("H").style.background ="#008000";
+	document.getElementById("I").style.background ="#008000";
+	document.getElementById("J").style.background ="#008000";
+	document.getElementById("K").style.background ="#008000";
+	document.getElementById("L").style.background ="#008000";
+	document.getElementById("M").style.background ="#008000";
+	document.getElementById("N").style.background ="#008000";
+	document.getElementById("O").style.background ="#008000";
+	document.getElementById("P").style.background ="#008000";
+		var request = new XMLHttpRequest(); //XMLHttpRequest is in-built function
+		request.onreadystatechange = function(){
+			if (request.readyState == 4 && request.status == 200){ //server status and checks 
+				//console.log(request.responseText); //request.responseText is the actual value that is being sent, .log isn't actually displaying the data
+				if (request.responseText == 'A'){
+					document.getElementById("A").style.background ="#ff6600";
+				} else if (request.responseText == 'B'){
+					document.getElementById("B").style.background ="#ff6600";
+				} else if (request.responseText == 'C'){
+					document.getElementById("C").style.background ="#ff6600";
+				} else if (request.responseText == 'D'){
+					document.getElementById("D").style.background ="#ff6600";
+				} else if (request.responseText == 'E'){
+					document.getElementById("E").style.background ="#ff6600";
+				} else if (request.responseText == 'F'){
+					document.getElementById("F").style.background ="#ff6600";
+				} else if (request.responseText == 'G'){
+					document.getElementById("G").style.background ="#ff6600";
+				} else if (request.responseText == 'H'){
+					document.getElementById("H").style.background ="#ff6600";
+				} else if (request.responseText == 'I'){
+					document.getElementById("I").style.background ="#ff6600";
+				} else if (request.responseText == 'J'){
+					document.getElementById("J").style.background ="#ff6600";
+				} else if (request.responseText == 'K'){
+					document.getElementById("K").style.background ="#ff6600";
+				} else if (request.responseText == 'L'){
+					document.getElementById("L").style.background ="#ff6600";
+				} else if (request.responseText == 'M'){
+					document.getElementById("M").style.background ="#ff6600";
+				} else if (request.responseText == 'N'){
+					document.getElementById("N").style.background ="#ff6600";
+				} else if (request.responseText == 'O'){
+					document.getElementById("O").style.background ="#ff6600";
+				} else if (request.responseText == 'P'){
+					document.getElementById("P").style.background ="#ff6600";
+				} else { 
+					document.getElementById("A").style.background ="#ff6600";
+				}
+			}
+		}		
+		request.open('POST', 'positionupdate.php', true); //actually opening and sending the files 
+		request.send();	
+	},3000);		//wait
+}
 </script>
 
 <script>
@@ -223,6 +315,5 @@ function myFunction(elem){
 }
 
 </script>
-overflow: auto;
 </body>
 </html>
