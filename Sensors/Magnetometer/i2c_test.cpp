@@ -85,6 +85,7 @@ int LSM303AGR::readCh3(){
 int main(){
 
 LSM303AGR lsm;
+ofstream magneto;
 /*data logging
 ofstream datatest;
 datatest.open("datatest.csv");
@@ -128,6 +129,9 @@ lsm.configure();
 		}
 	average = sum/10;
 	cout << "average direction = " << average << endl;
+	magneto.open("magneto.txt");
+	magneto << average;
+	magneto.close();
 //	sleep(1); //1 second(s)
 	}
 
