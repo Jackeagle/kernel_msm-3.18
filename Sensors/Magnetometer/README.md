@@ -19,5 +19,5 @@ $ make
 Simple!
 
 An issue that was a real pain in the side was the sensitivity of the chip itself. The datasheet didn't specifiy this; however, the sensor worked a lot better when the Z-axis was perpendicular to the ground and was rotating around th Z-axis. In the plot below you can see the comparison between the perpendicular rotation and the parallel rotation.
-![alt text](https://github.com/FrazLaw/RoboPot/blob/master/Hardware/Comparisonplots.PNG)
+![alt text](https://github.com/FrazLaw/RoboPot/blob/master/Comparisonplots.PNG)
 To compensate, I centred the parallel rotation around the origin by subrating 307uT each read of the registers. You can see the change above. This enabled an accurate reading of the sensor with slightly less sensitivty as opposed to the Z-axis being perpendicular to the ground.
