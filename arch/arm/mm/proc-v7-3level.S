@@ -56,6 +56,37 @@ ENTRY(cpu_v7_switch_mm)
 	mov	pc, lr
 ENDPROC(cpu_v7_switch_mm)
 
+/*
+ * Qualcomm Technologies Inc. Krait processors - require bp invalidation
+ */
+ENTRY(cpu_krait_switch_mm)
+/* Sanitize link stack
+ * The below instrucitons will cause lr to be loaded with a value
+ * which will never be used, thus nullyfying branch prediction based
+ * attacks
+ */
+	stmfd sp!, {lr}
+	bl	1f
+1:	bl	1f
+1:	bl	1f
+1:	bl	1f
+1:	bl	1f
+1:	bl	1f
+1:	bl	1f
+1:	bl	1f
+1:	mov     lr, #0
+	mcr     p15, 0, lr, c7, c5, 6   @ BPIALL
+	isb
+#ifdef CONFIG_MMU
+	mmid	r2, r2
+	asid	r2, r2
+	orr	rpgdh, rpgdh, r2, lsl #(48 - 32)	@ upper 32-bits of pgd
+	mcrr	p15, 0, rpgdl, rpgdh, c2		@ set TTB 0
+	isb
+#endif
+	ldmfd	sp!, {pc}
+ENDPROC(cpu_krait_switch_mm)
+
 #ifdef __ARMEB__
 #define rl r3
 #define rh r2
