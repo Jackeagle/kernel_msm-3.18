@@ -42,3 +42,6 @@ lsm.configure();
     datatest << y;
     datatest << z;
 ```
+Easy to calibrate! 
+
+Any questions, just pop over to our RoboPot facebook page!
