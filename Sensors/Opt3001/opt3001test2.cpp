@@ -46,10 +46,27 @@ class opt3001
 	}
 
 	void savedata(){
-		std::fstream myfile;
-		myfile.open ("/home/pi/Code/opt3001/lightdata.txt", std::fstream::in | std::fstream::out | std::fstream::trunc);
-		myfile <<lux[0]<<"\n"<<lux[1]<<"\n"<<lux[2]<<"\n"<<lux[3];
-		myfile.close();
+		std::fstream file1;
+		file1.open ("/home/pi/Code/opt3001/lightdata/lightdata1.txt", std::fstream::in | std::fstream::out | std::fstream::trunc);
+		file1 <<lux[0];
+		file1.close();
+                std::fstream file2;
+                file2.open ("/home/pi/Code/opt3001/lightdata/lightdata2.txt", std::fstream::in | std::fstream::out | std::fstream::trunc);
+                file2 <<lux[1];
+                file2.close();
+                std::fstream file3;
+                file3.open ("/home/pi/Code/opt3001/lightdata/lightdata3.txt", std::fstream::in | std::fstream::out | std::fstream::trunc);
+                file3 <<lux[2];
+                file3.close();
+                std::fstream file4;
+                file4.open ("/home/pi/Code/opt3001/lightdata/lightdata4.txt", std::fstream::in | std::fstream::out | std::fstream::trunc);
+                file4 <<lux[3];
+                file4.close();
+
+		/*std::cout<<"\n"<<"Sensor 1 = "<<lux[0]<<" lx"<<std::endl;
+		std::cout<<"Sensor 2 = "<<lux[1]<<" lx"<<std::endl;
+                std::cout<<"Sensor 3 = "<<lux[2]<<" lx"<<std::endl;
+                std::cout<<"Sensor 4 = "<<lux[3]<<" lx"<<std::endl;*/
 	}
 };
 
@@ -64,7 +81,7 @@ int main (){
 	opt3001 opt3001a;
 
 	//transfer command, set IP addresses and directories
-	strcpy( command, "scp /home/pi/Code/opt3001/lightdata.txt teamrobopot@192.168.43.112:/home/teamrobopot/Documents" );
+	strcpy( command, "scp -r /home/pi/Code/opt3001/lightdata teamrobopot@192.168.43.112:/home/teamrobopot/Documents" );
 
 	//setup wiringPiI2C with all sensors
 	opt3001a.setup();
@@ -72,14 +89,14 @@ int main (){
 	//set configuration
 	configuration = 0x00CC;
 
-	for(i=0;i<2;i++){
+	for(i=0;i<4;i++){
 	opt3001a.setconfig(i,configuration);
 	}
 
 	//get lux readings
 	while(1){
-		sleep(5);
-		for(i=0;i<2;i++){
+		sleep(1);
+		for(i=0;i<4;i++){
 			opt3001a.getlux(i);
 		}
 		//save to lightdata.txt
