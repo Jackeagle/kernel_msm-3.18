@@ -19,69 +19,52 @@ location class
 
 int main()
 {
-	char Pot_Location = 'a'; //Initialise Pot Location to 'a'
-	char Destination;
-	int Face_EastOrWest_Flag = 0;
-	int Face_NorthOrSouth_Flag = 0;
-	int Move_EastOrWest_Flag = 0;
-	int Move_NorthOrSouth_Flag = 0;
-
-	int X_Bearing;
-	int Y_Bearing;
-	int X_PathLength;
-	int Y_PathLength;
-
+	
 	//Declare class objects
 	GUI interface;	
-	Location loc;
 	Move motors;
+	Location loc;
+	
+	char Pot_Location = 'a'; //Initialise Pot Location to 'a'
+	char Destination; // Declare destination variable
+	int X_Bearing;	//// Declare x bearing variable for location class
+	int Y_Bearing;	// Declare y bearing variable for location class
+	int X_PathLength;  // Declare path length in x direction for location class
+	int Y_PathLength;  // Declare path length in y direction for location class
 
 	motors.Initialise(); //Initialise Motors
 
 	while (1)
 	{
-		bool Move_Flag = interface.Check_Cmd(cmdfile); //Check for destination request from GUI
-
-		if ( Move_Flag == true)	//If destination is sent from GUI
+		if ( interface.Check_Cmd(cmdfile) == true)	//If destination is sent from GUI
 		{
 			Destination = interface.Read_Cmd(cmdfile);	//Read destination
-
-			if ( Destination != Pot_Location)	//If Destination is different from initial location
+			Pot_Location = loc.Find_Pot();			//Measure position
+			if ( Destination != Pot_Location)	//If Destination is different from present location
 			{
-				Pot_Location = loc.Find_Pot();
-				loc.Find_Path(Destination, Pot_Location);
-
-				if (&X_PathLength != 0)
+				loc.Find_Path(Destination, Pot_Location); //Determine path to destination
+				if (X_PathLength != 0) //if required to move in along x path
 				{
-					motors.Turn(X_Bearing);
-					for (int i = 0; i<X_PathLength; i++)
+					motors.Turn(X_Bearing); //Turn to face direction of travel
+					for (int i = 0; i<X_PathLength; i++)	//Move for required number of unit lengths in x direction
+					{
+						motors.Drive();
+						Pot_Location = loc.Find_Pot(); 	
+						interface.Send(ToGUI, &Pot_Location); //transmit location to GUI during transit
+					}
+				}
+				if (Y_PathLength != 0)  //if required to move in along y path
+				{
+					motors.Turn(Y_Bearing); //Turn to face direction of travel
+					for (int i = 0; i<Y_PathLength; i++) //Move for required number of unit lengths in y direction
 					{
 						motors.Drive();
 						Pot_Location = loc.Find_Pot();
-						interface.Send(ToGUI, &Pot_Location);
+						interface.Send(ToGUI, &Pot_Location); //transmit location to GUI during transit
 					}
 				}
-
-				if (Y_PathLength != 0)
-				{
-					motors.Turn(Y_Bearing);
-					for (int i = 0; i<Y_PathLength; i++)
-					{
-						motors.Drive();
-						Pot_Location = loc.Find_Pot();
-						interface.Send(ToGUI, &Pot_Location);
-					}
-				}
-				if (Destination == Pot_Location)
-				{
-					Move_Flag = false;
-				}
-
-			}
-			else {
-				Move_Flag = false;
 			}
 		}
-	}
+`	}//Close while loop
 
-}
+} // End main
