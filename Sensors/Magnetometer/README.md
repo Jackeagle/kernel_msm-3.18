@@ -26,7 +26,7 @@ To compensate, I centred the parallel rotation around the origin by subrating 30
 
 To examine your values (if your magnetometer doesn't work first time), I logged my data into a csv which I then transferred to the github, then downloaded into excel and plotted my values. Here is a simple data logging example for creating a simple csv file:
 fstream magneto;
-```ruby
+```c
 ofstream datatest; //datatest is now the output data file
 datatest.open("datatest.csv"); //creating the csv file
 datatest << "X,Y,Z\n"; //create the columns for each axis read
