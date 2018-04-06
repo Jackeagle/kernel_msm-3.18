@@ -4,10 +4,6 @@
 
 Location::Location()
 {
-	int X_Bearing = 0;
-	int Y_Bearing = 0;
-	int X_PathLength = 0;
-	int Y_PathLength = 0;
 }
 
 
@@ -103,33 +99,33 @@ void Location::Find_Path(char Destination, char Pot_Start_Position)
 	Find_coordinates(Destination, &Dest_x, &Dest_y);
 	Find_coordinates(Pot_Start_Position, &Loc_x, &Loc_y);
 
-	X_PathLength = Dest_x - Loc_x;
-	Y_PathLength = Dest_y - Loc_y;
-
+	int X_PathLength = Dest_x - Loc_x;
+	int Y_PathLength = Dest_y - Loc_y;
+	
 	if (X_PathLength > 0)
 	{
-		X_Bearing = East_Bearing;
+		int X_Bearing = East_Bearing;
 	}
 	else if (X_PathLength < 0)
 	{
-		X_Bearing = West_Bearing;
+		int X_Bearing = West_Bearing;
 	}
 	else
 	{
-		X_Bearing = 0;
+		int X_Bearing = 0;
 	}
 
 	if (Y_PathLength > 0)
 	{
-		Y_Bearing = South_Bearing;
+		int Y_Bearing = South_Bearing;
 	}
 	else if (Y_PathLength < 0)
 	{
-		Y_Bearing = North_Bearing;
+		int Y_Bearing = North_Bearing;
 	}
 	else
 	{
-		Y_Bearing = 0;
+		int Y_Bearing = 0;
 	}
 }
 
