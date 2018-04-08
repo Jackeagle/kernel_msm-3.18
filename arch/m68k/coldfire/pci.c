@@ -28,7 +28,7 @@
  * the IO map space when we enable it in the PCICAR register.
  */
 static struct pci_bus *rootbus;
-static unsigned long iospace;
+static void __iomem *iospace;
 
 /*
  * We need to be carefull probing on bus 0 (directly connected to host
@@ -65,7 +65,8 @@ static unsigned long mcf_mk_pcicar(int bus, unsigned int devfn, int where)
 static int mcf_pci_readconfig(struct pci_bus *bus, unsigned int devfn,
 	int where, int size, u32 *value)
 {
-	unsigned long addr;
+	unsigned long offset;
+	void __iomem *addr;
 
 	*value = 0xffffffff;
 
@@ -75,8 +76,8 @@ static int mcf_pci_readconfig(struct pci_bus *bus, unsigned int devfn,
 	}
 
 	syncio();
-	addr = mcf_mk_pcicar(bus->number, devfn, where);
-	__raw_writel(PCICAR_E | addr, PCICAR);
+	offset = mcf_mk_pcicar(bus->number, devfn, where);
+	__raw_writel(PCICAR_E | offset, iomem(PCICAR));
 	addr = iospace + (where & 0x3);
 
 	switch (size) {
@@ -92,14 +93,15 @@ static int mcf_pci_readconfig(struct pci_bus *bus, unsigned int devfn,
 	}
 
 	syncio();
-	__raw_writel(0, PCICAR);
+	__raw_writel(0, iomem(PCICAR));
 	return PCIBIOS_SUCCESSFUL;
 }
 
 static int mcf_pci_writeconfig(struct pci_bus *bus, unsigned int devfn,
 	int where, int size, u32 value)
 {
-	unsigned long addr;
+	unsigned long offset;
+	void __iomem *addr;
 
 	if (bus->number == 0) {
 		if (mcf_host_slot2sid[PCI_SLOT(devfn)] == 0)
@@ -107,8 +109,8 @@ static int mcf_pci_writeconfig(struct pci_bus *bus, unsigned int devfn,
 	}
 
 	syncio();
-	addr = mcf_mk_pcicar(bus->number, devfn, where);
-	__raw_writel(PCICAR_E | addr, PCICAR);
+	offset = mcf_mk_pcicar(bus->number, devfn, where);
+	__raw_writel(PCICAR_E | offset, iomem(PCICAR));
 	addr = iospace + (where & 0x3);
 
 	switch (size) {
@@ -124,7 +126,7 @@ static int mcf_pci_writeconfig(struct pci_bus *bus, unsigned int devfn,
 	}
 
 	syncio();
-	__raw_writel(0, PCICAR);
+	__raw_writel(0, iomem(PCICAR));
 	return PCIBIOS_SUCCESSFUL;
 }
 
@@ -182,25 +184,25 @@ static int __init mcf_pci_init(void)
 	pr_info("ColdFire: PCI bus initialization...\n");
 
 	/* Reset the external PCI bus */
-	__raw_writel(PCIGSCR_RESET, PCIGSCR);
-	__raw_writel(0, PCITCR);
+	__raw_writel(PCIGSCR_RESET, iomem(PCIGSCR));
+	__raw_writel(0, iomem(PCITCR));
 
 	request_resource(&iomem_resource, &mcf_pci_mem);
 	request_resource(&iomem_resource, &mcf_pci_io);
 
 	/* Configure PCI arbiter */
 	__raw_writel(PACR_INTMPRI | PACR_INTMINTE | PACR_EXTMPRI(0x1f) |
-		PACR_EXTMINTE(0x1f), PACR);
+		PACR_EXTMINTE(0x1f), iomem(PACR));
 
 	/* Set required multi-function pins for PCI bus use */
-	__raw_writew(0x3ff, MCFGPIO_PAR_PCIBG);
-	__raw_writew(0x3ff, MCFGPIO_PAR_PCIBR);
+	__raw_writew(0x3ff, iomem(MCFGPIO_PAR_PCIBG));
+	__raw_writew(0x3ff, iomem(MCFGPIO_PAR_PCIBR));
 
 	/* Set up config space for local host bus controller */
 	__raw_writel(PCI_COMMAND_MEMORY | PCI_COMMAND_MASTER |
-		PCI_COMMAND_INVALIDATE, PCISCR);
-	__raw_writel(PCICR1_LT(32) | PCICR1_CL(8), PCICR1);
-	__raw_writel(0, PCICR2);
+		PCI_COMMAND_INVALIDATE, iomem(PCISCR));
+	__raw_writel(PCICR1_LT(32) | PCICR1_CL(8), iomem(PCICR1));
+	__raw_writel(0, iomem(PCICR2));
 
 	/*
 	 * Set up the initiator windows for memory and IO mapping.
@@ -208,28 +210,27 @@ static int __init mcf_pci_init(void)
 	 * PCI memory and IO address spaces.
 	 */
 	__raw_writel(WXBTAR(PCI_MEM_PA, PCI_MEM_BA, PCI_MEM_SIZE),
-		PCIIW0BTAR);
+		iomem(PCIIW0BTAR));
 	__raw_writel(WXBTAR(PCI_IO_PA, PCI_IO_BA, PCI_IO_SIZE),
-		PCIIW1BTAR);
+		iomem(PCIIW1BTAR));
 	__raw_writel(PCIIWCR_W0_MEM /*| PCIIWCR_W0_MRDL*/ | PCIIWCR_W0_E |
-		PCIIWCR_W1_IO | PCIIWCR_W1_E, PCIIWCR);
+		PCIIWCR_W1_IO | PCIIWCR_W1_E, iomem(PCIIWCR));
 
 	/*
 	 * Set up the target windows for access from the PCI bus back to the
 	 * CPU bus. All we need is access to system RAM (for mastering).
 	 */
-	__raw_writel(CONFIG_RAMBASE, PCIBAR1);
-	__raw_writel(CONFIG_RAMBASE | PCITBATR1_E, PCITBATR1);
+	__raw_writel(CONFIG_RAMBASE, iomem(PCIBAR1));
+	__raw_writel(CONFIG_RAMBASE | PCITBATR1_E, iomem(PCITBATR1));
 
 	/* Keep a virtual mapping to IO/config space active */
-	iospace = (unsigned long) ioremap(PCI_IO_PA, PCI_IO_SIZE);
-	if (iospace == 0)
+	iospace = ioremap(PCI_IO_PA, PCI_IO_SIZE);
+	if (IS_ERR(iospace))
 		return -ENODEV;
-	pr_info("Coldfire: PCI IO/config window mapped to 0x%x\n",
-		(u32) iospace);
+	pr_info("Coldfire: PCI IO/config window mapped to 0x%p\n", iospace);
 
 	/* Turn of PCI reset, and wait for devices to settle */
-	__raw_writel(0, PCIGSCR);
+	__raw_writel(0, iomem(PCIGSCR));
 	set_current_state(TASK_UNINTERRUPTIBLE);
 	schedule_timeout(msecs_to_jiffies(200));
 
