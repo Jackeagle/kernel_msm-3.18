@@ -100,7 +100,7 @@ tr {
 	<title>RoboPot</title>
 </head>
 
-<body style="overflow: auto;">
+<body style="overflow: auto;" onload="position();lightsensing()">
 
 <a href="https://www.facebook.com/ENG5220RoboPot/" class="fa fa-facebook"></a> 
 <a href="https://github.com/FrazLaw/RoboPot" class="fa fa-github"></a>
@@ -169,6 +169,7 @@ function changeColour(elem) {
 <button class="button" id="P" onclick="myFunction(this)"></button>
 
 <script type="text/javascript">	 //script attribute 
+function lightsensing(){
 	setInterval(function(){ //wait function 
 		var request = new XMLHttpRequest(); //XMLHttpRequest is in-built function
 		request.onreadystatechange = function(){
@@ -179,10 +180,12 @@ function changeColour(elem) {
 		}		
 		request.open('POST', 'lightsensorvalue1.php', true); //actually opening and sending the files 
 		request.send();
-	},1000);		//wait
+	},1000);	
+}	//wait
 </script>
 
 <script>	//position script
+function position(){
 	setInterval(function(){ //wait function 
 	document.getElementById("A").style.background ="#008000";
 	document.getElementById("B").style.background ="#008000";
@@ -203,48 +206,50 @@ function changeColour(elem) {
 		var request = new XMLHttpRequest(); //XMLHttpRequest is in-built function
 		request.onreadystatechange = function(){
 			if (request.readyState == 4 && request.status == 200){ //server status and checks 
-				//console.log(request.responseText); //request.responseText is the actual value that is being sent, .log isn't actually displaying the data
-				if (request.responseText == 'A'){
+				console.log(request.responseText);
+		
+		if (request.responseText == 'A'){
 					document.getElementById("A").style.background ="#ff6600";
-				} else if (request.responseText == 'B'){
+		} else if (request.responseText == 'B'){
 					document.getElementById("B").style.background ="#ff6600";
-				} else if (request.responseText == 'C'){
+		} else if (request.responseText == 'C'){
 					document.getElementById("C").style.background ="#ff6600";
-				} else if (request.responseText == 'D'){
+		} else if (request.responseText == 'D'){
 					document.getElementById("D").style.background ="#ff6600";
-				} else if (request.responseText == 'E'){
+		} else if (request.responseText == 'E'){
 					document.getElementById("E").style.background ="#ff6600";
-				} else if (request.responseText == 'F'){
+		} else if (request.responseText == 'F'){
 					document.getElementById("F").style.background ="#ff6600";
-				} else if (request.responseText == 'G'){
+		} else if (request.responseText == 'G'){
 					document.getElementById("G").style.background ="#ff6600";
-				} else if (request.responseText == 'H'){
+		} else if (request.responseText == 'H'){
 					document.getElementById("H").style.background ="#ff6600";
-				} else if (request.responseText == 'I'){
+		} else if (request.responseText == 'I'){
 					document.getElementById("I").style.background ="#ff6600";
-				} else if (request.responseText == 'J'){
+		} else if (request.responseText == 'J'){
 					document.getElementById("J").style.background ="#ff6600";
-				} else if (request.responseText == 'K'){
+		} else if (request.responseText == 'K'){
 					document.getElementById("K").style.background ="#ff6600";
-				} else if (request.responseText == 'L'){
+		} else if (request.responseText == 'L'){
 					document.getElementById("L").style.background ="#ff6600";
-				} else if (request.responseText == 'M'){
+		} else if (request.responseText == 'M'){
 					document.getElementById("M").style.background ="#ff6600";
-				} else if (request.responseText == 'N'){
+		} else if (request.responseText == 'N'){
 					document.getElementById("N").style.background ="#ff6600";
-				} else if (request.responseText == 'O'){
+		} else if (request.responseText == 'O'){
 					document.getElementById("O").style.background ="#ff6600";
-				} else if (request.responseText == 'P'){
+		} else if (request.responseText == 'P'){
 					document.getElementById("P").style.background ="#ff6600";
-				} else { 
+		} else { 
 					document.getElementById("A").style.background ="#ff6600";
-				}
+		}
 			}
-		}		
+		}
 		request.open('POST', 'positionupdate.php', true); //actually opening and sending the files 
 		request.send();	
+		
 	},3000);		//wait
-	
+}
 </script>
 
 <script>
