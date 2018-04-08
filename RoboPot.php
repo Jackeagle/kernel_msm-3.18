@@ -124,7 +124,11 @@ This is our solution to moveable plant pots remotely controlled via a web interf
 	</tr>
 	<tr>
 		<td>Top Right</td>
-		<td>"Value?"</td>
+		<td><?php $myfile = fopen("position.txt","r") or die ("unable");
+			$value = fread($myfile, filesize("position.txt"));
+			echo $value;
+			fclose($myfile);
+		?></td>
 	</tr>
 	<tr>
 		<td>Bottom left</td>
@@ -217,14 +221,20 @@ function position(){
 					case 'B':
 						document.getElementById("B").style.background = "#ff6600";
 						break;
-					case 'C':
+					case '"C\\n"':
 						document.getElementById("C").style.background = "#ff6600";
 						break;
-					default:
-						document.getElementById("A").style.background = "#ff6600";
-						document.getElementById("A").innerHTML = response;
-						console.log(response);
-						break;
+					//default:
+					//	document.getElementById("A").style.background = "#ff6600";
+					//	document.getElementById("A").innerHTML = response;
+//						<?php
+//						$myfile = fopen("position.txt", "r") or die ("unable to open file");
+//						$value = fread($myfile, filesize("position.txt"));
+//						echo $value;//json_encode($value);
+//						fclose($myfile);
+//						?>;
+//						console.log(response);
+//						break;
 				}
 /*		if (response  == 'A'){
 					document.getElementById("A").style.background ="#ff6600";
