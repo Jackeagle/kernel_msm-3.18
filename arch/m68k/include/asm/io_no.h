@@ -10,19 +10,12 @@
 
 /*
  * The non-MMU m68k and ColdFire IO and memory mapped hardware accesses
- * functions have always worked in CPU native endian. We need to define
- * that behavior here first before we include asm-generic/io.h.
+ * functions have always worked in CPU native endian. We need to preserve
+ * that behavior - even though we are using asm-generioc/io.h now.
+ * We can rely on asm-generic/io.h for the __raw functions, they are
+ * always defined to be CPU native endian. The PCI bus case is a little
+ * more complicated - due to it being little-endian.
  */
-#define __raw_readb(addr) \
-    ({ unsigned char __v = (*(volatile unsigned char *) (addr)); __v; })
-#define __raw_readw(addr) \
-    ({ unsigned short __v = (*(volatile unsigned short *) (addr)); __v; })
-#define __raw_readl(addr) \
-    ({ unsigned int __v = (*(volatile unsigned int *) (addr)); __v; })
-
-#define __raw_writeb(b, addr) (void)((*(volatile unsigned char *) (addr)) = (b))
-#define __raw_writew(b, addr) (void)((*(volatile unsigned short *) (addr)) = (b))
-#define __raw_writel(b, addr) (void)((*(volatile unsigned int *) (addr)) = (b))
 
 #if defined(CONFIG_PCI) && defined(CONFIG_COLDFIRE)
 /*
@@ -69,6 +62,15 @@ static int cf_internalio(const volatile void __iomem *addr)
 }
 
 /*
+ * We need these forward declarations here first so that we can use them
+ * for our local readw/readl/writew/writel.
+ */
+static inline u16 __raw_readw(const volatile void __iomem *addr);
+static inline u32 __raw_readl(const volatile void __iomem *addr);
+static inline void __raw_writew(u16 value, volatile void __iomem *addr);
+static inline void __raw_writel(u32 value, volatile void __iomem *addr);
+
+/*
  * We need to treat built-in peripherals and bus based address ranges
  * differently. Local built-in peripherals (and the ColdFire SoC parts
  * have quite a lot of them) are always native endian - which is big
@@ -111,10 +113,12 @@ static inline void writel(u32 value, volatile void __iomem *addr)
 
 #else
 
-#define readb __raw_readb
+/*
+ * Preserve CPU native endian ordering for multi-byte IO access.
+ * (So we can ignore readb and writeb).
+ */
 #define readw __raw_readw
 #define readl __raw_readl
-#define writeb __raw_writeb
 #define writew __raw_writew
 #define writel __raw_writel
 
