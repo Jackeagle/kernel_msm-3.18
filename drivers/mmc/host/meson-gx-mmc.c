@@ -37,6 +37,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/interrupt.h>
 #include <linux/bitfield.h>
+#include <linux/pinctrl/consumer.h>
 
 #define DRIVER_NAME "meson-gx-mmc"
 
@@ -531,8 +532,7 @@ static int meson_mmc_clk_init(struct meson_host *host)
 	div->shift = __ffs(CLK_DIV_MASK);
 	div->width = __builtin_popcountl(CLK_DIV_MASK);
 	div->hw.init = &init;
-	div->flags = (CLK_DIVIDER_ONE_BASED |
-		      CLK_DIVIDER_ROUND_CLOSEST);
+	div->flags = CLK_DIVIDER_ONE_BASED;
 
 	clk = devm_clk_register(host->dev, &div->hw);
 	if (WARN_ON(IS_ERR(clk)))
@@ -746,6 +746,10 @@ static void meson_mmc_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	case MMC_POWER_UP:
 		if (!IS_ERR(mmc->supply.vmmc))
 			mmc_regulator_set_ocr(mmc, mmc->supply.vmmc, ios->vdd);
+
+		/* Reset rx phase */
+		clk_set_phase(host->rx_clk, 0);
+
 		break;
 
 	case MMC_POWER_ON:
@@ -759,8 +763,6 @@ static void meson_mmc_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 				host->vqmmc_enabled = true;
 		}
 
-		/* Reset rx phase */
-		clk_set_phase(host->rx_clk, 0);
 		break;
 	}
 
@@ -1172,7 +1174,7 @@ static int meson_mmc_probe(struct platform_device *pdev)
 	/* Get regulators and the supported OCR mask */
 	host->vqmmc_enabled = false;
 	ret = mmc_regulator_get_supply(mmc);
-	if (ret == -EPROBE_DEFER)
+	if (ret)
 		goto free_host;
 
 	ret = mmc_of_parse(mmc);
@@ -1190,7 +1192,7 @@ static int meson_mmc_probe(struct platform_device *pdev)
 	}
 
 	irq = platform_get_irq(pdev, 0);
-	if (!irq) {
+	if (irq <= 0) {
 		dev_err(&pdev->dev, "failed to get interrupt resource.\n");
 		ret = -EINVAL;
 		goto free_host;

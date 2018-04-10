@@ -20,8 +20,10 @@
 #include <linux/pm_runtime.h>
 
 #include <sound/soc.h>
-
+#include <drm/amd_asic_type.h>
 #include "acp.h"
+
+#define DRV_NAME "acp_audio_dma"
 
 #define PLAYBACK_MIN_NUM_PERIODS    2
 #define PLAYBACK_MAX_NUM_PERIODS    2
@@ -34,6 +36,13 @@
 
 #define MAX_BUFFER (PLAYBACK_MAX_PERIOD_SIZE * PLAYBACK_MAX_NUM_PERIODS)
 #define MIN_BUFFER MAX_BUFFER
+
+#define ST_PLAYBACK_MAX_PERIOD_SIZE 8192
+#define ST_CAPTURE_MAX_PERIOD_SIZE  ST_PLAYBACK_MAX_PERIOD_SIZE
+#define ST_MAX_BUFFER (ST_PLAYBACK_MAX_PERIOD_SIZE * PLAYBACK_MAX_NUM_PERIODS)
+#define ST_MIN_BUFFER ST_MAX_BUFFER
+
+#define DRV_NAME "acp_audio_dma"
 
 static const struct snd_pcm_hardware acp_pcm_hardware_playback = {
 	.info = SNDRV_PCM_INFO_INTERLEAVED |
@@ -73,10 +82,42 @@ static const struct snd_pcm_hardware acp_pcm_hardware_capture = {
 	.periods_max = CAPTURE_MAX_NUM_PERIODS,
 };
 
-struct audio_drv_data {
-	struct snd_pcm_substream *play_stream;
-	struct snd_pcm_substream *capture_stream;
-	void __iomem *acp_mmio;
+static const struct snd_pcm_hardware acp_st_pcm_hardware_playback = {
+	.info = SNDRV_PCM_INFO_INTERLEAVED |
+		SNDRV_PCM_INFO_BLOCK_TRANSFER | SNDRV_PCM_INFO_MMAP |
+		SNDRV_PCM_INFO_MMAP_VALID | SNDRV_PCM_INFO_BATCH |
+		SNDRV_PCM_INFO_PAUSE | SNDRV_PCM_INFO_RESUME,
+	.formats = SNDRV_PCM_FMTBIT_S16_LE |
+		SNDRV_PCM_FMTBIT_S24_LE | SNDRV_PCM_FMTBIT_S32_LE,
+	.channels_min = 1,
+	.channels_max = 8,
+	.rates = SNDRV_PCM_RATE_8000_96000,
+	.rate_min = 8000,
+	.rate_max = 96000,
+	.buffer_bytes_max = ST_MAX_BUFFER,
+	.period_bytes_min = PLAYBACK_MIN_PERIOD_SIZE,
+	.period_bytes_max = ST_PLAYBACK_MAX_PERIOD_SIZE,
+	.periods_min = PLAYBACK_MIN_NUM_PERIODS,
+	.periods_max = PLAYBACK_MAX_NUM_PERIODS,
+};
+
+static const struct snd_pcm_hardware acp_st_pcm_hardware_capture = {
+	.info = SNDRV_PCM_INFO_INTERLEAVED |
+		SNDRV_PCM_INFO_BLOCK_TRANSFER | SNDRV_PCM_INFO_MMAP |
+		SNDRV_PCM_INFO_MMAP_VALID | SNDRV_PCM_INFO_BATCH |
+		SNDRV_PCM_INFO_PAUSE | SNDRV_PCM_INFO_RESUME,
+	.formats = SNDRV_PCM_FMTBIT_S16_LE |
+		SNDRV_PCM_FMTBIT_S24_LE | SNDRV_PCM_FMTBIT_S32_LE,
+	.channels_min = 1,
+	.channels_max = 2,
+	.rates = SNDRV_PCM_RATE_8000_48000,
+	.rate_min = 8000,
+	.rate_max = 48000,
+	.buffer_bytes_max = ST_MAX_BUFFER,
+	.period_bytes_min = CAPTURE_MIN_PERIOD_SIZE,
+	.period_bytes_max = ST_CAPTURE_MAX_PERIOD_SIZE,
+	.periods_min = CAPTURE_MIN_NUM_PERIODS,
+	.periods_max = CAPTURE_MAX_NUM_PERIODS,
 };
 
 static u32 acp_reg_read(void __iomem *acp_mmio, u32 reg)
@@ -143,95 +184,97 @@ static void config_dma_descriptor_in_sram(void __iomem *acp_mmio,
  * system memory <-> ACP SRAM
  */
 static void set_acp_sysmem_dma_descriptors(void __iomem *acp_mmio,
-					   u32 size, int direction,
-					   u32 pte_offset)
+					u32 size, int direction, u32 pte_offset,
+					u16 ch, u32 sram_bank,
+					u16 dma_dscr_idx, u32 asic_type)
 {
 	u16 i;
-	u16 dma_dscr_idx = PLAYBACK_START_DMA_DESCR_CH12;
 	acp_dma_dscr_transfer_t dmadscr[NUM_DSCRS_PER_CHANNEL];
 
 	for (i = 0; i < NUM_DSCRS_PER_CHANNEL; i++) {
 		dmadscr[i].xfer_val = 0;
 		if (direction == SNDRV_PCM_STREAM_PLAYBACK) {
-			dma_dscr_idx = PLAYBACK_START_DMA_DESCR_CH12 + i;
-			dmadscr[i].dest = ACP_SHARED_RAM_BANK_1_ADDRESS +
-					(size / 2) - (i * (size/2));
+			dma_dscr_idx = dma_dscr_idx + i;
+			dmadscr[i].dest = sram_bank + (i * (size/2));
 			dmadscr[i].src = ACP_INTERNAL_APERTURE_WINDOW_0_ADDRESS
 				+ (pte_offset * SZ_4K) + (i * (size/2));
-			dmadscr[i].xfer_val |=
-			(ACP_DMA_ATTRIBUTES_DAGB_ONION_TO_SHAREDMEM << 16) |
-			(size / 2);
+			switch (asic_type) {
+			case CHIP_STONEY:
+				dmadscr[i].xfer_val |=
+				(ACP_DMA_ATTRIBUTES_DAGB_GARLIC_TO_SHAREDMEM  << 16) |
+				(size / 2);
+				break;
+			default:
+				dmadscr[i].xfer_val |=
+				(ACP_DMA_ATTRIBUTES_DAGB_ONION_TO_SHAREDMEM  << 16) |
+				(size / 2);
+			}
 		} else {
-			dma_dscr_idx = CAPTURE_START_DMA_DESCR_CH14 + i;
-			dmadscr[i].src = ACP_SHARED_RAM_BANK_5_ADDRESS +
-					(i * (size/2));
-			dmadscr[i].dest = ACP_INTERNAL_APERTURE_WINDOW_0_ADDRESS
-						+ (pte_offset * SZ_4K) +
-						(i * (size/2));
-			dmadscr[i].xfer_val |=
-			BIT(22) |
-			(ACP_DMA_ATTRIBUTES_SHAREDMEM_TO_DAGB_ONION << 16) |
-			(size / 2);
+			dma_dscr_idx = dma_dscr_idx + i;
+			dmadscr[i].src = sram_bank + (i * (size/2));
+			dmadscr[i].dest =
+			ACP_INTERNAL_APERTURE_WINDOW_0_ADDRESS +
+			(pte_offset * SZ_4K) + (i * (size/2));
+			switch (asic_type) {
+			case CHIP_STONEY:
+				dmadscr[i].xfer_val |=
+				BIT(22) |
+				(ACP_DMA_ATTRIBUTES_SHARED_MEM_TO_DAGB_GARLIC << 16) |
+				(size / 2);
+				break;
+			default:
+				dmadscr[i].xfer_val |=
+				BIT(22) |
+				(ACP_DMA_ATTRIBUTES_SHAREDMEM_TO_DAGB_ONION << 16) |
+				(size / 2);
+			}
 		}
 		config_dma_descriptor_in_sram(acp_mmio, dma_dscr_idx,
 						&dmadscr[i]);
 	}
-	if (direction == SNDRV_PCM_STREAM_PLAYBACK)
-		config_acp_dma_channel(acp_mmio, SYSRAM_TO_ACP_CH_NUM,
-					PLAYBACK_START_DMA_DESCR_CH12,
-					NUM_DSCRS_PER_CHANNEL,
-					ACP_DMA_PRIORITY_LEVEL_NORMAL);
-	else
-		config_acp_dma_channel(acp_mmio, ACP_TO_SYSRAM_CH_NUM,
-					CAPTURE_START_DMA_DESCR_CH14,
-					NUM_DSCRS_PER_CHANNEL,
-					ACP_DMA_PRIORITY_LEVEL_NORMAL);
+	config_acp_dma_channel(acp_mmio, ch,
+				dma_dscr_idx - 1,
+				NUM_DSCRS_PER_CHANNEL,
+				ACP_DMA_PRIORITY_LEVEL_NORMAL);
 }
 
 /* Initialize the DMA descriptor information for transfer between
  * ACP SRAM <-> I2S
  */
-static void set_acp_to_i2s_dma_descriptors(void __iomem *acp_mmio,
-					   u32 size, int direction)
+static void set_acp_to_i2s_dma_descriptors(void __iomem *acp_mmio, u32 size,
+						int direction, u32 sram_bank,
+						u16 destination, u16 ch,
+						u16 dma_dscr_idx, u32 asic_type)
 {
 
 	u16 i;
-	u16 dma_dscr_idx = PLAYBACK_START_DMA_DESCR_CH13;
 	acp_dma_dscr_transfer_t dmadscr[NUM_DSCRS_PER_CHANNEL];
 
 	for (i = 0; i < NUM_DSCRS_PER_CHANNEL; i++) {
 		dmadscr[i].xfer_val = 0;
 		if (direction == SNDRV_PCM_STREAM_PLAYBACK) {
-			dma_dscr_idx = PLAYBACK_START_DMA_DESCR_CH13 + i;
-			dmadscr[i].src = ACP_SHARED_RAM_BANK_1_ADDRESS +
-					 (i * (size/2));
+			dma_dscr_idx = dma_dscr_idx + i;
+			dmadscr[i].src = sram_bank  + (i * (size/2));
 			/* dmadscr[i].dest is unused by hardware. */
 			dmadscr[i].dest = 0;
-			dmadscr[i].xfer_val |= BIT(22) | (TO_ACP_I2S_1 << 16) |
+			dmadscr[i].xfer_val |= BIT(22) | (destination << 16) |
 						(size / 2);
 		} else {
-			dma_dscr_idx = CAPTURE_START_DMA_DESCR_CH15 + i;
+			dma_dscr_idx = dma_dscr_idx + i;
 			/* dmadscr[i].src is unused by hardware. */
 			dmadscr[i].src = 0;
-			dmadscr[i].dest = ACP_SHARED_RAM_BANK_5_ADDRESS +
-					(i * (size / 2));
+			dmadscr[i].dest =
+				 sram_bank + (i * (size / 2));
 			dmadscr[i].xfer_val |= BIT(22) |
-					(FROM_ACP_I2S_1 << 16) | (size / 2);
+				(destination << 16) | (size / 2);
 		}
 		config_dma_descriptor_in_sram(acp_mmio, dma_dscr_idx,
 						&dmadscr[i]);
 	}
 	/* Configure the DMA channel with the above descriptore */
-	if (direction == SNDRV_PCM_STREAM_PLAYBACK)
-		config_acp_dma_channel(acp_mmio, ACP_TO_I2S_DMA_CH_NUM,
-					PLAYBACK_START_DMA_DESCR_CH13,
-					NUM_DSCRS_PER_CHANNEL,
-					ACP_DMA_PRIORITY_LEVEL_NORMAL);
-	else
-		config_acp_dma_channel(acp_mmio, I2S_TO_ACP_DMA_CH_NUM,
-					CAPTURE_START_DMA_DESCR_CH15,
-					NUM_DSCRS_PER_CHANNEL,
-					ACP_DMA_PRIORITY_LEVEL_NORMAL);
+	config_acp_dma_channel(acp_mmio, ch, dma_dscr_idx - 1,
+				NUM_DSCRS_PER_CHANNEL,
+				ACP_DMA_PRIORITY_LEVEL_NORMAL);
 }
 
 /* Create page table entries in ACP SRAM for the allocated memory */
@@ -270,25 +313,54 @@ static void acp_pte_config(void __iomem *acp_mmio, struct page *pg,
 }
 
 static void config_acp_dma(void __iomem *acp_mmio,
-			   struct audio_substream_data *audio_config)
+			struct audio_substream_data *audio_config,
+			u32 asic_type)
 {
-	u32 pte_offset;
+	u32 pte_offset, sram_bank;
+	u16 ch1, ch2, destination, dma_dscr_idx;
 
-	if (audio_config->direction == SNDRV_PCM_STREAM_PLAYBACK)
+	if (audio_config->direction == SNDRV_PCM_STREAM_PLAYBACK) {
 		pte_offset = ACP_PLAYBACK_PTE_OFFSET;
-	else
+		ch1 = SYSRAM_TO_ACP_CH_NUM;
+		ch2 = ACP_TO_I2S_DMA_CH_NUM;
+		sram_bank = ACP_SHARED_RAM_BANK_1_ADDRESS;
+		destination = TO_ACP_I2S_1;
+
+	} else {
 		pte_offset = ACP_CAPTURE_PTE_OFFSET;
+		ch1 = SYSRAM_TO_ACP_CH_NUM;
+		ch2 = ACP_TO_I2S_DMA_CH_NUM;
+		switch (asic_type) {
+		case CHIP_STONEY:
+			sram_bank = ACP_SHARED_RAM_BANK_3_ADDRESS;
+			break;
+		default:
+			sram_bank = ACP_SHARED_RAM_BANK_5_ADDRESS;
+		}
+		destination = FROM_ACP_I2S_1;
+	}
 
 	acp_pte_config(acp_mmio, audio_config->pg, audio_config->num_of_pages,
 			pte_offset);
+	if (audio_config->direction == SNDRV_PCM_STREAM_PLAYBACK)
+		dma_dscr_idx = PLAYBACK_START_DMA_DESCR_CH12;
+	else
+		dma_dscr_idx = CAPTURE_START_DMA_DESCR_CH14;
 
 	/* Configure System memory <-> ACP SRAM DMA descriptors */
 	set_acp_sysmem_dma_descriptors(acp_mmio, audio_config->size,
-				       audio_config->direction, pte_offset);
+				       audio_config->direction, pte_offset,
+					ch1, sram_bank, dma_dscr_idx, asic_type);
 
+	if (audio_config->direction == SNDRV_PCM_STREAM_PLAYBACK)
+		dma_dscr_idx = PLAYBACK_START_DMA_DESCR_CH13;
+	else
+		dma_dscr_idx = CAPTURE_START_DMA_DESCR_CH15;
 	/* Configure ACP SRAM <-> I2S DMA descriptors */
 	set_acp_to_i2s_dma_descriptors(acp_mmio, audio_config->size,
-					audio_config->direction);
+					audio_config->direction, sram_bank,
+					destination, ch2, dma_dscr_idx,
+					asic_type);
 }
 
 /* Start a given DMA channel transfer */
@@ -425,7 +497,7 @@ static void acp_set_sram_bank_state(void __iomem *acp_mmio, u16 bank,
 }
 
 /* Initialize and bring ACP hardware to default state. */
-static int acp_init(void __iomem *acp_mmio)
+static int acp_init(void __iomem *acp_mmio, u32 asic_type)
 {
 	u16 bank;
 	u32 val, count, sram_pte_offset;
@@ -499,10 +571,14 @@ static int acp_init(void __iomem *acp_mmio)
        /* When ACP_TILE_P1 is turned on, all SRAM banks get turned on.
 	* Now, turn off all of them. This can't be done in 'poweron' of
 	* ACP pm domain, as this requires ACP to be initialized.
+	* For Stoney, Memory gating is disabled,i.e SRAM Banks
+	* won't be turned off. The default state for SRAM banks is ON.
+	* Setting SRAM bank state code skipped for STONEY platform.
 	*/
-	for (bank = 1; bank < 48; bank++)
-		acp_set_sram_bank_state(acp_mmio, bank, false);
-
+	if (asic_type != CHIP_STONEY) {
+		for (bank = 1; bank < 48; bank++)
+			acp_set_sram_bank_state(acp_mmio, bank, false);
+	}
 	return 0;
 }
 
@@ -572,14 +648,14 @@ static irqreturn_t dma_irq_handler(int irq, void *arg)
 		valid_irq = true;
 		if (acp_reg_read(acp_mmio, mmACP_DMA_CUR_DSCR_13) ==
 				PLAYBACK_START_DMA_DESCR_CH13)
-			dscr_idx = PLAYBACK_START_DMA_DESCR_CH12;
-		else
 			dscr_idx = PLAYBACK_END_DMA_DESCR_CH12;
+		else
+			dscr_idx = PLAYBACK_START_DMA_DESCR_CH12;
 		config_acp_dma_channel(acp_mmio, SYSRAM_TO_ACP_CH_NUM, dscr_idx,
 				       1, 0);
 		acp_dma_start(acp_mmio, SYSRAM_TO_ACP_CH_NUM, false);
 
-		snd_pcm_period_elapsed(irq_data->play_stream);
+		snd_pcm_period_elapsed(irq_data->play_i2ssp_stream);
 
 		acp_reg_write((intr_flag & BIT(ACP_TO_I2S_DMA_CH_NUM)) << 16,
 				acp_mmio, mmACP_EXTERNAL_INTR_STAT);
@@ -602,7 +678,7 @@ static irqreturn_t dma_irq_handler(int irq, void *arg)
 
 	if ((intr_flag & BIT(ACP_TO_SYSRAM_CH_NUM)) != 0) {
 		valid_irq = true;
-		snd_pcm_period_elapsed(irq_data->capture_stream);
+		snd_pcm_period_elapsed(irq_data->capture_i2ssp_stream);
 		acp_reg_write((intr_flag & BIT(ACP_TO_SYSRAM_CH_NUM)) << 16,
 				acp_mmio, mmACP_EXTERNAL_INTR_STAT);
 	}
@@ -619,22 +695,35 @@ static int acp_dma_open(struct snd_pcm_substream *substream)
 	int ret = 0;
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct snd_soc_pcm_runtime *prtd = substream->private_data;
-	struct audio_drv_data *intr_data = dev_get_drvdata(prtd->platform->dev);
-
+	struct snd_soc_component *component = snd_soc_rtdcom_lookup(prtd, DRV_NAME);
+	struct audio_drv_data *intr_data = dev_get_drvdata(component->dev);
 	struct audio_substream_data *adata =
 		kzalloc(sizeof(struct audio_substream_data), GFP_KERNEL);
 	if (adata == NULL)
 		return -ENOMEM;
 
-	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
-		runtime->hw = acp_pcm_hardware_playback;
-	else
-		runtime->hw = acp_pcm_hardware_capture;
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+		switch (intr_data->asic_type) {
+		case CHIP_STONEY:
+			runtime->hw = acp_st_pcm_hardware_playback;
+			break;
+		default:
+			runtime->hw = acp_pcm_hardware_playback;
+		}
+	} else {
+		switch (intr_data->asic_type) {
+		case CHIP_STONEY:
+			runtime->hw = acp_st_pcm_hardware_capture;
+			break;
+		default:
+			runtime->hw = acp_pcm_hardware_capture;
+		}
+	}
 
 	ret = snd_pcm_hw_constraint_integer(runtime,
 					    SNDRV_PCM_HW_PARAM_PERIODS);
 	if (ret < 0) {
-		dev_err(prtd->platform->dev, "set integer constraint failed\n");
+		dev_err(component->dev, "set integer constraint failed\n");
 		kfree(adata);
 		return ret;
 	}
@@ -647,19 +736,27 @@ static int acp_dma_open(struct snd_pcm_substream *substream)
 	 * This enablement is not required for another stream, if current
 	 * stream is not closed
 	*/
-	if (!intr_data->play_stream && !intr_data->capture_stream)
+	if (!intr_data->play_i2ssp_stream && !intr_data->capture_i2ssp_stream)
 		acp_reg_write(1, adata->acp_mmio, mmACP_EXTERNAL_INTR_ENB);
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		intr_data->play_stream = substream;
-		for (bank = 1; bank <= 4; bank++)
-			acp_set_sram_bank_state(intr_data->acp_mmio, bank,
-						true);
+		intr_data->play_i2ssp_stream = substream;
+		/* For Stoney, Memory gating is disabled,i.e SRAM Banks
+		 * won't be turned off. The default state for SRAM banks is ON.
+		 * Setting SRAM bank state code skipped for STONEY platform.
+		 */
+		if (intr_data->asic_type != CHIP_STONEY) {
+			for (bank = 1; bank <= 4; bank++)
+				acp_set_sram_bank_state(intr_data->acp_mmio,
+							bank, true);
+		}
 	} else {
-		intr_data->capture_stream = substream;
-		for (bank = 5; bank <= 8; bank++)
-			acp_set_sram_bank_state(intr_data->acp_mmio, bank,
-						true);
+		intr_data->capture_i2ssp_stream = substream;
+		if (intr_data->asic_type != CHIP_STONEY) {
+			for (bank = 5; bank <= 8; bank++)
+				acp_set_sram_bank_state(intr_data->acp_mmio,
+							bank, true);
+		}
 	}
 
 	return 0;
@@ -670,9 +767,13 @@ static int acp_dma_hw_params(struct snd_pcm_substream *substream,
 {
 	int status;
 	uint64_t size;
+	u32 val = 0;
 	struct page *pg;
 	struct snd_pcm_runtime *runtime;
 	struct audio_substream_data *rtd;
+	struct snd_soc_pcm_runtime *prtd = substream->private_data;
+	struct snd_soc_component *component = snd_soc_rtdcom_lookup(prtd, DRV_NAME);
+	struct audio_drv_data *adata = dev_get_drvdata(component->dev);
 
 	runtime = substream->runtime;
 	rtd = runtime->private_data;
@@ -680,6 +781,14 @@ static int acp_dma_hw_params(struct snd_pcm_substream *substream,
 	if (WARN_ON(!rtd))
 		return -EINVAL;
 
+	if (adata->asic_type == CHIP_STONEY) {
+		val = acp_reg_read(adata->acp_mmio, mmACP_I2S_16BIT_RESOLUTION_EN);
+		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+			val |= ACP_I2S_SP_16BIT_RESOLUTION_EN;
+		else
+			val |= ACP_I2S_MIC_16BIT_RESOLUTION_EN;
+		acp_reg_write(val, adata->acp_mmio, mmACP_I2S_16BIT_RESOLUTION_EN);
+	}
 	size = params_buffer_bytes(params);
 	status = snd_pcm_lib_malloc_pages(substream, size);
 	if (status < 0)
@@ -700,7 +809,7 @@ static int acp_dma_hw_params(struct snd_pcm_substream *substream,
 		rtd->num_of_pages = PAGE_ALIGN(size) >> PAGE_SHIFT;
 		rtd->direction = substream->stream;
 
-		config_acp_dma(rtd->acp_mmio, rtd);
+		config_acp_dma(rtd->acp_mmio, rtd, adata->asic_type);
 		status = 0;
 	} else {
 		status = -ENOMEM;
@@ -713,40 +822,51 @@ static int acp_dma_hw_free(struct snd_pcm_substream *substream)
 	return snd_pcm_lib_free_pages(substream);
 }
 
+static u64 acp_get_byte_count(void __iomem *acp_mmio, int stream)
+{
+	union acp_dma_count playback_dma_count;
+	union acp_dma_count capture_dma_count;
+	u64 bytescount = 0;
+
+	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
+		playback_dma_count.bcount.high = acp_reg_read(acp_mmio,
+					mmACP_I2S_TRANSMIT_BYTE_CNT_HIGH);
+		playback_dma_count.bcount.low  = acp_reg_read(acp_mmio,
+					mmACP_I2S_TRANSMIT_BYTE_CNT_LOW);
+		bytescount = playback_dma_count.bytescount;
+	} else {
+		capture_dma_count.bcount.high = acp_reg_read(acp_mmio,
+					mmACP_I2S_RECEIVED_BYTE_CNT_HIGH);
+		capture_dma_count.bcount.low  = acp_reg_read(acp_mmio,
+					mmACP_I2S_RECEIVED_BYTE_CNT_LOW);
+		bytescount = capture_dma_count.bytescount;
+	}
+	return bytescount;
+}
+
 static snd_pcm_uframes_t acp_dma_pointer(struct snd_pcm_substream *substream)
 {
-	u16 dscr;
-	u32 mul, dma_config, period_bytes;
+	u32 buffersize;
 	u32 pos = 0;
+	u64 bytescount = 0;
 
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct audio_substream_data *rtd = runtime->private_data;
 
-	period_bytes = frames_to_bytes(runtime, runtime->period_size);
+	if (!rtd)
+		return -EINVAL;
+
+	buffersize = frames_to_bytes(runtime, runtime->buffer_size);
+	bytescount = acp_get_byte_count(rtd->acp_mmio, substream->stream);
+
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		dscr = acp_reg_read(rtd->acp_mmio, mmACP_DMA_CUR_DSCR_13);
-
-		if (dscr == PLAYBACK_START_DMA_DESCR_CH13)
-			mul = 0;
-		else
-			mul = 1;
-		pos =  (mul * period_bytes);
+		if (bytescount > rtd->i2ssp_renderbytescount)
+			bytescount = bytescount - rtd->i2ssp_renderbytescount;
 	} else {
-		dma_config = acp_reg_read(rtd->acp_mmio, mmACP_DMA_CNTL_14);
-		if (dma_config != 0) {
-			dscr = acp_reg_read(rtd->acp_mmio,
-						mmACP_DMA_CUR_DSCR_14);
-			if (dscr == CAPTURE_START_DMA_DESCR_CH14)
-				mul = 1;
-			else
-				mul = 2;
-			pos = (mul * period_bytes);
-		}
-
-		if (pos >= (2 * period_bytes))
-			pos = 0;
-
+		if (bytescount > rtd->i2ssp_capturebytescount)
+			bytescount = bytescount - rtd->i2ssp_capturebytescount;
 	}
+	pos = do_div(bytescount, buffersize);
 	return bytes_to_frames(runtime, pos);
 }
 
@@ -761,6 +881,8 @@ static int acp_dma_prepare(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct audio_substream_data *rtd = runtime->private_data;
 
+	if (!rtd)
+		return -EINVAL;
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		config_acp_dma_channel(rtd->acp_mmio, SYSRAM_TO_ACP_CH_NUM,
 					PLAYBACK_START_DMA_DESCR_CH12,
@@ -768,23 +890,6 @@ static int acp_dma_prepare(struct snd_pcm_substream *substream)
 		config_acp_dma_channel(rtd->acp_mmio, ACP_TO_I2S_DMA_CH_NUM,
 					PLAYBACK_START_DMA_DESCR_CH13,
 					NUM_DSCRS_PER_CHANNEL, 0);
-		/* Fill ACP SRAM (2 periods) with zeros from System RAM
-		 * which is zero-ed in hw_params
-		*/
-		acp_dma_start(rtd->acp_mmio, SYSRAM_TO_ACP_CH_NUM, false);
-
-		/* ACP SRAM (2 periods of buffer size) is intially filled with
-		 * zeros. Before rendering starts, 2nd half of SRAM will be
-		 * filled with valid audio data DMA'ed from first half of system
-		 * RAM and 1st half of SRAM will be filled with Zeros. This is
-		 * the initial scenario when redering starts from SRAM. Later
-		 * on, 2nd half of system memory will be DMA'ed to 1st half of
-		 * SRAM, 1st half of system memory will be DMA'ed to 2nd half of
-		 * SRAM in ping-pong way till rendering stops.
-		*/
-		config_acp_dma_channel(rtd->acp_mmio, SYSRAM_TO_ACP_CH_NUM,
-					PLAYBACK_START_DMA_DESCR_CH12,
-					1, 0);
 	} else {
 		config_acp_dma_channel(rtd->acp_mmio, ACP_TO_SYSRAM_CH_NUM,
 					CAPTURE_START_DMA_DESCR_CH14,
@@ -799,11 +904,13 @@ static int acp_dma_prepare(struct snd_pcm_substream *substream)
 static int acp_dma_trigger(struct snd_pcm_substream *substream, int cmd)
 {
 	int ret;
-	u32 loops = 1000;
+	u32 loops = 4000;
+	u64 bytescount = 0;
 
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct snd_soc_pcm_runtime *prtd = substream->private_data;
 	struct audio_substream_data *rtd = runtime->private_data;
+	struct snd_soc_component *component = snd_soc_rtdcom_lookup(prtd, DRV_NAME);
 
 	if (!rtd)
 		return -EINVAL;
@@ -811,13 +918,17 @@ static int acp_dma_trigger(struct snd_pcm_substream *substream, int cmd)
 	case SNDRV_PCM_TRIGGER_START:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
 	case SNDRV_PCM_TRIGGER_RESUME:
+		bytescount = acp_get_byte_count(rtd->acp_mmio,
+						substream->stream);
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+			if (rtd->i2ssp_renderbytescount == 0)
+				rtd->i2ssp_renderbytescount = bytescount;
 			acp_dma_start(rtd->acp_mmio,
 						SYSRAM_TO_ACP_CH_NUM, false);
 			while (acp_reg_read(rtd->acp_mmio, mmACP_DMA_CH_STS) &
 						BIT(SYSRAM_TO_ACP_CH_NUM)) {
 				if (!loops--) {
-					dev_err(prtd->platform->dev,
+					dev_err(component->dev,
 						"acp dma start timeout\n");
 					return -ETIMEDOUT;
 				}
@@ -828,6 +939,8 @@ static int acp_dma_trigger(struct snd_pcm_substream *substream, int cmd)
 					ACP_TO_I2S_DMA_CH_NUM, true);
 
 		} else {
+			if (rtd->i2ssp_capturebytescount == 0)
+				rtd->i2ssp_capturebytescount = bytescount;
 			acp_dma_start(rtd->acp_mmio,
 					    I2S_TO_ACP_DMA_CH_NUM, true);
 		}
@@ -841,12 +954,19 @@ static int acp_dma_trigger(struct snd_pcm_substream *substream, int cmd)
 		 * channels will stopped automatically after its transfer
 		 * completes : SYSRAM_TO_ACP_CH_NUM / ACP_TO_SYSRAM_CH_NUM
 		 */
-		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+			ret = acp_dma_stop(rtd->acp_mmio,
+						SYSRAM_TO_ACP_CH_NUM);
 			ret = acp_dma_stop(rtd->acp_mmio,
 					ACP_TO_I2S_DMA_CH_NUM);
-		else
+			rtd->i2ssp_renderbytescount = 0;
+		} else {
 			ret = acp_dma_stop(rtd->acp_mmio,
 					I2S_TO_ACP_DMA_CH_NUM);
+			ret = acp_dma_stop(rtd->acp_mmio,
+						ACP_TO_SYSRAM_CH_NUM);
+			rtd->i2ssp_capturebytescount = 0;
+		}
 		break;
 	default:
 		ret = -EINVAL;
@@ -857,10 +977,28 @@ static int acp_dma_trigger(struct snd_pcm_substream *substream, int cmd)
 
 static int acp_dma_new(struct snd_soc_pcm_runtime *rtd)
 {
-	return snd_pcm_lib_preallocate_pages_for_all(rtd->pcm,
+	int ret;
+	struct snd_soc_component *component = snd_soc_rtdcom_lookup(rtd, DRV_NAME);
+	struct audio_drv_data *adata = dev_get_drvdata(component->dev);
+
+	switch (adata->asic_type) {
+	case CHIP_STONEY:
+		ret = snd_pcm_lib_preallocate_pages_for_all(rtd->pcm,
+							SNDRV_DMA_TYPE_DEV,
+							NULL, ST_MIN_BUFFER,
+							ST_MAX_BUFFER);
+		break;
+	default:
+		ret = snd_pcm_lib_preallocate_pages_for_all(rtd->pcm,
 							SNDRV_DMA_TYPE_DEV,
 							NULL, MIN_BUFFER,
 							MAX_BUFFER);
+		break;
+	}
+	if (ret < 0)
+		dev_err(component->dev,
+				"buffer preallocation failer error:%d\n", ret);
+	return ret;
 }
 
 static int acp_dma_close(struct snd_pcm_substream *substream)
@@ -869,26 +1007,36 @@ static int acp_dma_close(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct audio_substream_data *rtd = runtime->private_data;
 	struct snd_soc_pcm_runtime *prtd = substream->private_data;
-	struct audio_drv_data *adata = dev_get_drvdata(prtd->platform->dev);
+	struct snd_soc_component *component = snd_soc_rtdcom_lookup(prtd, DRV_NAME);
+	struct audio_drv_data *adata = dev_get_drvdata(component->dev);
 
 	kfree(rtd);
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		adata->play_stream = NULL;
-		for (bank = 1; bank <= 4; bank++)
-			acp_set_sram_bank_state(adata->acp_mmio, bank,
-						false);
-	} else {
-		adata->capture_stream = NULL;
-		for (bank = 5; bank <= 8; bank++)
-			acp_set_sram_bank_state(adata->acp_mmio, bank,
-						false);
+		adata->play_i2ssp_stream = NULL;
+		/* For Stoney, Memory gating is disabled,i.e SRAM Banks
+		 * won't be turned off. The default state for SRAM banks is ON.
+		 * Setting SRAM bank state code skipped for STONEY platform.
+		 * added condition checks for Carrizo platform only
+		 */
+		if (adata->asic_type != CHIP_STONEY) {
+			for (bank = 1; bank <= 4; bank++)
+				acp_set_sram_bank_state(adata->acp_mmio, bank,
+				false);
+		}
+	} else  {
+		adata->capture_i2ssp_stream = NULL;
+		if (adata->asic_type != CHIP_STONEY) {
+			for (bank = 5; bank <= 8; bank++)
+				acp_set_sram_bank_state(adata->acp_mmio, bank,
+						     false);
+		}
 	}
 
 	/* Disable ACP irq, when the current stream is being closed and
 	 * another stream is also not active.
 	*/
-	if (!adata->play_stream && !adata->capture_stream)
+	if (!adata->play_i2ssp_stream && !adata->capture_i2ssp_stream)
 		acp_reg_write(0, adata->acp_mmio, mmACP_EXTERNAL_INTR_ENB);
 
 	return 0;
@@ -906,7 +1054,8 @@ static const struct snd_pcm_ops acp_dma_ops = {
 	.prepare = acp_dma_prepare,
 };
 
-static struct snd_soc_platform_driver acp_asoc_platform = {
+static struct snd_soc_component_driver acp_asoc_platform = {
+	.name = DRV_NAME,
 	.ops = &acp_dma_ops,
 	.pcm_new = acp_dma_new,
 };
@@ -916,6 +1065,12 @@ static int acp_audio_probe(struct platform_device *pdev)
 	int status;
 	struct audio_drv_data *audio_drv_data;
 	struct resource *res;
+	const u32 *pdata = pdev->dev.platform_data;
+
+	if (!pdata) {
+		dev_err(&pdev->dev, "Missing platform data\n");
+		return -ENODEV;
+	}
 
 	audio_drv_data = devm_kzalloc(&pdev->dev, sizeof(struct audio_drv_data),
 					GFP_KERNEL);
@@ -924,14 +1079,18 @@ static int acp_audio_probe(struct platform_device *pdev)
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	audio_drv_data->acp_mmio = devm_ioremap_resource(&pdev->dev, res);
+	if (IS_ERR(audio_drv_data->acp_mmio))
+		return PTR_ERR(audio_drv_data->acp_mmio);
 
 	/* The following members gets populated in device 'open'
 	 * function. Till then interrupts are disabled in 'acp_init'
 	 * and device doesn't generate any interrupts.
 	 */
 
-	audio_drv_data->play_stream = NULL;
-	audio_drv_data->capture_stream = NULL;
+	audio_drv_data->play_i2ssp_stream = NULL;
+	audio_drv_data->capture_i2ssp_stream = NULL;
+
+	audio_drv_data->asic_type =  *pdata;
 
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	if (!res) {
@@ -949,9 +1108,14 @@ static int acp_audio_probe(struct platform_device *pdev)
 	dev_set_drvdata(&pdev->dev, audio_drv_data);
 
 	/* Initialize the ACP */
-	acp_init(audio_drv_data->acp_mmio);
+	status = acp_init(audio_drv_data->acp_mmio, audio_drv_data->asic_type);
+	if (status) {
+		dev_err(&pdev->dev, "ACP Init failed status:%d\n", status);
+		return status;
+	}
 
-	status = snd_soc_register_platform(&pdev->dev, &acp_asoc_platform);
+	status = devm_snd_soc_register_component(&pdev->dev,
+						&acp_asoc_platform, NULL, 0);
 	if (status != 0) {
 		dev_err(&pdev->dev, "Fail to register ALSA platform device\n");
 		return status;
@@ -966,10 +1130,12 @@ static int acp_audio_probe(struct platform_device *pdev)
 
 static int acp_audio_remove(struct platform_device *pdev)
 {
+	int status;
 	struct audio_drv_data *adata = dev_get_drvdata(&pdev->dev);
 
-	acp_deinit(adata->acp_mmio);
-	snd_soc_unregister_platform(&pdev->dev);
+	status = acp_deinit(adata->acp_mmio);
+	if (status)
+		dev_err(&pdev->dev, "ACP Deinit failed status:%d\n", status);
 	pm_runtime_disable(&pdev->dev);
 
 	return 0;
@@ -978,23 +1144,38 @@ static int acp_audio_remove(struct platform_device *pdev)
 static int acp_pcm_resume(struct device *dev)
 {
 	u16 bank;
+	int status;
 	struct audio_drv_data *adata = dev_get_drvdata(dev);
 
-	acp_init(adata->acp_mmio);
-
-	if (adata->play_stream && adata->play_stream->runtime) {
-		for (bank = 1; bank <= 4; bank++)
-			acp_set_sram_bank_state(adata->acp_mmio, bank,
-						true);
-		config_acp_dma(adata->acp_mmio,
-				adata->play_stream->runtime->private_data);
+	status = acp_init(adata->acp_mmio, adata->asic_type);
+	if (status) {
+		dev_err(dev, "ACP Init failed status:%d\n", status);
+		return status;
 	}
-	if (adata->capture_stream && adata->capture_stream->runtime) {
-		for (bank = 5; bank <= 8; bank++)
-			acp_set_sram_bank_state(adata->acp_mmio, bank,
+
+	if (adata->play_i2ssp_stream && adata->play_i2ssp_stream->runtime) {
+		/* For Stoney, Memory gating is disabled,i.e SRAM Banks
+		 * won't be turned off. The default state for SRAM banks is ON.
+		 * Setting SRAM bank state code skipped for STONEY platform.
+		 */
+		if (adata->asic_type != CHIP_STONEY) {
+			for (bank = 1; bank <= 4; bank++)
+				acp_set_sram_bank_state(adata->acp_mmio, bank,
 						true);
+		}
 		config_acp_dma(adata->acp_mmio,
-				adata->capture_stream->runtime->private_data);
+			adata->play_i2ssp_stream->runtime->private_data,
+			adata->asic_type);
+	}
+	if (adata->capture_i2ssp_stream && adata->capture_i2ssp_stream->runtime) {
+		if (adata->asic_type != CHIP_STONEY) {
+			for (bank = 5; bank <= 8; bank++)
+				acp_set_sram_bank_state(adata->acp_mmio, bank,
+						true);
+		}
+		config_acp_dma(adata->acp_mmio,
+			adata->capture_i2ssp_stream->runtime->private_data,
+			adata->asic_type);
 	}
 	acp_reg_write(1, adata->acp_mmio, mmACP_EXTERNAL_INTR_ENB);
 	return 0;
@@ -1002,18 +1183,26 @@ static int acp_pcm_resume(struct device *dev)
 
 static int acp_pcm_runtime_suspend(struct device *dev)
 {
+	int status;
 	struct audio_drv_data *adata = dev_get_drvdata(dev);
 
-	acp_deinit(adata->acp_mmio);
+	status = acp_deinit(adata->acp_mmio);
+	if (status)
+		dev_err(dev, "ACP Deinit failed status:%d\n", status);
 	acp_reg_write(0, adata->acp_mmio, mmACP_EXTERNAL_INTR_ENB);
 	return 0;
 }
 
 static int acp_pcm_runtime_resume(struct device *dev)
 {
+	int status;
 	struct audio_drv_data *adata = dev_get_drvdata(dev);
 
-	acp_init(adata->acp_mmio);
+	status = acp_init(adata->acp_mmio, adata->asic_type);
+	if (status) {
+		dev_err(dev, "ACP Init failed status:%d\n", status);
+		return status;
+	}
 	acp_reg_write(1, adata->acp_mmio, mmACP_EXTERNAL_INTR_ENB);
 	return 0;
 }
@@ -1028,14 +1217,15 @@ static struct platform_driver acp_dma_driver = {
 	.probe = acp_audio_probe,
 	.remove = acp_audio_remove,
 	.driver = {
-		.name = "acp_audio_dma",
+		.name = DRV_NAME,
 		.pm = &acp_pm_ops,
 	},
 };
 
 module_platform_driver(acp_dma_driver);
 
+MODULE_AUTHOR("Vijendar.Mukunda@amd.com");
 MODULE_AUTHOR("Maruthi.Bayyavarapu@amd.com");
 MODULE_DESCRIPTION("AMD ACP PCM Driver");
 MODULE_LICENSE("GPL v2");
-MODULE_ALIAS("platform:acp-dma-audio");
+MODULE_ALIAS("platform:"DRV_NAME);

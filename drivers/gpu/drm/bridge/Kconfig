@@ -30,7 +30,8 @@ config DRM_DUMB_VGA_DAC
 	depends on OF
 	select DRM_KMS_HELPER
 	help
-	  Support for RGB to VGA DAC based bridges
+	  Support for non-programmable RGB to VGA DAC bridges, such as ADI
+	  ADV7123, TI THS8134 and THS8135 or passive resistor ladder DACs.
 
 config DRM_LVDS_ENCODER
 	tristate "Transparent parallel to LVDS encoder support"
@@ -71,7 +72,7 @@ config DRM_PARADE_PS8622
 
 config DRM_SIL_SII8620
 	tristate "Silicon Image SII8620 HDMI/MHL bridge"
-	depends on OF
+	depends on OF && RC_CORE
 	select DRM_KMS_HELPER
 	help
 	  Silicon Image SII8620 HDMI/MHL bridge chip driver.
@@ -83,6 +84,14 @@ config DRM_SII902X
 	select REGMAP_I2C
 	---help---
 	  Silicon Image sii902x bridge chip driver.
+
+config DRM_SII9234
+	tristate "Silicon Image SII9234 HDMI/MHL bridge"
+	depends on OF
+	---help---
+	  Say Y here if you want support for the MHL interface.
+	  It is an I2C driver, that detects connection of MHL bridge
+	  and starts encapsulation of HDMI signal.
 
 config DRM_TOSHIBA_TC358767
 	tristate "Toshiba TC358767 eDP bridge"

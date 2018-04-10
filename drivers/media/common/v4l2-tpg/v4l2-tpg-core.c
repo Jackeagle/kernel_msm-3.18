@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * v4l2-tpg-core.c - Test Pattern Generator
  *
@@ -5,23 +6,10 @@
  * vivi.c source for the copyright information of those functions.
  *
  * Copyright 2014 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
- *
- * This program is free software; you may redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; version 2 of the License.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include <linux/module.h>
-#include <media/v4l2-tpg.h>
+#include <media/tpg/v4l2-tpg.h>
 
 /* Must remain in sync with enum tpg_pattern */
 const char * const tpg_pattern_strings[] = {
@@ -238,6 +226,8 @@ bool tpg_s_fourcc(struct tpg_data *tpg, u32 fourcc)
 		tpg->color_enc = TGP_COLOR_ENC_RGB;
 		break;
 	case V4L2_PIX_FMT_GREY:
+	case V4L2_PIX_FMT_Y10:
+	case V4L2_PIX_FMT_Y12:
 	case V4L2_PIX_FMT_Y16:
 	case V4L2_PIX_FMT_Y16_BE:
 		tpg->color_enc = TGP_COLOR_ENC_LUMA;
@@ -352,6 +342,8 @@ bool tpg_s_fourcc(struct tpg_data *tpg, u32 fourcc)
 	case V4L2_PIX_FMT_YUV444:
 	case V4L2_PIX_FMT_YUV555:
 	case V4L2_PIX_FMT_YUV565:
+	case V4L2_PIX_FMT_Y10:
+	case V4L2_PIX_FMT_Y12:
 	case V4L2_PIX_FMT_Y16:
 	case V4L2_PIX_FMT_Y16_BE:
 		tpg->twopixelsize[0] = 2 * 2;
@@ -1056,6 +1048,14 @@ static void gen_twopix(struct tpg_data *tpg,
 	case V4L2_PIX_FMT_GREY:
 		buf[0][offset] = r_y_h;
 		break;
+	case V4L2_PIX_FMT_Y10:
+		buf[0][offset] = (r_y_h << 2) & 0xff;
+		buf[0][offset+1] = r_y_h >> 6;
+		break;
+	case V4L2_PIX_FMT_Y12:
+		buf[0][offset] = (r_y_h << 4) & 0xff;
+		buf[0][offset+1] = r_y_h >> 4;
+		break;
 	case V4L2_PIX_FMT_Y16:
 		/*
 		 * Ideally both bytes should be set to r_y_h, but then you won't
@@ -1143,13 +1143,13 @@ static void gen_twopix(struct tpg_data *tpg,
 	case V4L2_PIX_FMT_NV24:
 		buf[0][offset] = r_y_h;
 		buf[1][2 * offset] = g_u_s;
-		buf[1][2 * offset + 1] = b_v;
+		buf[1][(2 * offset + 1) % 8] = b_v;
 		break;
 
 	case V4L2_PIX_FMT_NV42:
 		buf[0][offset] = r_y_h;
 		buf[1][2 * offset] = b_v;
-		buf[1][2 * offset + 1] = g_u_s;
+		buf[1][(2 * offset + 1) %8] = g_u_s;
 		break;
 
 	case V4L2_PIX_FMT_YUYV:

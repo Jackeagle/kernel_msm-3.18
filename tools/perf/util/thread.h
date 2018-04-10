@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __PERF_THREAD_H
 #define __PERF_THREAD_H
 
@@ -9,6 +10,7 @@
 #include "symbol.h"
 #include <strlist.h>
 #include <intlist.h>
+#include "rwsem.h"
 
 struct thread_stack;
 struct unwind_libunwind_ops;
@@ -24,12 +26,13 @@ struct thread {
 	pid_t			ppid;
 	int			cpu;
 	refcount_t		refcnt;
-	char			shortname[3];
 	bool			comm_set;
 	int			comm_len;
 	bool			dead; /* if set thread has exited */
 	struct list_head	namespaces_list;
+	struct rw_semaphore	namespaces_lock;
 	struct list_head	comm_list;
+	struct rw_semaphore	comm_lock;
 	u64			db_id;
 
 	void			*priv;

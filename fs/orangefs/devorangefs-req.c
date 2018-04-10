@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * (C) 2001 Clemson University and The University of Chicago
  *
@@ -161,7 +162,7 @@ static ssize_t orangefs_devreq_read(struct file *file,
 	struct orangefs_kernel_op_s *op, *temp;
 	__s32 proto_ver = ORANGEFS_KERNEL_PROTO_VERSION;
 	static __s32 magic = ORANGEFS_DEVREQ_MAGIC;
-	struct orangefs_kernel_op_s *cur_op = NULL;
+	struct orangefs_kernel_op_s *cur_op;
 	unsigned long ret;
 
 	/* We do not support blocking IO. */
@@ -185,6 +186,7 @@ static ssize_t orangefs_devreq_read(struct file *file,
 		return -EAGAIN;
 
 restart:
+	cur_op = NULL;
 	/* Get next op (if any) from top of list. */
 	spin_lock(&orangefs_request_list_lock);
 	list_for_each_entry_safe(op, temp, &orangefs_request_list, list) {
@@ -461,11 +463,10 @@ static ssize_t orangefs_devreq_write_iter(struct kiocb *iocb,
 	if (op->downcall.type != ORANGEFS_VFS_OP_READDIR)
 		goto wakeup;
 
-	op->downcall.trailer_buf = vmalloc(op->downcall.trailer_size);
+	op->downcall.trailer_buf = vzalloc(op->downcall.trailer_size);
 	if (!op->downcall.trailer_buf)
 		goto Enomem;
 
-	memset(op->downcall.trailer_buf, 0, op->downcall.trailer_size);
 	if (!copy_from_iter_full(op->downcall.trailer_buf,
 			         op->downcall.trailer_size, iter)) {
 		gossip_err("%s: failed to copy trailer.\n", __func__);
@@ -777,8 +778,34 @@ static long orangefs_devreq_compat_ioctl(struct file *filp, unsigned int cmd,
 
 #endif /* CONFIG_COMPAT is in .config */
 
+static __poll_t orangefs_devreq_poll(struct file *file,
+				      struct poll_table_struct *poll_table)
+{
+	__poll_t poll_revent_mask = 0;
+
+	poll_wait(file, &orangefs_request_list_waitq, poll_table);
+
+	if (!list_empty(&orangefs_request_list))
+		poll_revent_mask |= EPOLLIN;
+	return poll_revent_mask;
+}
+
 /* the assigned character device major number */
 static int orangefs_dev_major;
+
+static const struct file_operations orangefs_devreq_file_operations = {
+	.owner = THIS_MODULE,
+	.read = orangefs_devreq_read,
+	.write_iter = orangefs_devreq_write_iter,
+	.open = orangefs_devreq_open,
+	.release = orangefs_devreq_release,
+	.unlocked_ioctl = orangefs_devreq_ioctl,
+
+#ifdef CONFIG_COMPAT		/* CONFIG_COMPAT is in .config */
+	.compat_ioctl = orangefs_devreq_compat_ioctl,
+#endif
+	.poll = orangefs_devreq_poll
+};
 
 /*
  * Initialize orangefs device specific state:
@@ -812,29 +839,3 @@ void orangefs_dev_cleanup(void)
 		     "*** /dev/%s character device unregistered ***\n",
 		     ORANGEFS_REQDEVICE_NAME);
 }
-
-static unsigned int orangefs_devreq_poll(struct file *file,
-				      struct poll_table_struct *poll_table)
-{
-	int poll_revent_mask = 0;
-
-	poll_wait(file, &orangefs_request_list_waitq, poll_table);
-
-	if (!list_empty(&orangefs_request_list))
-		poll_revent_mask |= POLL_IN;
-	return poll_revent_mask;
-}
-
-const struct file_operations orangefs_devreq_file_operations = {
-	.owner = THIS_MODULE,
-	.read = orangefs_devreq_read,
-	.write_iter = orangefs_devreq_write_iter,
-	.open = orangefs_devreq_open,
-	.release = orangefs_devreq_release,
-	.unlocked_ioctl = orangefs_devreq_ioctl,
-
-#ifdef CONFIG_COMPAT		/* CONFIG_COMPAT is in .config */
-	.compat_ioctl = orangefs_devreq_compat_ioctl,
-#endif
-	.poll = orangefs_devreq_poll
-};

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  pci-rcar-gen2: internal PCI bus support
  *
@@ -5,10 +6,6 @@
  * Copyright (C) 2013 Cogent Embedded, Inc.
  *
  * Author: Valentine Barshak <valentine.barshak@cogentembedded.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #include <linux/delay.h>
@@ -55,7 +52,6 @@
 #define RCAR_PCI_INT_B			(1 << 17)
 #define RCAR_PCI_INT_PME		(1 << 19)
 #define RCAR_PCI_INT_ALLERRORS (RCAR_PCI_INT_SIGTABORT		| \
-				RCAR_PCI_INT_SIGRETABORT	| \
 				RCAR_PCI_INT_SIGRETABORT	| \
 				RCAR_PCI_INT_REMABORT		| \
 				RCAR_PCI_INT_PERR		| \
@@ -293,24 +289,6 @@ static struct pci_ops rcar_pci_ops = {
 	.write	= pci_generic_config_write,
 };
 
-static int pci_dma_range_parser_init(struct of_pci_range_parser *parser,
-				     struct device_node *node)
-{
-	const int na = 3, ns = 2;
-	int rlen;
-
-	parser->node = node;
-	parser->pna = of_n_addr_cells(node);
-	parser->np = parser->pna + na + ns;
-
-	parser->range = of_get_property(node, "dma-ranges", &rlen);
-	if (!parser->range)
-		return -ENOENT;
-
-	parser->end = parser->range + rlen / sizeof(__be32);
-	return 0;
-}
-
 static int rcar_pci_parse_map_dma_ranges(struct rcar_pci_priv *pci,
 					 struct device_node *np)
 {
@@ -320,7 +298,7 @@ static int rcar_pci_parse_map_dma_ranges(struct rcar_pci_priv *pci,
 	int index = 0;
 
 	/* Failure to parse is ok as we fall back to defaults */
-	if (pci_dma_range_parser_init(&parser, np))
+	if (of_pci_dma_range_parser_init(&parser, np))
 		return 0;
 
 	/* Get the dma-ranges from DT */

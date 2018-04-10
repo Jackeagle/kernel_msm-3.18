@@ -17,6 +17,7 @@
 #include <linux/types.h>
 #include <linux/list.h>
 #include <linux/errno.h>
+#include <linux/capability.h>
 #include <net/netlink.h>
 #include <net/sock.h>
 
@@ -313,23 +314,30 @@ nfnl_cthelper_update_policy_one(const struct nf_conntrack_expect_policy *policy,
 static int nfnl_cthelper_update_policy_all(struct nlattr *tb[],
 					   struct nf_conntrack_helper *helper)
 {
-	struct nf_conntrack_expect_policy new_policy[helper->expect_class_max + 1];
+	struct nf_conntrack_expect_policy *new_policy;
 	struct nf_conntrack_expect_policy *policy;
-	int i, err;
+	int i, ret = 0;
+
+	new_policy = kmalloc_array(helper->expect_class_max + 1,
+				   sizeof(*new_policy), GFP_KERNEL);
+	if (!new_policy)
+		return -ENOMEM;
 
 	/* Check first that all policy attributes are well-formed, so we don't
 	 * leave things in inconsistent state on errors.
 	 */
 	for (i = 0; i < helper->expect_class_max + 1; i++) {
 
-		if (!tb[NFCTH_POLICY_SET + i])
-			return -EINVAL;
+		if (!tb[NFCTH_POLICY_SET + i]) {
+			ret = -EINVAL;
+			goto err;
+		}
 
-		err = nfnl_cthelper_update_policy_one(&helper->expect_policy[i],
+		ret = nfnl_cthelper_update_policy_one(&helper->expect_policy[i],
 						      &new_policy[i],
 						      tb[NFCTH_POLICY_SET + i]);
-		if (err < 0)
-			return err;
+		if (ret < 0)
+			goto err;
 	}
 	/* Now we can safely update them. */
 	for (i = 0; i < helper->expect_class_max + 1; i++) {
@@ -339,7 +347,9 @@ static int nfnl_cthelper_update_policy_all(struct nlattr *tb[],
 		policy->timeout	= new_policy->timeout;
 	}
 
-	return 0;
+err:
+	kfree(new_policy);
+	return ret;
 }
 
 static int nfnl_cthelper_update_policy(struct nf_conntrack_helper *helper,
@@ -406,6 +416,9 @@ static int nfnl_cthelper_new(struct net *net, struct sock *nfnl,
 	struct nf_conntrack_tuple tuple;
 	struct nfnl_cthelper *nlcth;
 	int ret = 0;
+
+	if (!capable(CAP_NET_ADMIN))
+		return -EPERM;
 
 	if (!tb[NFCTH_NAME] || !tb[NFCTH_TUPLE])
 		return -EINVAL;
@@ -611,6 +624,9 @@ static int nfnl_cthelper_get(struct net *net, struct sock *nfnl,
 	struct nfnl_cthelper *nlcth;
 	bool tuple_set = false;
 
+	if (!capable(CAP_NET_ADMIN))
+		return -EPERM;
+
 	if (nlh->nlmsg_flags & NLM_F_DUMP) {
 		struct netlink_dump_control c = {
 			.dump = nfnl_cthelper_dump_table,
@@ -677,6 +693,9 @@ static int nfnl_cthelper_del(struct net *net, struct sock *nfnl,
 	bool tuple_set = false, found = false;
 	struct nfnl_cthelper *nlcth, *n;
 	int j = 0, ret;
+
+	if (!capable(CAP_NET_ADMIN))
+		return -EPERM;
 
 	if (tb[NFCTH_NAME])
 		helper_name = nla_data(tb[NFCTH_NAME]);

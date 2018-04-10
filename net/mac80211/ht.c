@@ -290,13 +290,16 @@ void ieee80211_sta_tear_down_BA_sessions(struct sta_info *sta,
 {
 	int i;
 
-	for (i = 0; i <  IEEE80211_NUM_TIDS; i++) {
-		__ieee80211_stop_tx_ba_session(sta, i, reason);
-		__ieee80211_stop_rx_ba_session(sta, i, WLAN_BACK_RECIPIENT,
-					       WLAN_REASON_QSTA_LEAVE_QBSS,
-					       reason != AGG_STOP_DESTROY_STA &&
-					       reason != AGG_STOP_PEER_REQUEST);
-	}
+	mutex_lock(&sta->ampdu_mlme.mtx);
+	for (i = 0; i <  IEEE80211_NUM_TIDS; i++)
+		___ieee80211_stop_rx_ba_session(sta, i, WLAN_BACK_RECIPIENT,
+						WLAN_REASON_QSTA_LEAVE_QBSS,
+						reason != AGG_STOP_DESTROY_STA &&
+						reason != AGG_STOP_PEER_REQUEST);
+
+	for (i = 0; i <  IEEE80211_NUM_TIDS; i++)
+		___ieee80211_stop_tx_ba_session(sta, i, reason);
+	mutex_unlock(&sta->ampdu_mlme.mtx);
 
 	/* stopping might queue the work again - so cancel only afterwards */
 	cancel_work_sync(&sta->ampdu_mlme.work);
@@ -463,6 +466,21 @@ void ieee80211_process_delba(struct ieee80211_sub_if_data *sdata,
 		__ieee80211_stop_tx_ba_session(sta, tid, AGG_STOP_PEER_REQUEST);
 }
 
+enum nl80211_smps_mode
+ieee80211_smps_mode_to_smps_mode(enum ieee80211_smps_mode smps)
+{
+	switch (smps) {
+	case IEEE80211_SMPS_OFF:
+		return NL80211_SMPS_OFF;
+	case IEEE80211_SMPS_STATIC:
+		return NL80211_SMPS_STATIC;
+	case IEEE80211_SMPS_DYNAMIC:
+		return NL80211_SMPS_DYNAMIC;
+	default:
+		return NL80211_SMPS_OFF;
+	}
+}
+
 int ieee80211_send_smps_action(struct ieee80211_sub_if_data *sdata,
 			       enum ieee80211_smps_mode smps, const u8 *da,
 			       const u8 *bssid)
@@ -489,6 +507,7 @@ int ieee80211_send_smps_action(struct ieee80211_sub_if_data *sdata,
 	case IEEE80211_SMPS_AUTOMATIC:
 	case IEEE80211_SMPS_NUM_MODES:
 		WARN_ON(1);
+		/* fall through */
 	case IEEE80211_SMPS_OFF:
 		action_frame->u.action.u.ht_smps.smps_control =
 				WLAN_HT_SMPS_CONTROL_DISABLED;

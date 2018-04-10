@@ -1165,7 +1165,6 @@ mptsas_schedule_target_reset(void *iocp)
 	 * issue target reset to next device in the queue
 	 */
 
-	head = &hd->target_reset_list;
 	if (list_empty(head))
 		return;
 
@@ -2968,7 +2967,7 @@ out_unlock:
 	mutex_unlock(&ioc->sas_mgmt.mutex);
 out:
 	return ret;
- }
+}
 
 static void
 mptsas_parse_device_info(struct sas_identify *identify,

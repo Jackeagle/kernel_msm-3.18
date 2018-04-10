@@ -74,21 +74,15 @@ struct ia_css_pipeline {
 };
 
 #define DEFAULT_PIPELINE \
-{ \
-	IA_CSS_PIPE_ID_PREVIEW, /* pipe_id */ \
-	0,			/* pipe_num */ \
-	false,			/* stop_requested */ \
-	NULL,                   /* stages */ \
-	NULL,                   /* current_stage */ \
-	0,                      /* num_stages */ \
-	DEFAULT_FRAME,          /* in_frame */ \
-	{DEFAULT_FRAME},          /* out_frame */ \
-	{DEFAULT_FRAME},          /* vf_frame */ \
-	IA_CSS_FRAME_DELAY_1,   /* frame_delay */ \
-	0,                      /* inout_port_config */ \
-	-1,                     /* num_execs */ \
-	true,					/* acquire_isp_each_stage */\
-	QOS_INVALID             /* pipe_qos_config */\
+(struct ia_css_pipeline) { \
+	.pipe_id		= IA_CSS_PIPE_ID_PREVIEW, \
+	.in_frame		= DEFAULT_FRAME, \
+	.out_frame		= {DEFAULT_FRAME}, \
+	.vf_frame		= {DEFAULT_FRAME}, \
+	.dvs_frame_delay	= IA_CSS_FRAME_DELAY_1, \
+	.num_execs		= -1, \
+	.acquire_isp_each_stage	= true, \
+	.pipe_qos_config	= QOS_INVALID \
 }
 
 /* Stage descriptor used to create a new stage in the pipeline */
@@ -103,7 +97,7 @@ struct ia_css_pipeline_stage_desc {
 	struct ia_css_frame *vf_frame;
 };
 
-/** @brief initialize the pipeline module
+/* @brief initialize the pipeline module
  *
  * @return    None
  *
@@ -112,7 +106,7 @@ struct ia_css_pipeline_stage_desc {
  */
 void ia_css_pipeline_init(void);
 
-/** @brief initialize the pipeline structure with default values
+/* @brief initialize the pipeline structure with default values
  *
  * @param[out] pipeline  structure to be initialized with defaults
  * @param[in] pipe_id
@@ -129,7 +123,7 @@ enum ia_css_err ia_css_pipeline_create(
 	unsigned int pipe_num,
 	unsigned int dvs_frame_delay);
 
-/** @brief destroy a pipeline
+/* @brief destroy a pipeline
  *
  * @param[in] pipeline
  * @return    None
@@ -138,7 +132,7 @@ enum ia_css_err ia_css_pipeline_create(
 void ia_css_pipeline_destroy(struct ia_css_pipeline *pipeline);
 
 
-/** @brief Starts a pipeline
+/* @brief Starts a pipeline
  *
  * @param[in] pipe_id
  * @param[in] pipeline
@@ -148,7 +142,7 @@ void ia_css_pipeline_destroy(struct ia_css_pipeline *pipeline);
 void ia_css_pipeline_start(enum ia_css_pipe_id pipe_id,
 			   struct ia_css_pipeline *pipeline);
 
-/** @brief Request to stop a pipeline
+/* @brief Request to stop a pipeline
  *
  * @param[in] pipeline
  * @return                     IA_CSS_SUCCESS or error code upon error.
@@ -156,7 +150,7 @@ void ia_css_pipeline_start(enum ia_css_pipe_id pipe_id,
  */
 enum ia_css_err ia_css_pipeline_request_stop(struct ia_css_pipeline *pipeline);
 
-/** @brief Check whether pipeline has stopped
+/* @brief Check whether pipeline has stopped
  *
  * @param[in] pipeline
  * @return    true if the pipeline has stopped
@@ -164,7 +158,7 @@ enum ia_css_err ia_css_pipeline_request_stop(struct ia_css_pipeline *pipeline);
  */
 bool ia_css_pipeline_has_stopped(struct ia_css_pipeline *pipe);
 
-/** @brief clean all the stages pipeline and make it as new
+/* @brief clean all the stages pipeline and make it as new
  *
  * @param[in] pipeline
  * @return    None
@@ -172,7 +166,7 @@ bool ia_css_pipeline_has_stopped(struct ia_css_pipeline *pipe);
  */
 void ia_css_pipeline_clean(struct ia_css_pipeline *pipeline);
 
-/** @brief Add a stage to pipeline.
+/* @brief Add a stage to pipeline.
  *
  * @param     pipeline               Pointer to the pipeline to be added to.
  * @param[in] stage_desc       The description of the stage
@@ -188,7 +182,7 @@ enum ia_css_err ia_css_pipeline_create_and_add_stage(
 			struct ia_css_pipeline_stage_desc *stage_desc,
 			struct ia_css_pipeline_stage **stage);
 
-/** @brief Finalize the stages in a pipeline
+/* @brief Finalize the stages in a pipeline
  *
  * @param     pipeline               Pointer to the pipeline to be added to.
  * @return                     None
@@ -198,7 +192,7 @@ enum ia_css_err ia_css_pipeline_create_and_add_stage(
 void ia_css_pipeline_finalize_stages(struct ia_css_pipeline *pipeline,
 			bool continuous);
 
-/** @brief gets a stage from the pipeline
+/* @brief gets a stage from the pipeline
  *
  * @param[in] pipeline
  * @return                     IA_CSS_SUCCESS or error code upon error.
@@ -208,7 +202,7 @@ enum ia_css_err ia_css_pipeline_get_stage(struct ia_css_pipeline *pipeline,
 			  int mode,
 			  struct ia_css_pipeline_stage **stage);
 
-/** @brief Gets a pipeline stage corresponding Firmware handle from the pipeline
+/* @brief Gets a pipeline stage corresponding Firmware handle from the pipeline
  *
  * @param[in] pipeline
  * @param[in] fw_handle
@@ -221,7 +215,7 @@ enum ia_css_err ia_css_pipeline_get_stage_from_fw(struct ia_css_pipeline *pipeli
 			  uint32_t fw_handle,
 			  struct ia_css_pipeline_stage **stage);
 
-/** @brief Gets the Firmware handle correponding the stage num from the pipeline
+/* @brief Gets the Firmware handle correponding the stage num from the pipeline
  *
  * @param[in] pipeline
  * @param[in] stage_num
@@ -234,7 +228,7 @@ enum ia_css_err ia_css_pipeline_get_fw_from_stage(struct ia_css_pipeline *pipeli
 			  uint32_t stage_num,
 			  uint32_t *fw_handle);
 
-/** @brief gets the output stage from the pipeline
+/* @brief gets the output stage from the pipeline
  *
  * @param[in] pipeline
  * @return                     IA_CSS_SUCCESS or error code upon error.
@@ -245,7 +239,7 @@ enum ia_css_err ia_css_pipeline_get_output_stage(
 			int mode,
 			struct ia_css_pipeline_stage **stage);
 
-/** @brief Checks whether the pipeline uses params
+/* @brief Checks whether the pipeline uses params
  *
  * @param[in] pipeline
  * @return    true if the pipeline uses params

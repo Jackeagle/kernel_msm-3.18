@@ -14,10 +14,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  *
  */
 
@@ -1137,10 +1133,8 @@ static int remove_pad_from_frame(struct atomisp_device *isp,
 	ia_css_ptr store = load;
 
 	buffer = kmalloc(width*sizeof(load), GFP_KERNEL);
-	if (!buffer) {
-		dev_err(isp->dev, "out of memory.\n");
+	if (!buffer)
 		return -ENOMEM;
-	}
 
 	load += ISP_LEFT_PAD;
 	for (i = 0; i < height; i++) {
@@ -1261,7 +1255,7 @@ static int atomisp_file_mmap(struct file *file, struct vm_area_struct *vma)
 	return videobuf_mmap_mapper(&pipe->outq, vma);
 }
 
-static unsigned int atomisp_poll(struct file *file,
+static __poll_t atomisp_poll(struct file *file,
 				 struct poll_table_struct *pt)
 {
 	struct video_device *vdev = video_devdata(file);
@@ -1271,7 +1265,7 @@ static unsigned int atomisp_poll(struct file *file,
 	rt_mutex_lock(&isp->mutex);
 	if (pipe->capq.streaming != 1) {
 		rt_mutex_unlock(&isp->mutex);
-		return POLLERR;
+		return EPOLLERR;
 	}
 	rt_mutex_unlock(&isp->mutex);
 
@@ -1285,7 +1279,10 @@ const struct v4l2_file_operations atomisp_fops = {
 	.mmap = atomisp_mmap,
 	.unlocked_ioctl = video_ioctl2,
 #ifdef CONFIG_COMPAT
+	/*
+	 * There are problems with this code. Disable this for now.
 	.compat_ioctl32 = atomisp_compat_ioctl32,
+	 */
 #endif
 	.poll = atomisp_poll,
 };
@@ -1297,7 +1294,10 @@ const struct v4l2_file_operations atomisp_file_fops = {
 	.mmap = atomisp_file_mmap,
 	.unlocked_ioctl = video_ioctl2,
 #ifdef CONFIG_COMPAT
+	/*
+	 * There are problems with this code. Disable this for now.
 	.compat_ioctl32 = atomisp_compat_ioctl32,
+	 */
 #endif
 	.poll = atomisp_poll,
 };

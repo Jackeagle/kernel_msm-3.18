@@ -382,14 +382,12 @@ static int lzo_decompress(struct list_head *ws, unsigned char *data_in,
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
 	size_t in_len;
 	size_t out_len;
-	size_t tot_len;
 	int ret = 0;
 	char *kaddr;
 	unsigned long bytes;
 
 	BUG_ON(srclen < LZO_LEN);
 
-	tot_len = read_compress_length(data_in);
 	data_in += LZO_LEN;
 
 	in_len = read_compress_length(data_in);
@@ -430,10 +428,15 @@ out:
 	return ret;
 }
 
+static void lzo_set_level(struct list_head *ws, unsigned int type)
+{
+}
+
 const struct btrfs_compress_op btrfs_lzo_compress = {
 	.alloc_workspace	= lzo_alloc_workspace,
 	.free_workspace		= lzo_free_workspace,
 	.compress_pages		= lzo_compress_pages,
 	.decompress_bio		= lzo_decompress_bio,
 	.decompress		= lzo_decompress,
+	.set_level		= lzo_set_level,
 };

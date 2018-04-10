@@ -136,10 +136,12 @@ TRACE_EVENT(mlx5_fs_del_fg,
 	{MLX5_FLOW_CONTEXT_ACTION_ENCAP,	 "ENCAP"},\
 	{MLX5_FLOW_CONTEXT_ACTION_DECAP,	 "DECAP"},\
 	{MLX5_FLOW_CONTEXT_ACTION_MOD_HDR,	 "MOD_HDR"},\
+	{MLX5_FLOW_CONTEXT_ACTION_VLAN_PUSH,	 "VLAN_PUSH"},\
+	{MLX5_FLOW_CONTEXT_ACTION_VLAN_POP,	 "VLAN_POP"},\
 	{MLX5_FLOW_CONTEXT_ACTION_FWD_NEXT_PRIO, "NEXT_PRIO"}
 
 TRACE_EVENT(mlx5_fs_set_fte,
-	    TP_PROTO(const struct fs_fte *fte, bool new_fte),
+	    TP_PROTO(const struct fs_fte *fte, int new_fte),
 	    TP_ARGS(fte, new_fte),
 	    TP_STRUCT__entry(
 		__field(const struct fs_fte *, fte)
@@ -149,7 +151,7 @@ TRACE_EVENT(mlx5_fs_set_fte,
 		__field(u32, action)
 		__field(u32, flow_tag)
 		__field(u8,  mask_enable)
-		__field(bool, new_fte)
+		__field(int, new_fte)
 		__array(u32, mask_outer, MLX5_ST_SZ_DW(fte_match_set_lyr_2_4))
 		__array(u32, mask_inner, MLX5_ST_SZ_DW(fte_match_set_lyr_2_4))
 		__array(u32, mask_misc, MLX5_ST_SZ_DW(fte_match_set_misc))
@@ -163,9 +165,9 @@ TRACE_EVENT(mlx5_fs_set_fte,
 			   fs_get_obj(__entry->fg, fte->node.parent);
 			   __entry->group_index = __entry->fg->id;
 			   __entry->index = fte->index;
-			   __entry->action = fte->action;
+			   __entry->action = fte->action.action;
 			   __entry->mask_enable = __entry->fg->mask.match_criteria_enable;
-			   __entry->flow_tag = fte->flow_tag;
+			   __entry->flow_tag = fte->action.flow_tag;
 			   memcpy(__entry->mask_outer,
 				  MLX5_ADDR_OF(fte_match_param,
 					       &__entry->fg->mask.match_criteria,

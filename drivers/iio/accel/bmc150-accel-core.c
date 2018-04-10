@@ -336,8 +336,7 @@ static int bmc150_accel_update_slope(struct bmc150_accel_data *data)
 		return ret;
 	}
 
-	dev_dbg(dev, "%s: %x %x\n", __func__, data->slope_thres,
-		data->slope_dur);
+	dev_dbg(dev, "%x %x\n", data->slope_thres, data->slope_dur);
 
 	return ret;
 }
@@ -1094,7 +1093,6 @@ static const struct iio_info bmc150_accel_info = {
 	.write_event_value	= bmc150_accel_write_event,
 	.write_event_config	= bmc150_accel_write_event_config,
 	.read_event_config	= bmc150_accel_read_event_config,
-	.driver_module		= THIS_MODULE,
 };
 
 static const struct iio_info bmc150_accel_info_fifo = {
@@ -1108,7 +1106,6 @@ static const struct iio_info bmc150_accel_info_fifo = {
 	.validate_trigger	= bmc150_accel_validate_trigger,
 	.hwfifo_set_watermark	= bmc150_accel_set_watermark,
 	.hwfifo_flush_to_buffer	= bmc150_accel_fifo_flush,
-	.driver_module		= THIS_MODULE,
 };
 
 static const unsigned long bmc150_accel_scan_masks[] = {
@@ -1200,7 +1197,6 @@ static int bmc150_accel_trigger_set_state(struct iio_trigger *trig,
 static const struct iio_trigger_ops bmc150_accel_trigger_ops = {
 	.set_trigger_state = bmc150_accel_trigger_set_state,
 	.try_reenable = bmc150_accel_trig_try_reen,
-	.owner = THIS_MODULE,
 };
 
 static int bmc150_accel_handle_roc_event(struct iio_dev *indio_dev)
@@ -1719,7 +1715,6 @@ static int bmc150_accel_runtime_suspend(struct device *dev)
 	struct bmc150_accel_data *data = iio_priv(indio_dev);
 	int ret;
 
-	dev_dbg(dev,  __func__);
 	ret = bmc150_accel_set_mode(data, BMC150_ACCEL_SLEEP_MODE_SUSPEND, 0);
 	if (ret < 0)
 		return -EAGAIN;
@@ -1733,8 +1728,6 @@ static int bmc150_accel_runtime_resume(struct device *dev)
 	struct bmc150_accel_data *data = iio_priv(indio_dev);
 	int ret;
 	int sleep_val;
-
-	dev_dbg(dev,  __func__);
 
 	ret = bmc150_accel_set_mode(data, BMC150_ACCEL_SLEEP_MODE_NORMAL, 0);
 	if (ret < 0)

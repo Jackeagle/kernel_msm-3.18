@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef HOST_INT_H
 #define HOST_INT_H
 #include <linux/ieee80211.h>
@@ -279,8 +280,13 @@ struct host_if_drv {
 	struct completion comp_inactive_time;
 
 	struct timer_list scan_timer;
+	struct wilc_vif *scan_timer_vif;
+
 	struct timer_list connect_timer;
+	struct wilc_vif *connect_timer_vif;
+
 	struct timer_list remain_on_ch_timer;
+	struct wilc_vif *remain_on_ch_timer_vif;
 
 	bool IFC_UP;
 	int driver_handler_id;
@@ -298,7 +304,7 @@ struct add_sta_param {
 };
 
 struct wilc_vif;
-s32 wilc_remove_key(struct host_if_drv *hWFIDrv, const u8 *pu8StaAddress);
+s32 wilc_remove_key(struct host_if_drv *hif_drv, const u8 *sta_addr);
 int wilc_remove_wep_key(struct wilc_vif *vif, u8 index);
 int wilc_set_wep_default_keyid(struct wilc_vif *vif, u8 index);
 int wilc_add_wep_key_bss_sta(struct wilc_vif *vif, const u8 *key, u8 len,

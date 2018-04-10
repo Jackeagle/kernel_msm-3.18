@@ -490,7 +490,6 @@ ia_css_binary_get_shading_info_type_1(const struct ia_css_binary *binary,	/* [in
 	struct sh_css_shading_table_bayer_origin_compute_results res;
 #else
 	struct sh_css_binary_sc_requirements scr;
-	struct ia_css_shading_info default_shading_info_type_1 = DEFAULT_SHADING_INFO_TYPE_1;
 #endif
 
 #ifndef ISP2401
@@ -542,7 +541,7 @@ ia_css_binary_get_shading_info_type_1(const struct ia_css_binary *binary,	/* [in
 		&res);
 	if (err != IA_CSS_SUCCESS)
 #else
-	*shading_info = default_shading_info_type_1;
+	*shading_info = DEFAULT_SHADING_INFO_TYPE_1;
 
 	err = sh_css_binary_get_sc_requirements(binary, required_bds_factor, stream_config, &scr);
 	if (err != IA_CSS_SUCCESS) {
@@ -972,7 +971,7 @@ ia_css_binary_uninit(void)
 	return IA_CSS_SUCCESS;
 }
 
-/** @brief Compute decimation factor for 3A statistics and shading correction.
+/* @brief Compute decimation factor for 3A statistics and shading correction.
  *
  * @param[in]	width	Frame width in pixels.
  * @param[in]	height	Frame height in pixels.
@@ -1697,11 +1696,11 @@ ia_css_binary_find(struct ia_css_binary_descr *descr,
 		}
 #endif
 		if (xcandidate->num_output_pins > 1 && /* in case we have a second output pin, */
-		     req_vf_info                   && /* and we need vf output. */
+		    req_vf_info                   && /* and we need vf output. */
 						      /* check if the required vf format
 							 is supported. */
-			!binary_supports_output_format(xcandidate, req_vf_info->format)) {
-				ia_css_debug_dtrace(IA_CSS_DEBUG_TRACE,
+		    !binary_supports_output_format(xcandidate, req_vf_info->format)) {
+			ia_css_debug_dtrace(IA_CSS_DEBUG_TRACE,
 				"ia_css_binary_find() [%d] continue: (%d > %d) && (%p != NULL) && !%d\n",
 				__LINE__, xcandidate->num_output_pins, 1,
 				req_vf_info,
@@ -1711,8 +1710,8 @@ ia_css_binary_find(struct ia_css_binary_descr *descr,
 
 		/* Check if vf_veceven supports the requested vf format */
 		if (xcandidate->num_output_pins == 1 &&
-			req_vf_info && candidate->enable.vf_veceven &&
-			!binary_supports_vf_format(xcandidate, req_vf_info->format)) {
+		    req_vf_info && candidate->enable.vf_veceven &&
+		    !binary_supports_vf_format(xcandidate, req_vf_info->format)) {
 			ia_css_debug_dtrace(IA_CSS_DEBUG_TRACE,
 				"ia_css_binary_find() [%d] continue: (%d == %d) && (%p != NULL) && %d && !%d\n",
 				__LINE__, xcandidate->num_output_pins, 1,
@@ -1723,7 +1722,7 @@ ia_css_binary_find(struct ia_css_binary_descr *descr,
 
 		/* Check if vf_veceven supports the requested vf width */
 		if (xcandidate->num_output_pins == 1 &&
-			req_vf_info && candidate->enable.vf_veceven) { /* and we need vf output. */
+		    req_vf_info && candidate->enable.vf_veceven) { /* and we need vf output. */
 			if (req_vf_info->res.width > candidate->output.max_width) {
 				ia_css_debug_dtrace(IA_CSS_DEBUG_TRACE,
 					"ia_css_binary_find() [%d] continue: (%d < %d)\n",

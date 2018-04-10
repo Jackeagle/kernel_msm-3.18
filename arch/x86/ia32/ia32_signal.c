@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/arch/x86_64/ia32/ia32_signal.c
  *
@@ -32,7 +33,6 @@
 #include <asm/vdso.h>
 #include <asm/sigframe.h>
 #include <asm/sighandling.h>
-#include <asm/sys_ia32.h>
 #include <asm/smap.h>
 
 /*

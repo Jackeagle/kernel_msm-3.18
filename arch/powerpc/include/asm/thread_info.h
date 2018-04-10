@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /* thread_info.h: PowerPC low-level thread information
  * adapted from the i386 version by Paul Mackerras
  *
@@ -57,9 +58,6 @@ struct thread_info {
 	.flags =	0,			\
 }
 
-#define init_thread_info	(init_thread_union.thread_info)
-#define init_stack		(init_thread_union.stack)
-
 #define THREAD_SIZE_ORDER	(THREAD_SHIFT - PAGE_SHIFT)
 
 /* how to get the thread information struct from C */
@@ -72,6 +70,7 @@ static inline struct thread_info *current_thread_info(void)
 	return (struct thread_info *)val;
 }
 
+extern int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src);
 #endif /* __ASSEMBLY__ */
 
 /*

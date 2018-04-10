@@ -608,7 +608,7 @@ static int probes_seq_show(struct seq_file *m, void *v)
 
 	/* Don't print "0x  (null)" when offset is 0 */
 	if (tu->offset) {
-		seq_printf(m, "0x%p", (void *)tu->offset);
+		seq_printf(m, "0x%px", (void *)tu->offset);
 	} else {
 		switch (sizeof(void *)) {
 		case 4:
@@ -651,7 +651,7 @@ static int probes_open(struct inode *inode, struct file *file)
 static ssize_t probes_write(struct file *file, const char __user *buffer,
 			    size_t count, loff_t *ppos)
 {
-	return traceprobe_probes_write(file, buffer, count, ppos, create_trace_uprobe);
+	return trace_parse_run_command(file, buffer, count, ppos, create_trace_uprobe);
 }
 
 static const struct file_operations uprobe_events_ops = {
@@ -1113,13 +1113,12 @@ static void __uprobe_perf_func(struct trace_uprobe *tu,
 {
 	struct trace_event_call *call = &tu->tp.call;
 	struct uprobe_trace_entry_head *entry;
-	struct bpf_prog *prog = call->prog;
 	struct hlist_head *head;
 	void *data;
 	int size, esize;
 	int rctx;
 
-	if (prog && !trace_call_bpf(prog, regs))
+	if (bpf_prog_array_valid(call) && !trace_call_bpf(call, regs))
 		return;
 
 	esize = SIZEOF_TRACE_ENTRY(is_ret_probe(tu));
@@ -1156,7 +1155,7 @@ static void __uprobe_perf_func(struct trace_uprobe *tu,
 	}
 
 	perf_trace_buf_submit(entry, size, rctx, call->event.type, 1, regs,
-			      head, NULL, NULL);
+			      head, NULL);
  out:
 	preempt_enable();
 }
@@ -1293,15 +1292,24 @@ static struct trace_event_functions uprobe_funcs = {
 	.trace		= print_uprobe_event
 };
 
-static int register_uprobe_event(struct trace_uprobe *tu)
+static inline void init_trace_event_call(struct trace_uprobe *tu,
+					 struct trace_event_call *call)
 {
-	struct trace_event_call *call = &tu->tp.call;
-	int ret;
-
-	/* Initialize trace_event_call */
 	INIT_LIST_HEAD(&call->class->fields);
 	call->event.funcs = &uprobe_funcs;
 	call->class->define_fields = uprobe_event_define_fields;
+
+	call->flags = TRACE_EVENT_FL_UPROBE;
+	call->class->reg = trace_uprobe_register;
+	call->data = tu;
+}
+
+static int register_uprobe_event(struct trace_uprobe *tu)
+{
+	struct trace_event_call *call = &tu->tp.call;
+	int ret = 0;
+
+	init_trace_event_call(tu, call);
 
 	if (set_print_fmt(&tu->tp, is_ret_probe(tu)) < 0)
 		return -ENOMEM;
@@ -1312,9 +1320,6 @@ static int register_uprobe_event(struct trace_uprobe *tu)
 		return -ENODEV;
 	}
 
-	call->flags = TRACE_EVENT_FL_UPROBE;
-	call->class->reg = trace_uprobe_register;
-	call->data = tu;
 	ret = trace_add_event_call(call);
 
 	if (ret) {
@@ -1339,6 +1344,70 @@ static int unregister_uprobe_event(struct trace_uprobe *tu)
 	tu->tp.call.print_fmt = NULL;
 	return 0;
 }
+
+#ifdef CONFIG_PERF_EVENTS
+struct trace_event_call *
+create_local_trace_uprobe(char *name, unsigned long offs, bool is_return)
+{
+	struct trace_uprobe *tu;
+	struct inode *inode;
+	struct path path;
+	int ret;
+
+	ret = kern_path(name, LOOKUP_FOLLOW, &path);
+	if (ret)
+		return ERR_PTR(ret);
+
+	inode = igrab(d_inode(path.dentry));
+	path_put(&path);
+
+	if (!inode || !S_ISREG(inode->i_mode)) {
+		iput(inode);
+		return ERR_PTR(-EINVAL);
+	}
+
+	/*
+	 * local trace_kprobes are not added to probe_list, so they are never
+	 * searched in find_trace_kprobe(). Therefore, there is no concern of
+	 * duplicated name "DUMMY_EVENT" here.
+	 */
+	tu = alloc_trace_uprobe(UPROBE_EVENT_SYSTEM, "DUMMY_EVENT", 0,
+				is_return);
+
+	if (IS_ERR(tu)) {
+		pr_info("Failed to allocate trace_uprobe.(%d)\n",
+			(int)PTR_ERR(tu));
+		return ERR_CAST(tu);
+	}
+
+	tu->offset = offs;
+	tu->inode = inode;
+	tu->filename = kstrdup(name, GFP_KERNEL);
+	init_trace_event_call(tu, &tu->tp.call);
+
+	if (set_print_fmt(&tu->tp, is_ret_probe(tu)) < 0) {
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	return &tu->tp.call;
+error:
+	free_trace_uprobe(tu);
+	return ERR_PTR(ret);
+}
+
+void destroy_local_trace_uprobe(struct trace_event_call *event_call)
+{
+	struct trace_uprobe *tu;
+
+	tu = container_of(event_call, struct trace_uprobe, tp.call);
+
+	kfree(tu->tp.call.print_fmt);
+	tu->tp.call.print_fmt = NULL;
+
+	free_trace_uprobe(tu);
+}
+#endif /* CONFIG_PERF_EVENTS */
 
 /* Make a trace interface for controling probe points */
 static __init int init_uprobe_trace(void)

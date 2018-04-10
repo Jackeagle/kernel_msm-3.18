@@ -141,7 +141,7 @@
 
 static inline bool is_remote_lock(struct file *filp)
 {
-	return likely(!(filp->f_path.dentry->d_sb->s_flags & MS_NOREMOTELOCK));
+	return likely(!(filp->f_path.dentry->d_sb->s_flags & SB_NOREMOTELOCK));
 }
 
 static bool lease_breaking(struct file_lock *fl)
@@ -559,7 +559,7 @@ static const struct lock_manager_operations lease_manager_ops = {
  * Initialize a lease, use the default lock manager operations
  */
 static int lease_init(struct file *filp, long type, struct file_lock *fl)
- {
+{
 	if (assign_type(fl, type) != 0)
 		return -EINVAL;
 
@@ -1554,9 +1554,9 @@ out:
 EXPORT_SYMBOL(__break_lease);
 
 /**
- *	lease_get_mtime - get the last modified time of an inode
+ *	lease_get_mtime - update modified time of an inode with exclusive lease
  *	@inode: the inode
- *      @time:  pointer to a timespec which will contain the last modified time
+ *      @time:  pointer to a timespec which contains the last modified time
  *
  * This is to force NFS clients to flush their caches for files with
  * exclusive leases.  The justification is that if someone has an
@@ -1580,8 +1580,6 @@ void lease_get_mtime(struct inode *inode, struct timespec *time)
 
 	if (has_lease)
 		*time = current_time(inode);
-	else
-		*time = inode->i_mtime;
 }
 
 EXPORT_SYMBOL(lease_get_mtime);

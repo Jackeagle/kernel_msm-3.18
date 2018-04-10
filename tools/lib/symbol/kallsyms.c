@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <ctype.h>
 #include "symbol/kallsyms.h"
 #include <stdio.h>
@@ -36,6 +37,10 @@ int kallsyms__parse(const char *filename, void *arg,
 		line[--line_len] = '\0'; /* \n */
 
 		len = hex2u64(line, &start);
+
+		/* Skip the line if we failed to parse the address. */
+		if (!len)
+			continue;
 
 		len++;
 		if (len + 2 >= line_len)

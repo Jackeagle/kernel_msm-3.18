@@ -439,10 +439,9 @@ struct sk_buff *iwpm_create_nlmsg(u32 nl_op, struct nlmsghdr **nlh,
 	struct sk_buff *skb = NULL;
 
 	skb = dev_alloc_skb(IWPM_MSG_SIZE);
-	if (!skb) {
-		pr_err("%s Unable to allocate skb\n", __func__);
+	if (!skb)
 		goto create_nlmsg_exit;
-	}
+
 	if (!(ibnl_put_msg(skb, nlh, 0, 0, nl_client, nl_op,
 			   NLM_F_REQUEST))) {
 		pr_warn("%s: Unable to put the nlmsg header\n", __func__);
@@ -597,6 +596,9 @@ static int send_mapinfo_num(u32 mapping_num, u8 nl_client, int iwpm_pid)
 				&mapping_num, IWPM_NLA_MAPINFO_SEND_NUM);
 	if (ret)
 		goto mapinfo_num_error;
+
+	nlmsg_end(skb, nlh);
+
 	ret = rdma_nl_unicast(skb, iwpm_pid);
 	if (ret) {
 		skb = NULL;
@@ -651,6 +653,7 @@ int iwpm_send_mapinfo(u8 nl_client, int iwpm_pid)
 	}
 	skb_num++;
 	spin_lock_irqsave(&iwpm_mapinfo_lock, flags);
+	ret = -EINVAL;
 	for (i = 0; i < IWPM_MAPINFO_HASH_SIZE; i++) {
 		hlist_for_each_entry(map_info, &iwpm_hash_bucket[i],
 				     hlist_node) {
@@ -677,6 +680,8 @@ int iwpm_send_mapinfo(u8 nl_client, int iwpm_pid)
 					IWPM_NLA_MAPINFO_MAPPED_ADDR);
 			if (ret)
 				goto send_mapping_info_unlock;
+
+			nlmsg_end(skb, nlh);
 
 			iwpm_print_sockaddr(&map_info->local_sockaddr,
 				"send_mapping_info: Local sockaddr:");

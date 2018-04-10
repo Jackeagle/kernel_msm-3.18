@@ -405,6 +405,14 @@ int ipu_idmac_lock_enable(struct ipuv3_channel *channel, int num_bursts)
 		return -EINVAL;
 	}
 
+	/*
+	 * IPUv3EX / i.MX51 has a different register layout, and on IPUv3M /
+	 * i.MX53 channel arbitration locking doesn't seem to work properly.
+	 * Allow enabling the lock feature on IPUv3H / i.MX6 only.
+	 */
+	if (bursts && ipu->ipu_type != IPUV3H)
+		return -EINVAL;
+
 	for (i = 0; i < ARRAY_SIZE(idmac_lock_en_info); i++) {
 		if (channel->num == idmac_lock_en_info[i].chnum)
 			break;
@@ -1081,7 +1089,7 @@ static void ipu_irq_handler(struct irq_desc *desc)
 {
 	struct ipu_soc *ipu = irq_desc_get_handler_data(desc);
 	struct irq_chip *chip = irq_desc_get_chip(desc);
-	const int int_reg[] = { 0, 1, 2, 3, 10, 11, 12, 13, 14};
+	static const int int_reg[] = { 0, 1, 2, 3, 10, 11, 12, 13, 14};
 
 	chained_irq_enter(chip, desc);
 
@@ -1094,7 +1102,7 @@ static void ipu_err_irq_handler(struct irq_desc *desc)
 {
 	struct ipu_soc *ipu = irq_desc_get_handler_data(desc);
 	struct irq_chip *chip = irq_desc_get_chip(desc);
-	const int int_reg[] = { 4, 5, 8, 9};
+	static const int int_reg[] = { 4, 5, 8, 9};
 
 	chained_irq_enter(chip, desc);
 

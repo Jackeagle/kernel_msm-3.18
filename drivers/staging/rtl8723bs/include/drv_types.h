@@ -177,7 +177,8 @@ struct registry_priv
 	u8 bt_ampdu;
 	s8	ant_num;
 
-	bool	bAcceptAddbaReq;
+	/* false:Reject AP's Add BA req, true:accept AP's Add BA req */
+	bool	accept_addba_req;
 
 	u8 antdiv_cfg;
 	u8 antdiv_type;
@@ -691,9 +692,9 @@ int rtw_suspend_wow(struct adapter *padapter);
 int rtw_resume_process_wow(struct adapter *padapter);
 #endif
 
-__inline static u8 *myid(struct eeprom_priv *peepriv)
+static inline u8 *myid(struct eeprom_priv *peepriv)
 {
-	return (peepriv->mac_addr);
+	return peepriv->mac_addr;
 }
 
 /*  HCI Related header file */

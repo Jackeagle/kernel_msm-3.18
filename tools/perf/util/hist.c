@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include "util.h"
 #include "build-id.h"
 #include "hist.h"
@@ -535,7 +536,7 @@ static struct hist_entry *hists__findnew_entry(struct hists *hists,
 			 * This mem info was allocated from sample__resolve_mem
 			 * and will not be used anymore.
 			 */
-			zfree(&entry->mem_info);
+			mem_info__zput(entry->mem_info);
 
 			/* If the map of an existing hist_entry has
 			 * become out-of-date due to an exec() or
@@ -596,6 +597,7 @@ __hists__add_entry(struct hists *hists,
 			.map	= al->map,
 			.sym	= al->sym,
 		},
+		.srcline = al->srcline ? strdup(al->srcline) : NULL,
 		.socket	 = al->socket,
 		.cpu	 = al->cpu,
 		.cpumode = al->cpumode,
@@ -877,7 +879,7 @@ iter_prepare_cumulative_entry(struct hist_entry_iter *iter,
 	 * cumulated only one time to prevent entries more than 100%
 	 * overhead.
 	 */
-	he_cache = malloc(sizeof(*he_cache) * (iter->max_stack + 1));
+	he_cache = malloc(sizeof(*he_cache) * (callchain_cursor.nr + 1));
 	if (he_cache == NULL)
 		return -ENOMEM;
 
@@ -950,6 +952,7 @@ iter_add_next_cumulative_entry(struct hist_entry_iter *iter,
 			.map = al->map,
 			.sym = al->sym,
 		},
+		.srcline = al->srcline ? strdup(al->srcline) : NULL,
 		.parent = iter->parent,
 		.raw_data = sample->raw_data,
 		.raw_size = sample->raw_size,
@@ -1041,8 +1044,6 @@ int hist_entry_iter__add(struct hist_entry_iter *iter, struct addr_location *al,
 					iter->evsel, al, max_stack_depth);
 	if (err)
 		return err;
-
-	iter->max_stack = max_stack_depth;
 
 	err = iter->ops->prepare_entry(iter, al);
 	if (err)
@@ -1138,12 +1139,7 @@ void hist_entry__delete(struct hist_entry *he)
 	if (he->mem_info) {
 		map__zput(he->mem_info->iaddr.map);
 		map__zput(he->mem_info->daddr.map);
-		zfree(&he->mem_info);
-	}
-
-	if (he->inline_node) {
-		inline_node__delete(he->inline_node);
-		he->inline_node = NULL;
+		mem_info__zput(he->mem_info);
 	}
 
 	zfree(&he->stat_acc);

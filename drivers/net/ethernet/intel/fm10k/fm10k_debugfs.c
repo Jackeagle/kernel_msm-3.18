@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /* Intel(R) Ethernet Switch Host Interface Driver
  * Copyright(c) 2013 - 2016 Intel Corporation.
  *
@@ -52,9 +53,9 @@ static void fm10k_dbg_desc_seq_stop(struct seq_file __always_unused *s,
 static void fm10k_dbg_desc_break(struct seq_file *s, int i)
 {
 	while (i--)
-		seq_puts(s, "-");
+		seq_putc(s, '-');
 
-	seq_puts(s, "\n");
+	seq_putc(s, '\n');
 }
 
 static int fm10k_dbg_tx_desc_seq_show(struct seq_file *s, void *v)

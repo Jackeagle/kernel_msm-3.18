@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
  *
@@ -303,15 +304,6 @@ struct ksock_tx {			   /* transmit packet */
 
 /* network zero copy callback descriptor embedded in struct ksock_tx */
 
-/*
- * space for the rx frag descriptors; we either read a single contiguous
- * header, or up to LNET_MAX_IOV frags of payload of either type.
- */
-union ksock_rxiovspace {
-	struct kvec      iov[LNET_MAX_IOV];
-	struct bio_vec	kiov[LNET_MAX_IOV];
-};
-
 #define SOCKNAL_RX_KSM_HEADER   1 /* reading ksock message header */
 #define SOCKNAL_RX_LNET_HEADER  2 /* reading lnet message header */
 #define SOCKNAL_RX_PARSE        3 /* Calling lnet_parse() */
@@ -357,12 +349,8 @@ struct ksock_conn {
 	__u8               ksnc_rx_scheduled; /* being progressed */
 	__u8               ksnc_rx_state;     /* what is being read */
 	int                ksnc_rx_nob_left;  /* # bytes to next hdr/body */
-	int                ksnc_rx_nob_wanted;/* bytes actually wanted */
-	int                ksnc_rx_niov;      /* # iovec frags */
-	struct kvec        *ksnc_rx_iov;      /* the iovec frags */
-	int                ksnc_rx_nkiov;     /* # page frags */
-	struct bio_vec		*ksnc_rx_kiov;	/* the page frags */
-	union ksock_rxiovspace ksnc_rx_iov_space; /* space for frag descriptors */
+	struct iov_iter    ksnc_rx_to;		/* copy destination */
+	struct kvec        ksnc_rx_iov_space[LNET_MAX_IOV]; /* space for frag descriptors */
 	__u32              ksnc_rx_csum;      /* partial checksum for incoming
 					       * data
 					       */
@@ -700,8 +688,7 @@ int ksocknal_lib_setup_sock(struct socket *so);
 int ksocknal_lib_send_iov(struct ksock_conn *conn, struct ksock_tx *tx);
 int ksocknal_lib_send_kiov(struct ksock_conn *conn, struct ksock_tx *tx);
 void ksocknal_lib_eager_ack(struct ksock_conn *conn);
-int ksocknal_lib_recv_iov(struct ksock_conn *conn);
-int ksocknal_lib_recv_kiov(struct ksock_conn *conn);
+int ksocknal_lib_recv(struct ksock_conn *conn);
 int ksocknal_lib_get_conn_tunables(struct ksock_conn *conn, int *txmem,
 				   int *rxmem, int *nagle);
 

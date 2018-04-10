@@ -27,8 +27,8 @@
 
 #define LIQUIDIO_PACKAGE ""
 #define LIQUIDIO_BASE_MAJOR_VERSION 1
-#define LIQUIDIO_BASE_MINOR_VERSION 6
-#define LIQUIDIO_BASE_MICRO_VERSION 1
+#define LIQUIDIO_BASE_MINOR_VERSION 7
+#define LIQUIDIO_BASE_MICRO_VERSION 0
 #define LIQUIDIO_BASE_VERSION   __stringify(LIQUIDIO_BASE_MAJOR_VERSION) "." \
 				__stringify(LIQUIDIO_BASE_MINOR_VERSION)
 #define LIQUIDIO_MICRO_VERSION  "." __stringify(LIQUIDIO_BASE_MICRO_VERSION)
@@ -84,9 +84,14 @@ enum octeon_tag_type {
 #define OPCODE_NIC_IF_CFG              0x09
 #define OPCODE_NIC_VF_DRV_NOTICE       0x0A
 #define OPCODE_NIC_INTRMOD_PARAMS      0x0B
+#define OPCODE_NIC_SET_TRUSTED_VF	0x13
+#define OPCODE_NIC_SYNC_OCTEON_TIME	0x14
 #define VF_DRV_LOADED                  1
 #define VF_DRV_REMOVED                -1
 #define VF_DRV_MACADDR_CHANGED         2
+
+#define OPCODE_NIC_VF_REP_PKT          0x15
+#define OPCODE_NIC_VF_REP_CMD          0x16
 
 #define CORE_DRV_TEST_SCATTER_OP    0xFFF5
 
@@ -107,6 +112,10 @@ enum octeon_tag_type {
 #define MAX_IOQ_INTERRUPTS_PER_VF   (8 * 2)
 
 #define SCR2_BIT_FW_LOADED	    63
+
+/* App specific capabilities from firmware to pf driver */
+#define LIQUIDIO_TIME_SYNC_CAP 0x1
+#define LIQUIDIO_SWITCHDEV_CAP 0x2
 
 static inline u32 incr_index(u32 index, u32 count, u32 max)
 {
@@ -184,7 +193,8 @@ static inline void add_sg_size(struct octeon_sg_entry *sg_entry,
 
 #define   OCTNET_MAX_FRM_SIZE        (16000 + OCTNET_FRM_HEADER_SIZE)
 
-#define   OCTNET_DEFAULT_FRM_SIZE    (1500 + OCTNET_FRM_HEADER_SIZE)
+#define   OCTNET_DEFAULT_MTU         (1500)
+#define   OCTNET_DEFAULT_FRM_SIZE  (OCTNET_DEFAULT_MTU + OCTNET_FRM_HEADER_SIZE)
 
 /** NIC Commands are sent using this Octeon Input Queue */
 #define   OCTNET_CMD_Q                0
@@ -667,9 +677,11 @@ union oct_link_status {
 		u64 if_mode:5;
 		u64 pause:1;
 		u64 flashing:1;
-		u64 reserved:15;
+		u64 phy_type:5;
+		u64 reserved:10;
 #else
-		u64 reserved:15;
+		u64 reserved:10;
+		u64 phy_type:5;
 		u64 flashing:1;
 		u64 pause:1;
 		u64 if_mode:5;
@@ -680,6 +692,12 @@ union oct_link_status {
 		u64 duplex:8;
 #endif
 	} s;
+};
+
+enum lio_phy_type {
+	LIO_PHY_PORT_TP = 0x0,
+	LIO_PHY_PORT_FIBRE = 0x1,
+	LIO_PHY_PORT_UNKNOWN,
 };
 
 /** The txpciq info passed to host from the firmware */
@@ -694,9 +712,13 @@ union oct_txpciq {
 		u64 pkind:6;
 		u64 use_qpg:1;
 		u64 qpg:11;
-		u64 reserved:30;
+		u64 reserved0:10;
+		u64 ctrl_qpg:11;
+		u64 reserved:9;
 #else
-		u64 reserved:30;
+		u64 reserved:9;
+		u64 ctrl_qpg:11;
+		u64 reserved0:10;
 		u64 qpg:11;
 		u64 use_qpg:1;
 		u64 pkind:6;
@@ -901,4 +923,66 @@ union oct_nic_if_cfg {
 	} s;
 };
 
+struct lio_trusted_vf {
+	uint64_t active: 1;
+	uint64_t id : 8;
+	uint64_t reserved: 55;
+};
+
+struct lio_time {
+	s64 sec;   /* seconds */
+	s64 nsec;  /* nanoseconds */
+};
+
+struct lio_vf_rep_stats {
+	u64 tx_packets;
+	u64 tx_bytes;
+	u64 tx_dropped;
+
+	u64 rx_packets;
+	u64 rx_bytes;
+	u64 rx_dropped;
+};
+
+enum lio_vf_rep_req_type {
+	LIO_VF_REP_REQ_NONE,
+	LIO_VF_REP_REQ_STATE,
+	LIO_VF_REP_REQ_MTU,
+	LIO_VF_REP_REQ_STATS,
+	LIO_VF_REP_REQ_DEVNAME
+};
+
+enum {
+	LIO_VF_REP_STATE_DOWN,
+	LIO_VF_REP_STATE_UP
+};
+
+#define LIO_IF_NAME_SIZE 16
+struct lio_vf_rep_req {
+	u8 req_type;
+	u8 ifidx;
+	u8 rsvd[6];
+
+	union {
+		struct lio_vf_rep_name {
+			char name[LIO_IF_NAME_SIZE];
+		} rep_name;
+
+		struct lio_vf_rep_mtu {
+			u32 mtu;
+			u32 rsvd;
+		} rep_mtu;
+
+		struct lio_vf_rep_state {
+			u8 state;
+			u8 rsvd[7];
+		} rep_state;
+	};
+};
+
+struct lio_vf_rep_resp {
+	u64 rh;
+	u8  status;
+	u8  rsvd[7];
+};
 #endif

@@ -41,7 +41,6 @@ static CM_NAME(CallBack);
 static const struct afs_call_type afs_SRXCBCallBack = {
 	.name		= afs_SRXCBCallBack_name,
 	.deliver	= afs_deliver_cb_callback,
-	.abort_to_error	= afs_abort_to_error,
 	.destructor	= afs_cm_destructor,
 	.work		= SRXAFSCB_CallBack,
 };
@@ -53,7 +52,6 @@ static CM_NAME(InitCallBackState);
 static const struct afs_call_type afs_SRXCBInitCallBackState = {
 	.name		= afs_SRXCBInitCallBackState_name,
 	.deliver	= afs_deliver_cb_init_call_back_state,
-	.abort_to_error	= afs_abort_to_error,
 	.destructor	= afs_cm_destructor,
 	.work		= SRXAFSCB_InitCallBackState,
 };
@@ -65,7 +63,6 @@ static CM_NAME(InitCallBackState3);
 static const struct afs_call_type afs_SRXCBInitCallBackState3 = {
 	.name		= afs_SRXCBInitCallBackState3_name,
 	.deliver	= afs_deliver_cb_init_call_back_state3,
-	.abort_to_error	= afs_abort_to_error,
 	.destructor	= afs_cm_destructor,
 	.work		= SRXAFSCB_InitCallBackState,
 };
@@ -77,7 +74,6 @@ static CM_NAME(Probe);
 static const struct afs_call_type afs_SRXCBProbe = {
 	.name		= afs_SRXCBProbe_name,
 	.deliver	= afs_deliver_cb_probe,
-	.abort_to_error	= afs_abort_to_error,
 	.destructor	= afs_cm_destructor,
 	.work		= SRXAFSCB_Probe,
 };
@@ -89,7 +85,6 @@ static CM_NAME(ProbeUuid);
 static const struct afs_call_type afs_SRXCBProbeUuid = {
 	.name		= afs_SRXCBProbeUuid_name,
 	.deliver	= afs_deliver_cb_probe_uuid,
-	.abort_to_error	= afs_abort_to_error,
 	.destructor	= afs_cm_destructor,
 	.work		= SRXAFSCB_ProbeUuid,
 };
@@ -101,7 +96,6 @@ static CM_NAME(TellMeAboutYourself);
 static const struct afs_call_type afs_SRXCBTellMeAboutYourself = {
 	.name		= afs_SRXCBTellMeAboutYourself_name,
 	.deliver	= afs_deliver_cb_tell_me_about_yourself,
-	.abort_to_error	= afs_abort_to_error,
 	.destructor	= afs_cm_destructor,
 	.work		= SRXAFSCB_TellMeAboutYourself,
 };
@@ -127,6 +121,9 @@ bool afs_cm_incoming_call(struct afs_call *call)
 	case CBProbe:
 		call->type = &afs_SRXCBProbe;
 		return true;
+	case CBProbeUuid:
+		call->type = &afs_SRXCBProbeUuid;
+		return true;
 	case CBTellMeAboutYourself:
 		call->type = &afs_SRXCBTellMeAboutYourself;
 		return true;
@@ -147,18 +144,16 @@ static void afs_cm_destructor(struct afs_call *call)
 	 * afs_deliver_cb_callback().
 	 */
 	if (call->unmarshall == 5) {
-		ASSERT(call->server && call->count && call->request);
-		afs_break_callbacks(call->server, call->count, call->request);
+		ASSERT(call->cm_server && call->count && call->request);
+		afs_break_callbacks(call->cm_server, call->count, call->request);
 	}
 
-	afs_put_server(call->server);
-	call->server = NULL;
 	kfree(call->buffer);
 	call->buffer = NULL;
 }
 
 /*
- * allow the fileserver to see if the cache manager is still alive
+ * The server supplied a list of callbacks that it wanted to break.
  */
 static void SRXAFSCB_CallBack(struct work_struct *work)
 {
@@ -173,7 +168,7 @@ static void SRXAFSCB_CallBack(struct work_struct *work)
 	 * yet */
 	afs_send_empty_reply(call);
 
-	afs_break_callbacks(call->server, call->count, call->request);
+	afs_break_callbacks(call->cm_server, call->count, call->request);
 	afs_put_call(call);
 	_leave("");
 }
@@ -183,8 +178,8 @@ static void SRXAFSCB_CallBack(struct work_struct *work)
  */
 static int afs_deliver_cb_callback(struct afs_call *call)
 {
+	struct afs_callback_break *cb;
 	struct sockaddr_rxrpc srx;
-	struct afs_callback *cb;
 	struct afs_server *server;
 	__be32 *bp;
 	int ret, loop;
@@ -193,7 +188,6 @@ static int afs_deliver_cb_callback(struct afs_call *call)
 
 	switch (call->unmarshall) {
 	case 0:
-		rxrpc_kernel_get_peer(afs_socket, call->rxcall, &srx);
 		call->offset = 0;
 		call->unmarshall++;
 
@@ -207,7 +201,7 @@ static int afs_deliver_cb_callback(struct afs_call *call)
 		call->count = ntohl(call->tmp);
 		_debug("FID count: %u", call->count);
 		if (call->count > AFSCBMAX)
-			return -EBADMSG;
+			return afs_protocol_error(call, -EBADMSG);
 
 		call->buffer = kmalloc(call->count * 3 * 4, GFP_KERNEL);
 		if (!call->buffer)
@@ -224,7 +218,7 @@ static int afs_deliver_cb_callback(struct afs_call *call)
 
 		_debug("unmarshall FID array");
 		call->request = kcalloc(call->count,
-					sizeof(struct afs_callback),
+					sizeof(struct afs_callback_break),
 					GFP_KERNEL);
 		if (!call->request)
 			return -ENOMEM;
@@ -235,7 +229,7 @@ static int afs_deliver_cb_callback(struct afs_call *call)
 			cb->fid.vid	= ntohl(*bp++);
 			cb->fid.vnode	= ntohl(*bp++);
 			cb->fid.unique	= ntohl(*bp++);
-			cb->type	= AFSCM_CB_UNTYPED;
+			cb->cb.type	= AFSCM_CB_UNTYPED;
 		}
 
 		call->offset = 0;
@@ -251,7 +245,7 @@ static int afs_deliver_cb_callback(struct afs_call *call)
 		call->count2 = ntohl(call->tmp);
 		_debug("CB count: %u", call->count2);
 		if (call->count2 != call->count && call->count2 != 0)
-			return -EBADMSG;
+			return afs_protocol_error(call, -EBADMSG);
 		call->offset = 0;
 		call->unmarshall++;
 
@@ -266,9 +260,9 @@ static int afs_deliver_cb_callback(struct afs_call *call)
 		cb = call->request;
 		bp = call->buffer;
 		for (loop = call->count2; loop > 0; loop--, cb++) {
-			cb->version	= ntohl(*bp++);
-			cb->expiry	= ntohl(*bp++);
-			cb->type	= ntohl(*bp++);
+			cb->cb.version	= ntohl(*bp++);
+			cb->cb.expiry	= ntohl(*bp++);
+			cb->cb.type	= ntohl(*bp++);
 		}
 
 		call->offset = 0;
@@ -286,14 +280,16 @@ static int afs_deliver_cb_callback(struct afs_call *call)
 		break;
 	}
 
-	call->state = AFS_CALL_REPLYING;
+	if (!afs_check_call_state(call, AFS_CALL_SV_REPLYING))
+		return -EIO;
 
 	/* we'll need the file server record as that tells us which set of
 	 * vnodes to operate upon */
-	server = afs_find_server(&srx);
+	rxrpc_kernel_get_peer(call->net->socket, call->rxcall, &srx);
+	server = afs_find_server(call->net, &srx);
 	if (!server)
 		return -ENOTCONN;
-	call->server = server;
+	call->cm_server = server;
 
 	return afs_queue_call_work(call);
 }
@@ -305,9 +301,9 @@ static void SRXAFSCB_InitCallBackState(struct work_struct *work)
 {
 	struct afs_call *call = container_of(work, struct afs_call, work);
 
-	_enter("{%p}", call->server);
+	_enter("{%p}", call->cm_server);
 
-	afs_init_callback_state(call->server);
+	afs_init_callback_state(call->cm_server);
 	afs_send_empty_reply(call);
 	afs_put_call(call);
 	_leave("");
@@ -324,21 +320,18 @@ static int afs_deliver_cb_init_call_back_state(struct afs_call *call)
 
 	_enter("");
 
-	rxrpc_kernel_get_peer(afs_socket, call->rxcall, &srx);
+	rxrpc_kernel_get_peer(call->net->socket, call->rxcall, &srx);
 
 	ret = afs_extract_data(call, NULL, 0, false);
 	if (ret < 0)
 		return ret;
 
-	/* no unmarshalling required */
-	call->state = AFS_CALL_REPLYING;
-
 	/* we'll need the file server record as that tells us which set of
 	 * vnodes to operate upon */
-	server = afs_find_server(&srx);
+	server = afs_find_server(call->net, &srx);
 	if (!server)
 		return -ENOTCONN;
-	call->server = server;
+	call->cm_server = server;
 
 	return afs_queue_call_work(call);
 }
@@ -356,8 +349,6 @@ static int afs_deliver_cb_init_call_back_state3(struct afs_call *call)
 	int ret;
 
 	_enter("");
-
-	rxrpc_kernel_get_peer(afs_socket, call->rxcall, &srx);
 
 	_enter("{%u}", call->unmarshall);
 
@@ -402,15 +393,16 @@ static int afs_deliver_cb_init_call_back_state3(struct afs_call *call)
 		break;
 	}
 
-	/* no unmarshalling required */
-	call->state = AFS_CALL_REPLYING;
+	if (!afs_check_call_state(call, AFS_CALL_SV_REPLYING))
+		return -EIO;
 
 	/* we'll need the file server record as that tells us which set of
 	 * vnodes to operate upon */
-	server = afs_find_server(&srx);
+	rxrpc_kernel_get_peer(call->net->socket, call->rxcall, &srx);
+	server = afs_find_server(call->net, &srx);
 	if (!server)
 		return -ENOTCONN;
-	call->server = server;
+	call->cm_server = server;
 
 	return afs_queue_call_work(call);
 }
@@ -441,8 +433,8 @@ static int afs_deliver_cb_probe(struct afs_call *call)
 	if (ret < 0)
 		return ret;
 
-	/* no unmarshalling required */
-	call->state = AFS_CALL_REPLYING;
+	if (!afs_check_call_state(call, AFS_CALL_SV_REPLYING))
+		return -EIO;
 
 	return afs_queue_call_work(call);
 }
@@ -461,7 +453,7 @@ static void SRXAFSCB_ProbeUuid(struct work_struct *work)
 
 	_enter("");
 
-	if (memcmp(r, &afs_uuid, sizeof(afs_uuid)) == 0)
+	if (memcmp(r, &call->net->uuid, sizeof(call->net->uuid)) == 0)
 		reply.match = htonl(0);
 	else
 		reply.match = htonl(1);
@@ -508,9 +500,9 @@ static int afs_deliver_cb_probe_uuid(struct afs_call *call)
 
 		b = call->buffer;
 		r = call->request;
-		r->time_low			= ntohl(b[0]);
-		r->time_mid			= ntohl(b[1]);
-		r->time_hi_and_version		= ntohl(b[2]);
+		r->time_low			= b[0];
+		r->time_mid			= htons(ntohl(b[1]));
+		r->time_hi_and_version		= htons(ntohl(b[2]));
 		r->clock_seq_hi_and_reserved 	= ntohl(b[3]);
 		r->clock_seq_low		= ntohl(b[4]);
 
@@ -524,7 +516,8 @@ static int afs_deliver_cb_probe_uuid(struct afs_call *call)
 		break;
 	}
 
-	call->state = AFS_CALL_REPLYING;
+	if (!afs_check_call_state(call, AFS_CALL_SV_REPLYING))
+		return -EIO;
 
 	return afs_queue_call_work(call);
 }
@@ -568,13 +561,13 @@ static void SRXAFSCB_TellMeAboutYourself(struct work_struct *work)
 	memset(&reply, 0, sizeof(reply));
 	reply.ia.nifs = htonl(nifs);
 
-	reply.ia.uuid[0] = afs_uuid.time_low;
-	reply.ia.uuid[1] = htonl(ntohs(afs_uuid.time_mid));
-	reply.ia.uuid[2] = htonl(ntohs(afs_uuid.time_hi_and_version));
-	reply.ia.uuid[3] = htonl((s8) afs_uuid.clock_seq_hi_and_reserved);
-	reply.ia.uuid[4] = htonl((s8) afs_uuid.clock_seq_low);
+	reply.ia.uuid[0] = call->net->uuid.time_low;
+	reply.ia.uuid[1] = htonl(ntohs(call->net->uuid.time_mid));
+	reply.ia.uuid[2] = htonl(ntohs(call->net->uuid.time_hi_and_version));
+	reply.ia.uuid[3] = htonl((s8) call->net->uuid.clock_seq_hi_and_reserved);
+	reply.ia.uuid[4] = htonl((s8) call->net->uuid.clock_seq_low);
 	for (loop = 0; loop < 6; loop++)
-		reply.ia.uuid[loop + 5] = htonl((s8) afs_uuid.node[loop]);
+		reply.ia.uuid[loop + 5] = htonl((s8) call->net->uuid.node[loop]);
 
 	if (ifs) {
 		for (loop = 0; loop < nifs; loop++) {
@@ -605,8 +598,8 @@ static int afs_deliver_cb_tell_me_about_yourself(struct afs_call *call)
 	if (ret < 0)
 		return ret;
 
-	/* no unmarshalling required */
-	call->state = AFS_CALL_REPLYING;
+	if (!afs_check_call_state(call, AFS_CALL_SV_REPLYING))
+		return -EIO;
 
 	return afs_queue_call_work(call);
 }

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * The owner field of the rw_semaphore structure will be set to
  * RWSEM_READ_OWNED when a reader grabs the lock. A writer will clear
@@ -14,6 +15,12 @@
  *     - a writer owns the lock
  */
 #define RWSEM_READER_OWNED	((struct task_struct *)1UL)
+
+#ifdef CONFIG_DEBUG_RWSEMS
+# define DEBUG_RWSEMS_WARN_ON(c)	DEBUG_LOCKS_WARN_ON(c)
+#else
+# define DEBUG_RWSEMS_WARN_ON(c)
+#endif
 
 #ifdef CONFIG_RWSEM_SPIN_ON_OWNER
 /*
@@ -40,7 +47,7 @@ static inline void rwsem_set_reader_owned(struct rw_semaphore *sem)
 	 * do a write to the rwsem cacheline when it is really necessary
 	 * to minimize cacheline contention.
 	 */
-	if (sem->owner != RWSEM_READER_OWNED)
+	if (READ_ONCE(sem->owner) != RWSEM_READER_OWNED)
 		WRITE_ONCE(sem->owner, RWSEM_READER_OWNED);
 }
 

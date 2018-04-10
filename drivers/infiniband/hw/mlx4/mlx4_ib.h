@@ -47,6 +47,7 @@
 #include <linux/mlx4/device.h>
 #include <linux/mlx4/doorbell.h>
 #include <linux/mlx4/qp.h>
+#include <linux/mlx4/cq.h>
 
 #define MLX4_IB_DRV_NAME	"mlx4_ib"
 
@@ -188,6 +189,7 @@ enum mlx4_ib_qp_flags {
 	MLX4_IB_QP_LSO = IB_QP_CREATE_IPOIB_UD_LSO,
 	MLX4_IB_QP_BLOCK_MULTICAST_LOOPBACK = IB_QP_CREATE_BLOCK_MULTICAST_LOOPBACK,
 	MLX4_IB_QP_NETIF = IB_QP_CREATE_NETIF_QP,
+	MLX4_IB_QP_SCATTER_FCS = IB_QP_CREATE_SCATTER_FCS,
 
 	/* Mellanox specific flags start from IB_QP_CREATE_RESERVED_START */
 	MLX4_IB_ROCE_V2_GSI_QP = MLX4_IB_QP_CREATE_ROCE_V2_GSI,
@@ -640,18 +642,6 @@ struct mlx4_uverbs_ex_query_device {
 	__u32 reserved;
 };
 
-enum query_device_resp_mask {
-	QUERY_DEVICE_RESP_MASK_TIMESTAMP = 1UL << 0,
-};
-
-struct mlx4_uverbs_ex_query_device_resp {
-	__u32 comp_mask;
-	__u32 response_length;
-	__u64 hca_core_clock_offset;
-	__u32 max_inl_recv_sz;
-	__u32 reserved;
-};
-
 static inline struct mlx4_ib_dev *to_mdev(struct ib_device *ibdev)
 {
 	return container_of(ibdev, struct mlx4_ib_dev, ib_dev);
@@ -929,5 +919,7 @@ struct ib_rwq_ind_table
 			      struct ib_rwq_ind_table_init_attr *init_attr,
 			      struct ib_udata *udata);
 int mlx4_ib_destroy_rwq_ind_table(struct ib_rwq_ind_table *wq_ind_table);
+int mlx4_ib_umem_calc_optimal_mtt_size(struct ib_umem *umem, u64 start_va,
+				       int *num_of_mtts);
 
 #endif /* MLX4_IB_H */

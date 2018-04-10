@@ -132,7 +132,7 @@ static int ade7754_spi_write_reg_8(struct device *dev, u8 reg_address, u8 val)
 }
 
 static int ade7754_spi_write_reg_16(struct device *dev,
-				    u8 reg_address, u16 value)
+				    u8 reg_address, u16 val)
 {
 	int ret;
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
@@ -140,8 +140,8 @@ static int ade7754_spi_write_reg_16(struct device *dev,
 
 	mutex_lock(&st->buf_lock);
 	st->tx[0] = ADE7754_WRITE_REG(reg_address);
-	st->tx[1] = (value >> 8) & 0xFF;
-	st->tx[2] = value & 0xFF;
+	st->tx[1] = (val >> 8) & 0xFF;
+	st->tx[2] = val & 0xFF;
 	ret = spi_write(st->us, st->tx, 3);
 	mutex_unlock(&st->buf_lock);
 
@@ -601,7 +601,6 @@ static const struct attribute_group ade7754_attribute_group = {
 
 static const struct iio_info ade7754_info = {
 	.attrs = &ade7754_attribute_group,
-	.driver_module = THIS_MODULE,
 };
 
 static int ade7754_probe(struct spi_device *spi)

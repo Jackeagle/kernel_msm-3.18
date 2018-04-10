@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *	linux/arch/alpha/kernel/pci-noop.c
  *
@@ -14,6 +15,7 @@
 #include <linux/sched.h>
 #include <linux/dma-mapping.h>
 #include <linux/scatterlist.h>
+#include <linux/syscalls.h>
 
 #include "proto.h"
 
@@ -45,8 +47,8 @@ alloc_resource(void)
 	return alloc_bootmem(sizeof(struct resource));
 }
 
-asmlinkage long
-sys_pciconfig_iobase(long which, unsigned long bus, unsigned long dfn)
+SYSCALL_DEFINE3(pciconfig_iobase, long, which, unsigned long, bus,
+		unsigned long, dfn)
 {
 	struct pci_controller *hose;
 
@@ -83,9 +85,8 @@ sys_pciconfig_iobase(long which, unsigned long bus, unsigned long dfn)
 	return -EOPNOTSUPP;
 }
 
-asmlinkage long
-sys_pciconfig_read(unsigned long bus, unsigned long dfn,
-		   unsigned long off, unsigned long len, void *buf)
+SYSCALL_DEFINE5(pciconfig_read, unsigned long, bus, unsigned long, dfn,
+		unsigned long, off, unsigned long, len, void __user *, buf)
 {
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
@@ -93,9 +94,8 @@ sys_pciconfig_read(unsigned long bus, unsigned long dfn,
 		return -ENODEV;
 }
 
-asmlinkage long
-sys_pciconfig_write(unsigned long bus, unsigned long dfn,
-		    unsigned long off, unsigned long len, void *buf)
+SYSCALL_DEFINE5(pciconfig_write, unsigned long, bus, unsigned long, dfn,
+		unsigned long, off, unsigned long, len, void __user *, buf)
 {
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;

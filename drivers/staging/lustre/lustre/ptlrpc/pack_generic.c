@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * GPL HEADER START
  *
@@ -259,17 +260,16 @@ lustre_get_emerg_rs(struct ptlrpc_service_part *svcpt)
 
 	/* See if we have anything in a pool, and wait if nothing */
 	while (list_empty(&svcpt->scp_rep_idle)) {
-		struct l_wait_info lwi;
 		int rc;
 
 		spin_unlock(&svcpt->scp_rep_lock);
 		/* If we cannot get anything for some long time, we better
 		 * bail out instead of waiting infinitely
 		 */
-		lwi = LWI_TIMEOUT(cfs_time_seconds(10), NULL, NULL);
-		rc = l_wait_event(svcpt->scp_rep_waitq,
-				  !list_empty(&svcpt->scp_rep_idle), &lwi);
-		if (rc != 0)
+		rc = wait_event_idle_timeout(svcpt->scp_rep_waitq,
+					     !list_empty(&svcpt->scp_rep_idle),
+					     10 * HZ);
+		if (rc == 0)
 			goto out;
 		spin_lock(&svcpt->scp_rep_lock);
 	}
@@ -786,7 +786,7 @@ __u32 lustre_msg_get_flags(struct lustre_msg *msg)
 
 		CERROR("invalid msg %p: no ptlrpc body!\n", msg);
 	}
-	/* no break */
+	/* fall through */
 	default:
 		/* flags might be printed in debug code while message
 		 * uninitialized
@@ -854,7 +854,7 @@ __u32 lustre_msg_get_op_flags(struct lustre_msg *msg)
 
 		CERROR("invalid msg %p: no ptlrpc body!\n", msg);
 	}
-	/* no break */
+	/* fall through */
 	default:
 		return 0;
 	}
@@ -1035,7 +1035,7 @@ int lustre_msg_get_status(struct lustre_msg *msg)
 
 		CERROR("invalid msg %p: no ptlrpc body!\n", msg);
 	}
-	/* no break */
+	/* fall through */
 	default:
 		/* status might be printed in debug code while message
 		 * uninitialized

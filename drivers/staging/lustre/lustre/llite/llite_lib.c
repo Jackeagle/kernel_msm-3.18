@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * GPL HEADER START
  *
@@ -145,8 +146,7 @@ static void ll_free_sbi(struct super_block *sb)
 	kfree(sbi);
 }
 
-static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
-				    struct vfsmount *mnt)
+static int client_common_fill_super(struct super_block *sb, char *md, char *dt)
 {
 	struct inode *root = NULL;
 	struct ll_sb_info *sbi = ll_s2sbi(sb);
@@ -231,10 +231,13 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 	err = obd_connect(NULL, &sbi->ll_md_exp, obd, &sbi->ll_sb_uuid,
 			  data, NULL);
 	if (err == -EBUSY) {
-		LCONSOLE_ERROR_MSG(0x14f, "An MDT (md %s) is performing recovery, of which this client is not a part. Please wait for recovery to complete, abort, or time out.\n",
+		LCONSOLE_ERROR_MSG(0x14f,
+				   "An MDT (md %s) is performing recovery, of which this client is not a part. Please wait for recovery to complete, abort, or time out.\n",
 				   md);
 		goto out;
-	} else if (err) {
+	}
+
+	if (err) {
 		CERROR("cannot connect to %s: rc = %d\n", md, err);
 		goto out;
 	}
@@ -279,7 +282,8 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 		}
 		obd_connect_flags2str(buf, PAGE_SIZE,
 				      valid ^ CLIENT_CONNECT_MDT_REQD, ",");
-		LCONSOLE_ERROR_MSG(0x170, "Server %s does not support feature(s) needed for correct operation of this client (%s). Please upgrade server or downgrade client.\n",
+		LCONSOLE_ERROR_MSG(0x170,
+				   "Server %s does not support feature(s) needed for correct operation of this client (%s). Please upgrade server or downgrade client.\n",
 				   sbi->ll_md_exp->exp_obd->obd_name, buf);
 		kfree(buf);
 		err = -EPROTO;
@@ -310,11 +314,11 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 	}
 
 	if (data->ocd_connect_flags & OBD_CONNECT_ACL) {
-		sb->s_flags |= MS_POSIXACL;
+		sb->s_flags |= SB_POSIXACL;
 		sbi->ll_flags |= LL_SBI_ACL;
 	} else {
 		LCONSOLE_INFO("client wants to enable acl, but mdt not!\n");
-		sb->s_flags &= ~MS_POSIXACL;
+		sb->s_flags &= ~SB_POSIXACL;
 		sbi->ll_flags &= ~LL_SBI_ACL;
 	}
 
@@ -380,7 +384,8 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 	if (sbi->ll_flags & LL_SBI_ALWAYS_PING)
 		data->ocd_connect_flags &= ~OBD_CONNECT_PINGLESS;
 
-	CDEBUG(D_RPCTRACE, "ocd_connect_flags: %#llx ocd_version: %d ocd_grant: %d\n",
+	CDEBUG(D_RPCTRACE,
+	       "ocd_connect_flags: %#llx ocd_version: %d ocd_grant: %d\n",
 	       data->ocd_connect_flags,
 	       data->ocd_version, data->ocd_grant);
 
@@ -392,7 +397,8 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 	err = obd_connect(NULL, &sbi->ll_dt_exp, obd, &sbi->ll_sb_uuid, data,
 			  NULL);
 	if (err == -EBUSY) {
-		LCONSOLE_ERROR_MSG(0x150, "An OST (dt %s) is performing recovery, of which this client is not a part.  Please wait for recovery to complete, abort, or time out.\n",
+		LCONSOLE_ERROR_MSG(0x150,
+				   "An OST (dt %s) is performing recovery, of which this client is not a part.  Please wait for recovery to complete, abort, or time out.\n",
 				   dt);
 		goto out_md;
 	} else if (err) {
@@ -655,7 +661,7 @@ void ll_kill_super(struct super_block *sb)
 	struct ll_sb_info *sbi;
 
 	/* not init sb ?*/
-	if (!(sb->s_flags & MS_ACTIVE))
+	if (!(sb->s_flags & SB_ACTIVE))
 		return;
 
 	sbi = ll_s2sbi(sb);
@@ -860,7 +866,7 @@ void ll_lli_init(struct ll_inode_info *lli)
 	mutex_init(&lli->lli_layout_mutex);
 }
 
-int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
+int ll_fill_super(struct super_block *sb)
 {
 	struct lustre_profile *lprof = NULL;
 	struct lustre_sb_info *lsi = s2lsi(sb);
@@ -873,9 +879,15 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
 
 	CDEBUG(D_VFSTRACE, "VFS Op: sb %p\n", sb);
 
+	err = ptlrpc_inc_ref();
+	if (err)
+		return err;
+
 	cfg = kzalloc(sizeof(*cfg), GFP_NOFS);
-	if (!cfg)
-		return -ENOMEM;
+	if (!cfg) {
+		err = -ENOMEM;
+		goto out_put;
+	}
 
 	try_module_get(THIS_MODULE);
 
@@ -885,7 +897,8 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
 	if (!sbi) {
 		module_put(THIS_MODULE);
 		kfree(cfg);
-		return -ENOMEM;
+		err = -ENOMEM;
+		goto out_put;
 	}
 
 	err = ll_options(lsi->lsi_lmd->lmd_opts, &sbi->ll_flags);
@@ -915,7 +928,8 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
 	/* Profile set with LCFG_MOUNTOPT so we can find our mdc and osc obds */
 	lprof = class_get_profile(profilenm);
 	if (!lprof) {
-		LCONSOLE_ERROR_MSG(0x156, "The client profile '%s' could not be read from the MGS.  Does that filesystem exist?\n",
+		LCONSOLE_ERROR_MSG(0x156,
+				   "The client profile '%s' could not be read from the MGS.  Does that filesystem exist?\n",
 				   profilenm);
 		err = -EINVAL;
 		goto out_free;
@@ -936,7 +950,7 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
 	}
 
 	/* connections, registrations, sb setup */
-	err = client_common_fill_super(sb, md, dt, mnt);
+	err = client_common_fill_super(sb, md, dt);
 	if (!err)
 		sbi->ll_client_common_fill_super_succeeded = 1;
 
@@ -951,6 +965,9 @@ out_free:
 		LCONSOLE_WARN("Mounted %s\n", profilenm);
 
 	kfree(cfg);
+out_put:
+	if (err)
+		ptlrpc_dec_ref();
 	return err;
 } /* ll_fill_super */
 
@@ -979,16 +996,12 @@ void ll_put_super(struct super_block *sb)
 	}
 
 	/* Wait for unstable pages to be committed to stable storage */
-	if (!force) {
-		struct l_wait_info lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
-
-		rc = l_wait_event(sbi->ll_cache->ccc_unstable_waitq,
-				  !atomic_long_read(&sbi->ll_cache->ccc_unstable_nr),
-				  &lwi);
-	}
+	if (!force)
+		rc = l_wait_event_abortable(sbi->ll_cache->ccc_unstable_waitq,
+					    !atomic_long_read(&sbi->ll_cache->ccc_unstable_nr));
 
 	ccc_count = atomic_long_read(&sbi->ll_cache->ccc_unstable_nr);
-	if (!force && rc != -EINTR)
+	if (!force && rc != -ERESTARTSYS)
 		LASSERTF(!ccc_count, "count: %li\n", ccc_count);
 
 	/* We need to set force before the lov_disconnect in
@@ -1025,6 +1038,8 @@ void ll_put_super(struct super_block *sb)
 	cl_env_cache_purge(~0);
 
 	module_put(THIS_MODULE);
+
+	ptlrpc_dec_ref();
 } /* client_put_super */
 
 struct inode *ll_inode_from_resource_lock(struct ldlm_lock *lock)
@@ -1042,7 +1057,8 @@ struct inode *ll_inode_from_resource_lock(struct ldlm_lock *lock)
 		} else {
 			inode = lock->l_resource->lr_lvb_inode;
 			LDLM_DEBUG_LIMIT(inode->i_state & I_FREEING ?  D_INFO :
-					 D_WARNING, lock, "lr_lvb_inode %p is bogus: magic %08x",
+					 D_WARNING, lock,
+					 "lr_lvb_inode %p is bogus: magic %08x",
 					 lock->l_resource->lr_lvb_inode,
 					 lli->lli_inode_magic);
 			inode = NULL;
@@ -1189,13 +1205,12 @@ static int ll_update_lsm_md(struct inode *inode, struct lustre_md *md)
 			lmv_free_memmd(lli->lli_lsm_md);
 			lli->lli_lsm_md = NULL;
 			return 0;
-		} else {
-			/*
-			 * The lustre_md from req does not include stripeEA,
-			 * see ll_md_setattr
-			 */
-			return 0;
 		}
+		/*
+		 * The lustre_md from req does not include stripeEA,
+		 * see ll_md_setattr
+		 */
+		return 0;
 	}
 
 	/* set the directory layout */
@@ -1446,7 +1461,7 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 	/* POSIX: check before ATTR_*TIME_SET set (from setattr_prepare) */
 	if (attr->ia_valid & TIMES_SET_FLAGS) {
 		if ((!uid_eq(current_fsuid(), inode->i_uid)) &&
-		    !capable(CFS_CAP_FOWNER))
+		    !capable(CAP_FOWNER))
 			return -EPERM;
 	}
 
@@ -1744,7 +1759,8 @@ int ll_update_inode(struct inode *inode, struct lustre_md *md)
 	}
 	if (body->mbo_valid & OBD_MD_FLMTIME) {
 		if (body->mbo_mtime > LTIME_S(inode->i_mtime)) {
-			CDEBUG(D_INODE, "setting ino %lu mtime from %lu to %llu\n",
+			CDEBUG(D_INODE,
+			       "setting ino %lu mtime from %lu to %llu\n",
 			       inode->i_ino, LTIME_S(inode->i_mtime),
 			       body->mbo_mtime);
 			LTIME_S(inode->i_mtime) = body->mbo_mtime;
@@ -1979,8 +1995,7 @@ void ll_umount_begin(struct super_block *sb)
 	struct ll_sb_info *sbi = ll_s2sbi(sb);
 	struct obd_device *obd;
 	struct obd_ioctl_data *ioc_data;
-	wait_queue_head_t waitq;
-	struct l_wait_info lwi;
+	int cnt = 0;
 
 	CDEBUG(D_VFSTRACE, "VFS Op: superblock %p count %d active %d\n", sb,
 	       sb->s_count, atomic_read(&sb->s_active));
@@ -2016,10 +2031,10 @@ void ll_umount_begin(struct super_block *sb)
 	 * and then continue. For now, we just periodically checking for vfs
 	 * to decrement mnt_cnt and hope to finish it within 10sec.
 	 */
-	init_waitqueue_head(&waitq);
-	lwi = LWI_TIMEOUT_INTERVAL(cfs_time_seconds(10),
-				   cfs_time_seconds(1), NULL, NULL);
-	l_wait_event(waitq, may_umount(sbi->ll_mnt.mnt), &lwi);
+	while (cnt < 10 && !may_umount(sbi->ll_mnt.mnt)) {
+		schedule_timeout_uninterruptible(HZ);
+		cnt++;
+	}
 
 	schedule();
 }
@@ -2031,8 +2046,8 @@ int ll_remount_fs(struct super_block *sb, int *flags, char *data)
 	int err;
 	__u32 read_only;
 
-	if ((bool)(*flags & MS_RDONLY) != sb_rdonly(sb)) {
-		read_only = *flags & MS_RDONLY;
+	if ((bool)(*flags & SB_RDONLY) != sb_rdonly(sb)) {
+		read_only = *flags & SB_RDONLY;
 		err = obd_set_info_async(NULL, sbi->ll_md_exp,
 					 sizeof(KEY_READ_ONLY),
 					 KEY_READ_ONLY, sizeof(read_only),
@@ -2045,9 +2060,9 @@ int ll_remount_fs(struct super_block *sb, int *flags, char *data)
 		}
 
 		if (read_only)
-			sb->s_flags |= MS_RDONLY;
+			sb->s_flags |= SB_RDONLY;
 		else
-			sb->s_flags &= ~MS_RDONLY;
+			sb->s_flags &= ~SB_RDONLY;
 
 		if (sbi->ll_flags & LL_SBI_VERBOSE)
 			LCONSOLE_WARN("Remounted %s %s\n", profilenm,
@@ -2134,7 +2149,7 @@ int ll_prep_inode(struct inode **inode, struct ptlrpc_request *req,
 				md.posix_acl = NULL;
 			}
 #endif
-			rc = -ENOMEM;
+			rc = PTR_ERR(*inode);
 			CERROR("new_inode -fatal: rc %d\n", rc);
 			goto out;
 		}
@@ -2254,7 +2269,8 @@ int ll_process_config(struct lustre_cfg *lcfg)
 		return -EINVAL;
 	sb = (void *)x;
 	/* This better be a real Lustre superblock! */
-	LASSERT(s2lsi((struct super_block *)sb)->lsi_lmd->lmd_magic == LMD_MAGIC);
+	LASSERT(s2lsi((struct super_block *)sb)->lsi_lmd->lmd_magic ==
+		LMD_MAGIC);
 
 	/* Note we have not called client_common_fill_super yet, so
 	 * proc fns must be able to handle that!
@@ -2571,8 +2587,9 @@ static int ll_linkea_decode(struct linkea_data *ldata, unsigned int linkno,
  *
  * \param[in]	  file	- File descriptor against which to perform the operation
  * \param[in,out] arg	- User-filled structure containing the linkno to operate
- *			  on and the available size. It is eventually filled with
- *			  the requested information or left untouched on error
+ *			  on and the available size. It is eventually filled
+ *			  with the requested information or left untouched on
+ *			  error
  *
  * \retval - 0 on success
  * \retval - Appropriate negative error code on failure
@@ -2591,7 +2608,7 @@ int ll_getparent(struct file *file, struct getparent __user *arg)
 	u32 linkno;
 	int rc;
 
-	if (!capable(CFS_CAP_DAC_READ_SEARCH) &&
+	if (!capable(CAP_DAC_READ_SEARCH) &&
 	    !(ll_i2sbi(inode)->ll_flags & LL_SBI_USER_FID2PATH))
 		return -EPERM;
 
@@ -2642,7 +2659,7 @@ int ll_getparent(struct file *file, struct getparent __user *arg)
 	}
 
 lb_free:
-	lu_buf_free(&buf);
+	kvfree(buf.lb_buf);
 ldata_free:
 	kfree(ldata);
 	return rc;

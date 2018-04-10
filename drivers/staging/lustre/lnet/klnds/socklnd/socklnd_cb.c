@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
  *
@@ -45,7 +46,7 @@ ksocknal_alloc_tx(int type, int size)
 	}
 
 	if (!tx)
-		LIBCFS_ALLOC(tx, size);
+		tx = kzalloc(size, GFP_NOFS);
 
 	if (!tx)
 		return NULL;
@@ -101,7 +102,7 @@ ksocknal_free_tx(struct ksock_tx *tx)
 
 		spin_unlock(&ksocknal_data.ksnd_tx_lock);
 	} else {
-		LIBCFS_FREE(tx, tx->tx_desc_size);
+		kfree(tx);
 	}
 }
 
@@ -188,7 +189,7 @@ ksocknal_transmit(struct ksock_conn *conn, struct ksock_tx *tx)
 
 	if (ksocknal_data.ksnd_stall_tx) {
 		set_current_state(TASK_UNINTERRUPTIBLE);
-		schedule_timeout(cfs_time_seconds(ksocknal_data.ksnd_stall_tx));
+		schedule_timeout(ksocknal_data.ksnd_stall_tx * HZ);
 	}
 
 	LASSERT(tx->tx_resid);
@@ -249,19 +250,16 @@ ksocknal_transmit(struct ksock_conn *conn, struct ksock_tx *tx)
 }
 
 static int
-ksocknal_recv_iov(struct ksock_conn *conn)
+ksocknal_recv_iter(struct ksock_conn *conn)
 {
-	struct kvec *iov = conn->ksnc_rx_iov;
 	int nob;
 	int rc;
 
-	LASSERT(conn->ksnc_rx_niov > 0);
-
 	/*
-	 * Never touch conn->ksnc_rx_iov or change connection
-	 * status inside ksocknal_lib_recv_iov
+	 * Never touch conn->ksnc_rx_to or change connection
+	 * status inside ksocknal_lib_recv
 	 */
-	rc = ksocknal_lib_recv_iov(conn);
+	rc = ksocknal_lib_recv(conn);
 
 	if (rc <= 0)
 		return rc;
@@ -275,69 +273,11 @@ ksocknal_recv_iov(struct ksock_conn *conn)
 	mb();		       /* order with setting rx_started */
 	conn->ksnc_rx_started = 1;
 
-	conn->ksnc_rx_nob_wanted -= nob;
 	conn->ksnc_rx_nob_left -= nob;
 
-	do {
-		LASSERT(conn->ksnc_rx_niov > 0);
-
-		if (nob < (int)iov->iov_len) {
-			iov->iov_len -= nob;
-			iov->iov_base += nob;
-			return -EAGAIN;
-		}
-
-		nob -= iov->iov_len;
-		conn->ksnc_rx_iov = ++iov;
-		conn->ksnc_rx_niov--;
-	} while (nob);
-
-	return rc;
-}
-
-static int
-ksocknal_recv_kiov(struct ksock_conn *conn)
-{
-	struct bio_vec *kiov = conn->ksnc_rx_kiov;
-	int nob;
-	int rc;
-
-	LASSERT(conn->ksnc_rx_nkiov > 0);
-
-	/*
-	 * Never touch conn->ksnc_rx_kiov or change connection
-	 * status inside ksocknal_lib_recv_iov
-	 */
-	rc = ksocknal_lib_recv_kiov(conn);
-
-	if (rc <= 0)
-		return rc;
-
-	/* received something... */
-	nob = rc;
-
-	conn->ksnc_peer->ksnp_last_alive = cfs_time_current();
-	conn->ksnc_rx_deadline =
-		cfs_time_shift(*ksocknal_tunables.ksnd_timeout);
-	mb();		       /* order with setting rx_started */
-	conn->ksnc_rx_started = 1;
-
-	conn->ksnc_rx_nob_wanted -= nob;
-	conn->ksnc_rx_nob_left -= nob;
-
-	do {
-		LASSERT(conn->ksnc_rx_nkiov > 0);
-
-		if (nob < (int)kiov->bv_len) {
-			kiov->bv_offset += nob;
-			kiov->bv_len -= nob;
-			return -EAGAIN;
-		}
-
-		nob -= kiov->bv_len;
-		conn->ksnc_rx_kiov = ++kiov;
-		conn->ksnc_rx_nkiov--;
-	} while (nob);
+	iov_iter_advance(&conn->ksnc_rx_to, nob);
+	if (iov_iter_count(&conn->ksnc_rx_to))
+		return -EAGAIN;
 
 	return 1;
 }
@@ -347,14 +287,14 @@ ksocknal_receive(struct ksock_conn *conn)
 {
 	/*
 	 * Return 1 on success, 0 on EOF, < 0 on error.
-	 * Caller checks ksnc_rx_nob_wanted to determine
+	 * Caller checks ksnc_rx_to to determine
 	 * progress/completion.
 	 */
 	int rc;
 
 	if (ksocknal_data.ksnd_stall_rx) {
 		set_current_state(TASK_UNINTERRUPTIBLE);
-		schedule_timeout(cfs_time_seconds(ksocknal_data.ksnd_stall_rx));
+		schedule_timeout(ksocknal_data.ksnd_stall_rx * HZ);
 	}
 
 	rc = ksocknal_connsock_addref(conn);
@@ -364,11 +304,7 @@ ksocknal_receive(struct ksock_conn *conn)
 	}
 
 	for (;;) {
-		if (conn->ksnc_rx_niov)
-			rc = ksocknal_recv_iov(conn);
-		else
-			rc = ksocknal_recv_kiov(conn);
-
+		rc = ksocknal_recv_iter(conn);
 		if (rc <= 0) {
 			/* error/EOF or partial receive */
 			if (rc == -EAGAIN) {
@@ -382,7 +318,7 @@ ksocknal_receive(struct ksock_conn *conn)
 
 		/* Completed a fragment */
 
-		if (!conn->ksnc_rx_nob_wanted) {
+		if (!iov_iter_count(&conn->ksnc_rx_to)) {
 			rc = 1;
 			break;
 		}
@@ -1050,6 +986,7 @@ int
 ksocknal_new_packet(struct ksock_conn *conn, int nob_to_skip)
 {
 	static char ksocknal_slop_buffer[4096];
+	struct kvec *kvec = conn->ksnc_rx_iov_space;
 
 	int nob;
 	unsigned int niov;
@@ -1070,32 +1007,26 @@ ksocknal_new_packet(struct ksock_conn *conn, int nob_to_skip)
 		case  KSOCK_PROTO_V2:
 		case  KSOCK_PROTO_V3:
 			conn->ksnc_rx_state = SOCKNAL_RX_KSM_HEADER;
-			conn->ksnc_rx_iov = (struct kvec *)&conn->ksnc_rx_iov_space;
-			conn->ksnc_rx_iov[0].iov_base = &conn->ksnc_msg;
-
-			conn->ksnc_rx_nob_wanted = offsetof(struct ksock_msg, ksm_u);
+			kvec->iov_base = &conn->ksnc_msg;
+			kvec->iov_len = offsetof(struct ksock_msg, ksm_u);
 			conn->ksnc_rx_nob_left = offsetof(struct ksock_msg, ksm_u);
-			conn->ksnc_rx_iov[0].iov_len = offsetof(struct ksock_msg, ksm_u);
+			iov_iter_kvec(&conn->ksnc_rx_to, READ|ITER_KVEC, kvec,
+					1, offsetof(struct ksock_msg, ksm_u));
 			break;
 
 		case KSOCK_PROTO_V1:
 			/* Receiving bare struct lnet_hdr */
 			conn->ksnc_rx_state = SOCKNAL_RX_LNET_HEADER;
-			conn->ksnc_rx_nob_wanted = sizeof(struct lnet_hdr);
+			kvec->iov_base = &conn->ksnc_msg.ksm_u.lnetmsg;
+			kvec->iov_len = sizeof(struct lnet_hdr);
 			conn->ksnc_rx_nob_left = sizeof(struct lnet_hdr);
-
-			conn->ksnc_rx_iov = (struct kvec *)&conn->ksnc_rx_iov_space;
-			conn->ksnc_rx_iov[0].iov_base = &conn->ksnc_msg.ksm_u.lnetmsg;
-			conn->ksnc_rx_iov[0].iov_len = sizeof(struct lnet_hdr);
+			iov_iter_kvec(&conn->ksnc_rx_to, READ|ITER_KVEC, kvec,
+					1, sizeof(struct lnet_hdr));
 			break;
 
 		default:
 			LBUG();
 		}
-		conn->ksnc_rx_niov = 1;
-
-		conn->ksnc_rx_kiov = NULL;
-		conn->ksnc_rx_nkiov = 0;
 		conn->ksnc_rx_csum = ~0;
 		return 1;
 	}
@@ -1106,15 +1037,14 @@ ksocknal_new_packet(struct ksock_conn *conn, int nob_to_skip)
 	 */
 	conn->ksnc_rx_state = SOCKNAL_RX_SLOP;
 	conn->ksnc_rx_nob_left = nob_to_skip;
-	conn->ksnc_rx_iov = (struct kvec *)&conn->ksnc_rx_iov_space;
 	skipped = 0;
 	niov = 0;
 
 	do {
 		nob = min_t(int, nob_to_skip, sizeof(ksocknal_slop_buffer));
 
-		conn->ksnc_rx_iov[niov].iov_base = ksocknal_slop_buffer;
-		conn->ksnc_rx_iov[niov].iov_len  = nob;
+		kvec[niov].iov_base = ksocknal_slop_buffer;
+		kvec[niov].iov_len  = nob;
 		niov++;
 		skipped += nob;
 		nob_to_skip -= nob;
@@ -1122,16 +1052,14 @@ ksocknal_new_packet(struct ksock_conn *conn, int nob_to_skip)
 	} while (nob_to_skip &&    /* mustn't overflow conn's rx iov */
 		 niov < sizeof(conn->ksnc_rx_iov_space) / sizeof(struct iovec));
 
-	conn->ksnc_rx_niov = niov;
-	conn->ksnc_rx_kiov = NULL;
-	conn->ksnc_rx_nkiov = 0;
-	conn->ksnc_rx_nob_wanted = skipped;
+	iov_iter_kvec(&conn->ksnc_rx_to, READ|ITER_KVEC, kvec, niov, skipped);
 	return 0;
 }
 
 static int
 ksocknal_process_receive(struct ksock_conn *conn)
 {
+	struct kvec *kvec = conn->ksnc_rx_iov_space;
 	struct lnet_hdr *lhdr;
 	struct lnet_process_id *id;
 	int rc;
@@ -1145,7 +1073,7 @@ ksocknal_process_receive(struct ksock_conn *conn)
 		conn->ksnc_rx_state == SOCKNAL_RX_LNET_HEADER ||
 		conn->ksnc_rx_state == SOCKNAL_RX_SLOP);
  again:
-	if (conn->ksnc_rx_nob_wanted) {
+	if (iov_iter_count(&conn->ksnc_rx_to)) {
 		rc = ksocknal_receive(conn);
 
 		if (rc <= 0) {
@@ -1170,7 +1098,7 @@ ksocknal_process_receive(struct ksock_conn *conn)
 			return (!rc ? -ESHUTDOWN : rc);
 		}
 
-		if (conn->ksnc_rx_nob_wanted) {
+		if (iov_iter_count(&conn->ksnc_rx_to)) {
 			/* short read */
 			return -EAGAIN;
 		}
@@ -1233,16 +1161,13 @@ ksocknal_process_receive(struct ksock_conn *conn)
 		}
 
 		conn->ksnc_rx_state = SOCKNAL_RX_LNET_HEADER;
-		conn->ksnc_rx_nob_wanted = sizeof(struct ksock_lnet_msg);
 		conn->ksnc_rx_nob_left = sizeof(struct ksock_lnet_msg);
 
-		conn->ksnc_rx_iov = (struct kvec *)&conn->ksnc_rx_iov_space;
-		conn->ksnc_rx_iov[0].iov_base = &conn->ksnc_msg.ksm_u.lnetmsg;
-		conn->ksnc_rx_iov[0].iov_len = sizeof(struct ksock_lnet_msg);
+		kvec->iov_base = &conn->ksnc_msg.ksm_u.lnetmsg;
+		kvec->iov_len = sizeof(struct ksock_lnet_msg);
 
-		conn->ksnc_rx_niov = 1;
-		conn->ksnc_rx_kiov = NULL;
-		conn->ksnc_rx_nkiov = 0;
+		iov_iter_kvec(&conn->ksnc_rx_to, READ|ITER_KVEC, kvec,
+				1, sizeof(struct ksock_lnet_msg));
 
 		goto again;     /* read lnet header now */
 
@@ -1344,26 +1269,9 @@ ksocknal_recv(struct lnet_ni *ni, void *private, struct lnet_msg *msg,
 	LASSERT(to->nr_segs <= LNET_MAX_IOV);
 
 	conn->ksnc_cookie = msg;
-	conn->ksnc_rx_nob_wanted = iov_iter_count(to);
 	conn->ksnc_rx_nob_left = rlen;
 
-	if (to->type & ITER_KVEC) {
-		conn->ksnc_rx_nkiov = 0;
-		conn->ksnc_rx_kiov = NULL;
-		conn->ksnc_rx_iov = conn->ksnc_rx_iov_space.iov;
-		conn->ksnc_rx_niov =
-			lnet_extract_iov(LNET_MAX_IOV, conn->ksnc_rx_iov,
-					 to->nr_segs, to->kvec,
-					 to->iov_offset, iov_iter_count(to));
-	} else {
-		conn->ksnc_rx_niov = 0;
-		conn->ksnc_rx_iov = NULL;
-		conn->ksnc_rx_kiov = conn->ksnc_rx_iov_space.kiov;
-		conn->ksnc_rx_nkiov =
-			lnet_extract_kiov(LNET_MAX_IOV, conn->ksnc_rx_kiov,
-					 to->nr_segs, to->bvec,
-					 to->iov_offset, iov_iter_count(to));
-	}
+	conn->ksnc_rx_to = *to;
 
 	LASSERT(conn->ksnc_rx_scheduled);
 
@@ -1415,8 +1323,6 @@ int ksocknal_scheduler(void *arg)
 
 	info = ksocknal_data.ksnd_sched_info[KSOCK_THREAD_CPT(id)];
 	sched = &info->ksi_scheds[KSOCK_THREAD_SID(id)];
-
-	cfs_block_allsigs();
 
 	rc = cfs_cpt_bind(lnet_cpt_table(), info->ksi_cpt);
 	if (rc) {
@@ -1872,7 +1778,7 @@ ksocknal_connect(struct ksock_route *route)
 	int rc = 0;
 
 	deadline = cfs_time_add(cfs_time_current(),
-				cfs_time_seconds(*ksocknal_tunables.ksnd_timeout));
+				*ksocknal_tunables.ksnd_timeout * HZ);
 
 	write_lock_bh(&ksocknal_data.ksnd_global_lock);
 
@@ -1970,7 +1876,7 @@ ksocknal_connect(struct ksock_route *route)
 			 * so min_reconnectms should be good heuristic
 			 */
 			route->ksnr_retry_interval =
-				cfs_time_seconds(*ksocknal_tunables.ksnd_min_reconnectms) / 1000;
+				*ksocknal_tunables.ksnd_min_reconnectms * HZ / 1000;
 			route->ksnr_timeout = cfs_time_add(cfs_time_current(),
 							   route->ksnr_retry_interval);
 		}
@@ -1991,10 +1897,10 @@ ksocknal_connect(struct ksock_route *route)
 	route->ksnr_retry_interval *= 2;
 	route->ksnr_retry_interval =
 		max(route->ksnr_retry_interval,
-		    cfs_time_seconds(*ksocknal_tunables.ksnd_min_reconnectms) / 1000);
+		    (long)*ksocknal_tunables.ksnd_min_reconnectms * HZ / 1000);
 	route->ksnr_retry_interval =
 		min(route->ksnr_retry_interval,
-		    cfs_time_seconds(*ksocknal_tunables.ksnd_max_reconnectms) / 1000);
+		    (long)*ksocknal_tunables.ksnd_max_reconnectms * HZ / 1000);
 
 	LASSERT(route->ksnr_retry_interval);
 	route->ksnr_timeout = cfs_time_add(cfs_time_current(),
@@ -2064,7 +1970,7 @@ ksocknal_connd_check_start(time64_t sec, long *timeout)
 
 	if (sec - ksocknal_data.ksnd_connd_failed_stamp <= 1) {
 		/* may run out of resource, retry later */
-		*timeout = cfs_time_seconds(1);
+		*timeout = HZ;
 		return 0;
 	}
 
@@ -2123,8 +2029,8 @@ ksocknal_connd_check_stop(time64_t sec, long *timeout)
 	val = (int)(ksocknal_data.ksnd_connd_starting_stamp +
 		    SOCKNAL_CONND_TIMEOUT - sec);
 
-	*timeout = (val > 0) ? cfs_time_seconds(val) :
-			       cfs_time_seconds(SOCKNAL_CONND_TIMEOUT);
+	*timeout = (val > 0) ? val * HZ :
+			       SOCKNAL_CONND_TIMEOUT * HZ;
 	if (val > 0)
 		return 0;
 
@@ -2170,8 +2076,6 @@ ksocknal_connd(void *arg)
 	int nloops = 0;
 	int cons_retry = 0;
 
-	cfs_block_allsigs();
-
 	init_waitqueue_entry(&wait, current);
 
 	spin_lock_bh(connd_lock);
@@ -2209,7 +2113,7 @@ ksocknal_connd(void *arg)
 			ksocknal_create_conn(cr->ksncr_ni, NULL,
 					     cr->ksncr_sock, SOCKLND_CONN_NONE);
 			lnet_ni_decref(cr->ksncr_ni);
-			LIBCFS_FREE(cr, sizeof(*cr));
+			kfree(cr);
 
 			spin_lock_bh(connd_lock);
 		}
@@ -2328,12 +2232,12 @@ ksocknal_find_timed_out_conn(struct ksock_peer *peer)
 				     conn->ksnc_rx_deadline)) {
 			/* Timed out incomplete incoming message */
 			ksocknal_conn_addref(conn);
-			CNETERR("Timeout receiving from %s (%pI4h:%d), state %d wanted %d left %d\n",
+			CNETERR("Timeout receiving from %s (%pI4h:%d), state %d wanted %zd left %d\n",
 				libcfs_id2str(peer->ksnp_id),
 				&conn->ksnc_ipaddr,
 				conn->ksnc_port,
 				conn->ksnc_rx_state,
-				conn->ksnc_rx_nob_wanted,
+				iov_iter_count(&conn->ksnc_rx_to),
 				conn->ksnc_rx_nob_left);
 			return conn;
 		}
@@ -2399,7 +2303,7 @@ ksocknal_send_keepalive_locked(struct ksock_peer *peer)
 	if (*ksocknal_tunables.ksnd_keepalive <= 0 ||
 	    time_before(cfs_time_current(),
 			cfs_time_add(peer->ksnp_last_alive,
-				     cfs_time_seconds(*ksocknal_tunables.ksnd_keepalive))))
+				     *ksocknal_tunables.ksnd_keepalive * HZ)))
 		return 0;
 
 	if (time_before(cfs_time_current(), peer->ksnp_send_keepalive))
@@ -2564,8 +2468,6 @@ ksocknal_reaper(void *arg)
 	int peer_index = 0;
 	unsigned long deadline = cfs_time_current();
 
-	cfs_block_allsigs();
-
 	INIT_LIST_HEAD(&enomem_conns);
 	init_waitqueue_entry(&wait, current);
 
@@ -2655,7 +2557,7 @@ ksocknal_reaper(void *arg)
 					     ksocknal_data.ksnd_peer_hash_size;
 			}
 
-			deadline = cfs_time_add(deadline, cfs_time_seconds(p));
+			deadline = cfs_time_add(deadline, p * HZ);
 		}
 
 		if (nenomem_conns) {

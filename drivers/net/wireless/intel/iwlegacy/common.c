@@ -435,7 +435,7 @@ EXPORT_SYMBOL(il_send_cmd_pdu_async);
 
 /* default: IL_LED_BLINK(0) using blinking idx table */
 static int led_mode;
-module_param(led_mode, int, S_IRUGO);
+module_param(led_mode, int, 0444);
 MODULE_PARM_DESC(led_mode,
 		 "0=system default, " "1=On(RF On)/Off(RF Off), 2=blinking");
 
@@ -3372,7 +3372,7 @@ MODULE_LICENSE("GPL");
  * default: bt_coex_active = true (BT_COEX_ENABLE)
  */
 static bool bt_coex_active = true;
-module_param(bt_coex_active, bool, S_IRUGO);
+module_param(bt_coex_active, bool, 0444);
 MODULE_PARM_DESC(bt_coex_active, "enable wifi/bluetooth co-exist");
 
 u32 il_debug_level;
@@ -4844,9 +4844,9 @@ il_check_stuck_queue(struct il_priv *il, int cnt)
  * we reset the firmware. If everything is fine just rearm the timer.
  */
 void
-il_bg_watchdog(unsigned long data)
+il_bg_watchdog(struct timer_list *t)
 {
-	struct il_priv *il = (struct il_priv *)data;
+	struct il_priv *il = from_timer(il, t, watchdog);
 	int cnt;
 	unsigned long timeout;
 

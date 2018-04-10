@@ -1,17 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /**
  * debugfs.c - Designware USB2 DRD controller debugfs
  *
  * Copyright (C) 2015 Intel Corporation
  * Mian Yousaf Kaukab <yousaf.kaukab@intel.com>
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2  of
- * the License as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <linux/spinlock.h>
@@ -178,19 +170,7 @@ static int state_show(struct seq_file *seq, void *v)
 
 	return 0;
 }
-
-static int state_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, state_show, inode->i_private);
-}
-
-static const struct file_operations state_fops = {
-	.owner		= THIS_MODULE,
-	.open		= state_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
+DEFINE_SHOW_ATTRIBUTE(state);
 
 /**
  * fifo_show - debugfs: show the fifo information
@@ -227,19 +207,7 @@ static int fifo_show(struct seq_file *seq, void *v)
 
 	return 0;
 }
-
-static int fifo_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, fifo_show, inode->i_private);
-}
-
-static const struct file_operations fifo_fops = {
-	.owner		= THIS_MODULE,
-	.open		= fifo_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
+DEFINE_SHOW_ATTRIBUTE(fifo);
 
 static const char *decode_direction(int is_in)
 {
@@ -311,19 +279,7 @@ static int ep_show(struct seq_file *seq, void *v)
 
 	return 0;
 }
-
-static int ep_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, ep_show, inode->i_private);
-}
-
-static const struct file_operations ep_fops = {
-	.owner		= THIS_MODULE,
-	.open		= ep_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
+DEFINE_SHOW_ATTRIBUTE(ep);
 
 /**
  * dwc2_hsotg_create_debug - create debugfs directory and files
@@ -762,7 +718,12 @@ static int params_show(struct seq_file *seq, void *v)
 	print_param_hex(seq, p, ahbcfg);
 	print_param(seq, p, uframe_sched);
 	print_param(seq, p, external_id_pin_ctl);
-	print_param(seq, p, hibernation);
+	print_param(seq, p, power_down);
+	print_param(seq, p, lpm);
+	print_param(seq, p, lpm_clock_gating);
+	print_param(seq, p, besl);
+	print_param(seq, p, hird_threshold_en);
+	print_param(seq, p, hird_threshold);
 	print_param(seq, p, host_dma);
 	print_param(seq, p, g_dma);
 	print_param(seq, p, g_dma_desc);
@@ -778,19 +739,7 @@ static int params_show(struct seq_file *seq, void *v)
 
 	return 0;
 }
-
-static int params_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, params_show, inode->i_private);
-}
-
-static const struct file_operations params_fops = {
-	.owner		= THIS_MODULE,
-	.open		= params_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
+DEFINE_SHOW_ATTRIBUTE(params);
 
 static int hw_params_show(struct seq_file *seq, void *v)
 {
@@ -825,19 +774,7 @@ static int hw_params_show(struct seq_file *seq, void *v)
 
 	return 0;
 }
-
-static int hw_params_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, hw_params_show, inode->i_private);
-}
-
-static const struct file_operations hw_params_fops = {
-	.owner		= THIS_MODULE,
-	.open		= hw_params_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
+DEFINE_SHOW_ATTRIBUTE(hw_params);
 
 static int dr_mode_show(struct seq_file *seq, void *v)
 {
@@ -848,19 +785,7 @@ static int dr_mode_show(struct seq_file *seq, void *v)
 	seq_printf(seq, "%s\n", dr_mode);
 	return 0;
 }
-
-static int dr_mode_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, dr_mode_show, inode->i_private);
-}
-
-static const struct file_operations dr_mode_fops = {
-	.owner		= THIS_MODULE,
-	.open		= dr_mode_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
+DEFINE_SHOW_ATTRIBUTE(dr_mode);
 
 int dwc2_debugfs_init(struct dwc2_hsotg *hsotg)
 {

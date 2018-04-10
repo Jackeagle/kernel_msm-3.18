@@ -12,10 +12,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  *
  */
 
@@ -35,8 +31,6 @@
 #include <media/media-entity.h>
 
 #include "../include/linux/atomisp_platform.h"
-
-#define GC0310_NAME		"gc0310"
 
 /* Defines for register writes and register array processing */
 #define I2C_MSG_LENGTH		1
@@ -156,7 +150,6 @@ struct gc0310_device {
 	struct camera_sensor_platform_data *platform_data;
 	int vt_pix_clk_freq_mhz;
 	int fmt_idx;
-	int run_mode;
 	u8 res;
 	u8 type;
 };
@@ -194,11 +187,6 @@ struct gc0310_write_buffer {
 struct gc0310_write_ctrl {
 	int index;
 	struct gc0310_write_buffer buffer;
-};
-
-static const struct i2c_device_id gc0310_id[] = {
-	{GC0310_NAME, 0},
-	{}
 };
 
 /*
@@ -410,48 +398,6 @@ struct gc0310_resolution gc0310_res_preview[] = {
 	},
 };
 #define N_RES_PREVIEW (ARRAY_SIZE(gc0310_res_preview))
-
-struct gc0310_resolution gc0310_res_still[] = {
-	{
-		.desc = "gc0310_VGA_30fps",
-		.width = 656, // 648,
-		.height = 496, // 488,
-		.fps = 30,
-		//.pix_clk_freq = 73,
-		.used = 0,
-#if 0
-		.pixels_per_line = 0x0314,
-		.lines_per_frame = 0x0213,
-#endif
-		.bin_factor_x = 1,
-		.bin_factor_y = 1,
-		.bin_mode = 0,
-		.skip_frames = 2,
-		.regs = gc0310_VGA_30fps,
-	},
-};
-#define N_RES_STILL (ARRAY_SIZE(gc0310_res_still))
-
-struct gc0310_resolution gc0310_res_video[] = {
-	{
-		.desc = "gc0310_VGA_30fps",
-		.width = 656, // 648,
-		.height = 496, // 488,
-		.fps = 30,
-		//.pix_clk_freq = 73,
-		.used = 0,
-#if 0
-		.pixels_per_line = 0x0314,
-		.lines_per_frame = 0x0213,
-#endif
-		.bin_factor_x = 1,
-		.bin_factor_y = 1,
-		.bin_mode = 0,
-		.skip_frames = 2,
-		.regs = gc0310_VGA_30fps,
-	},
-};
-#define N_RES_VIDEO (ARRAY_SIZE(gc0310_res_video))
 
 static struct gc0310_resolution *gc0310_res = gc0310_res_preview;
 static unsigned long N_RES = N_RES_PREVIEW;

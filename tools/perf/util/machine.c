@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <dirent.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -30,21 +31,46 @@ static void dsos__init(struct dsos *dsos)
 {
 	INIT_LIST_HEAD(&dsos->head);
 	dsos->root = RB_ROOT;
-	pthread_rwlock_init(&dsos->lock, NULL);
+	init_rwsem(&dsos->lock);
+}
+
+static void machine__threads_init(struct machine *machine)
+{
+	int i;
+
+	for (i = 0; i < THREADS__TABLE_SIZE; i++) {
+		struct threads *threads = &machine->threads[i];
+		threads->entries = RB_ROOT;
+		init_rwsem(&threads->lock);
+		threads->nr = 0;
+		INIT_LIST_HEAD(&threads->dead);
+		threads->last_match = NULL;
+	}
+}
+
+static int machine__set_mmap_name(struct machine *machine)
+{
+	if (machine__is_host(machine))
+		machine->mmap_name = strdup("[kernel.kallsyms]");
+	else if (machine__is_default_guest(machine))
+		machine->mmap_name = strdup("[guest.kernel.kallsyms]");
+	else if (asprintf(&machine->mmap_name, "[guest.kernel.kallsyms.%d]",
+			  machine->pid) < 0)
+		machine->mmap_name = NULL;
+
+	return machine->mmap_name ? 0 : -ENOMEM;
 }
 
 int machine__init(struct machine *machine, const char *root_dir, pid_t pid)
 {
+	int err = -ENOMEM;
+
 	memset(machine, 0, sizeof(*machine));
 	map_groups__init(&machine->kmaps, machine);
 	RB_CLEAR_NODE(&machine->rb_node);
 	dsos__init(&machine->dsos);
 
-	machine->threads = RB_ROOT;
-	pthread_rwlock_init(&machine->threads_lock, NULL);
-	machine->nr_threads = 0;
-	INIT_LIST_HEAD(&machine->dead_threads);
-	machine->last_match = NULL;
+	machine__threads_init(machine);
 
 	machine->vdso_info = NULL;
 	machine->env = NULL;
@@ -62,13 +88,16 @@ int machine__init(struct machine *machine, const char *root_dir, pid_t pid)
 	if (machine->root_dir == NULL)
 		return -ENOMEM;
 
+	if (machine__set_mmap_name(machine))
+		goto out;
+
 	if (pid != HOST_KERNEL_ID) {
 		struct thread *thread = machine__findnew_thread(machine, -1,
 								pid);
 		char comm[64];
 
 		if (thread == NULL)
-			return -ENOMEM;
+			goto out;
 
 		snprintf(comm, sizeof(comm), "[guest/%d]", pid);
 		thread__set_comm(thread, comm, 0);
@@ -76,7 +105,13 @@ int machine__init(struct machine *machine, const char *root_dir, pid_t pid)
 	}
 
 	machine->current_tid = NULL;
+	err = 0;
 
+out:
+	if (err) {
+		zfree(&machine->root_dir);
+		zfree(&machine->mmap_name);
+	}
 	return 0;
 }
 
@@ -108,7 +143,7 @@ struct machine *machine__new_kallsyms(void)
 	 *    ask for not using the kcore parsing code, once this one is fixed
 	 *    to create a map per module.
 	 */
-	if (machine && __machine__load_kallsyms(machine, "/proc/kallsyms", MAP__FUNCTION, true) <= 0) {
+	if (machine && machine__load_kallsyms(machine, "/proc/kallsyms", MAP__FUNCTION) <= 0) {
 		machine__delete(machine);
 		machine = NULL;
 	}
@@ -120,7 +155,7 @@ static void dsos__purge(struct dsos *dsos)
 {
 	struct dso *pos, *n;
 
-	pthread_rwlock_wrlock(&dsos->lock);
+	down_write(&dsos->lock);
 
 	list_for_each_entry_safe(pos, n, &dsos->head, node) {
 		RB_CLEAR_NODE(&pos->rb_node);
@@ -129,39 +164,53 @@ static void dsos__purge(struct dsos *dsos)
 		dso__put(pos);
 	}
 
-	pthread_rwlock_unlock(&dsos->lock);
+	up_write(&dsos->lock);
 }
 
 static void dsos__exit(struct dsos *dsos)
 {
 	dsos__purge(dsos);
-	pthread_rwlock_destroy(&dsos->lock);
+	exit_rwsem(&dsos->lock);
 }
 
 void machine__delete_threads(struct machine *machine)
 {
 	struct rb_node *nd;
+	int i;
 
-	pthread_rwlock_wrlock(&machine->threads_lock);
-	nd = rb_first(&machine->threads);
-	while (nd) {
-		struct thread *t = rb_entry(nd, struct thread, rb_node);
+	for (i = 0; i < THREADS__TABLE_SIZE; i++) {
+		struct threads *threads = &machine->threads[i];
+		down_write(&threads->lock);
+		nd = rb_first(&threads->entries);
+		while (nd) {
+			struct thread *t = rb_entry(nd, struct thread, rb_node);
 
-		nd = rb_next(nd);
-		__machine__remove_thread(machine, t, false);
+			nd = rb_next(nd);
+			__machine__remove_thread(machine, t, false);
+		}
+		up_write(&threads->lock);
 	}
-	pthread_rwlock_unlock(&machine->threads_lock);
 }
 
 void machine__exit(struct machine *machine)
 {
+	int i;
+
+	if (machine == NULL)
+		return;
+
 	machine__destroy_kernel_maps(machine);
 	map_groups__exit(&machine->kmaps);
 	dsos__exit(&machine->dsos);
 	machine__exit_vdso(machine);
 	zfree(&machine->root_dir);
+	zfree(&machine->mmap_name);
 	zfree(&machine->current_tid);
-	pthread_rwlock_destroy(&machine->threads_lock);
+
+	for (i = 0; i < THREADS__TABLE_SIZE; i++) {
+		struct threads *threads = &machine->threads[i];
+		exit_rwsem(&threads->lock);
+	}
 }
 
 void machine__delete(struct machine *machine)
@@ -298,20 +347,6 @@ void machines__process_guests(struct machines *machines,
 	}
 }
 
-char *machine__mmap_name(struct machine *machine, char *bf, size_t size)
-{
-	if (machine__is_host(machine))
-		snprintf(bf, size, "[%s]", "kernel.kallsyms");
-	else if (machine__is_default_guest(machine))
-		snprintf(bf, size, "[%s]", "guest.kernel.kallsyms");
-	else {
-		snprintf(bf, size, "[%s.%d]", "guest.kernel.kallsyms",
-			 machine->pid);
-	}
-
-	return bf;
-}
-
 void machines__set_id_hdr_size(struct machines *machines, u16 id_hdr_size)
 {
 	struct rb_node *node;
@@ -379,10 +414,11 @@ out_err:
  * lookup/new thread inserted.
  */
 static struct thread *____machine__findnew_thread(struct machine *machine,
+						  struct threads *threads,
 						  pid_t pid, pid_t tid,
 						  bool create)
 {
-	struct rb_node **p = &machine->threads.rb_node;
+	struct rb_node **p = &threads->entries.rb_node;
 	struct rb_node *parent = NULL;
 	struct thread *th;
 
@@ -391,14 +427,14 @@ static struct thread *____machine__findnew_thread(struct machine *machine,
 	 * so most of the time we dont have to look up
 	 * the full rbtree:
 	 */
-	th = machine->last_match;
+	th = threads->last_match;
 	if (th != NULL) {
 		if (th->tid == tid) {
 			machine__update_thread_pid(machine, th, pid);
 			return thread__get(th);
 		}
 
-		machine->last_match = NULL;
+		threads->last_match = NULL;
 	}
 
 	while (*p != NULL) {
@@ -406,7 +442,7 @@ static struct thread *____machine__findnew_thread(struct machine *machine,
 		th = rb_entry(parent, struct thread, rb_node);
 
 		if (th->tid == tid) {
-			machine->last_match = th;
+			threads->last_match = th;
 			machine__update_thread_pid(machine, th, pid);
 			return thread__get(th);
 		}
@@ -423,7 +459,7 @@ static struct thread *____machine__findnew_thread(struct machine *machine,
 	th = thread__new(pid, tid);
 	if (th != NULL) {
 		rb_link_node(&th->rb_node, parent, p);
-		rb_insert_color(&th->rb_node, &machine->threads);
+		rb_insert_color(&th->rb_node, &threads->entries);
 
 		/*
 		 * We have to initialize map_groups separately
@@ -434,7 +470,7 @@ static struct thread *____machine__findnew_thread(struct machine *machine,
 		 * leader and that would screwed the rb tree.
 		 */
 		if (thread__init_map_groups(th, machine)) {
-			rb_erase_init(&th->rb_node, &machine->threads);
+			rb_erase_init(&th->rb_node, &threads->entries);
 			RB_CLEAR_NODE(&th->rb_node);
 			thread__put(th);
 			return NULL;
@@ -443,8 +479,8 @@ static struct thread *____machine__findnew_thread(struct machine *machine,
 		 * It is now in the rbtree, get a ref
 		 */
 		thread__get(th);
-		machine->last_match = th;
-		++machine->nr_threads;
+		threads->last_match = th;
+		++threads->nr;
 	}
 
 	return th;
@@ -452,27 +488,30 @@ static struct thread *____machine__findnew_thread(struct machine *machine,
 
 struct thread *__machine__findnew_thread(struct machine *machine, pid_t pid, pid_t tid)
 {
-	return ____machine__findnew_thread(machine, pid, tid, true);
+	return ____machine__findnew_thread(machine, machine__threads(machine, tid), pid, tid, true);
 }
 
 struct thread *machine__findnew_thread(struct machine *machine, pid_t pid,
 				       pid_t tid)
 {
+	struct threads *threads = machine__threads(machine, tid);
 	struct thread *th;
 
-	pthread_rwlock_wrlock(&machine->threads_lock);
+	down_write(&threads->lock);
 	th = __machine__findnew_thread(machine, pid, tid);
-	pthread_rwlock_unlock(&machine->threads_lock);
+	up_write(&threads->lock);
 	return th;
 }
 
 struct thread *machine__find_thread(struct machine *machine, pid_t pid,
 				    pid_t tid)
 {
+	struct threads *threads = machine__threads(machine, tid);
 	struct thread *th;
-	pthread_rwlock_rdlock(&machine->threads_lock);
-	th =  ____machine__findnew_thread(machine, pid, tid, false);
-	pthread_rwlock_unlock(&machine->threads_lock);
+
+	down_read(&threads->lock);
+	th =  ____machine__findnew_thread(machine, threads, pid, tid, false);
+	up_read(&threads->lock);
 	return th;
 }
 
@@ -564,7 +603,7 @@ static struct dso *machine__findnew_module_dso(struct machine *machine,
 {
 	struct dso *dso;
 
-	pthread_rwlock_wrlock(&machine->dsos.lock);
+	down_write(&machine->dsos.lock);
 
 	dso = __dsos__find(&machine->dsos, m->name, true);
 	if (!dso) {
@@ -578,7 +617,7 @@ static struct dso *machine__findnew_module_dso(struct machine *machine,
 
 	dso__get(dso);
 out_unlock:
-	pthread_rwlock_unlock(&machine->dsos.lock);
+	up_write(&machine->dsos.lock);
 	return dso;
 }
 
@@ -719,44 +758,42 @@ size_t machine__fprintf_vmlinux_path(struct machine *machine, FILE *fp)
 
 size_t machine__fprintf(struct machine *machine, FILE *fp)
 {
-	size_t ret;
 	struct rb_node *nd;
+	size_t ret;
+	int i;
 
-	pthread_rwlock_rdlock(&machine->threads_lock);
+	for (i = 0; i < THREADS__TABLE_SIZE; i++) {
+		struct threads *threads = &machine->threads[i];
 
-	ret = fprintf(fp, "Threads: %u\n", machine->nr_threads);
+		down_read(&threads->lock);
 
-	for (nd = rb_first(&machine->threads); nd; nd = rb_next(nd)) {
-		struct thread *pos = rb_entry(nd, struct thread, rb_node);
+		ret = fprintf(fp, "Threads: %u\n", threads->nr);
 
-		ret += thread__fprintf(pos, fp);
+		for (nd = rb_first(&threads->entries); nd; nd = rb_next(nd)) {
+			struct thread *pos = rb_entry(nd, struct thread, rb_node);
+
+			ret += thread__fprintf(pos, fp);
+		}
+
+		up_read(&threads->lock);
 	}
-
-	pthread_rwlock_unlock(&machine->threads_lock);
-
 	return ret;
 }
 
 static struct dso *machine__get_kernel(struct machine *machine)
 {
-	const char *vmlinux_name = NULL;
+	const char *vmlinux_name = machine->mmap_name;
 	struct dso *kernel;
 
 	if (machine__is_host(machine)) {
-		vmlinux_name = symbol_conf.vmlinux_name;
-		if (!vmlinux_name)
-			vmlinux_name = DSO__NAME_KALLSYMS;
+		if (symbol_conf.vmlinux_name)
+			vmlinux_name = symbol_conf.vmlinux_name;
 
 		kernel = machine__findnew_kernel(machine, vmlinux_name,
 						 "[kernel]", DSO_TYPE_KERNEL);
 	} else {
-		char bf[PATH_MAX];
-
-		if (machine__is_default_guest(machine))
+		if (symbol_conf.default_guest_vmlinux_name)
 			vmlinux_name = symbol_conf.default_guest_vmlinux_name;
-		if (!vmlinux_name)
-			vmlinux_name = machine__mmap_name(machine, bf,
-							  sizeof(bf));
 
 		kernel = machine__findnew_kernel(machine, vmlinux_name,
 						 "[guest.kernel]",
@@ -817,13 +854,10 @@ static int machine__get_running_kernel_start(struct machine *machine,
 	return 0;
 }
 
-int __machine__create_kernel_maps(struct machine *machine, struct dso *kernel)
+static int
+__machine__create_kernel_maps(struct machine *machine, struct dso *kernel)
 {
 	int type;
-	u64 start = 0;
-
-	if (machine__get_running_kernel_start(machine, NULL, &start))
-		return -1;
 
 	/* In case of renewal the kernel map, destroy previous one */
 	machine__destroy_kernel_maps(machine);
@@ -832,7 +866,7 @@ int __machine__create_kernel_maps(struct machine *machine, struct dso *kernel)
 		struct kmap *kmap;
 		struct map *map;
 
-		machine->vmlinux_maps[type] = map__new2(start, kernel, type);
+		machine->vmlinux_maps[type] = map__new2(0, kernel, type);
 		if (machine->vmlinux_maps[type] == NULL)
 			return -1;
 
@@ -955,11 +989,11 @@ int machines__create_kernel_maps(struct machines *machines, pid_t pid)
 	return machine__create_kernel_maps(machine);
 }
 
-int __machine__load_kallsyms(struct machine *machine, const char *filename,
-			     enum map_type type, bool no_kcore)
+int machine__load_kallsyms(struct machine *machine, const char *filename,
+			     enum map_type type)
 {
 	struct map *map = machine__kernel_map(machine);
-	int ret = __dso__load_kallsyms(map->dso, filename, map, no_kcore);
+	int ret = __dso__load_kallsyms(map->dso, filename, map, true);
 
 	if (ret > 0) {
 		dso__set_loaded(map->dso, type);
@@ -972,12 +1006,6 @@ int __machine__load_kallsyms(struct machine *machine, const char *filename,
 	}
 
 	return ret;
-}
-
-int machine__load_kallsyms(struct machine *machine, const char *filename,
-			   enum map_type type)
-{
-	return __machine__load_kallsyms(machine, filename, type, false);
 }
 
 int machine__load_vmlinux_path(struct machine *machine, enum map_type type)
@@ -1183,6 +1211,24 @@ static int machine__create_modules(struct machine *machine)
 	return 0;
 }
 
+static void machine__set_kernel_mmap(struct machine *machine,
+				     u64 start, u64 end)
+{
+	int i;
+
+	for (i = 0; i < MAP__NR_TYPES; i++) {
+		machine->vmlinux_maps[i]->start = start;
+		machine->vmlinux_maps[i]->end   = end;
+
+		/*
+		 * Be a bit paranoid here, some perf.data file came with
+		 * a zero sized synthesized MMAP event for the kernel.
+		 */
+		if (start == 0 && end == 0)
+			machine->vmlinux_maps[i]->end = ~0ULL;
+	}
+}
+
 int machine__create_kernel_maps(struct machine *machine)
 {
 	struct dso *kernel = machine__get_kernel(machine);
@@ -1207,38 +1253,20 @@ int machine__create_kernel_maps(struct machine *machine)
 				 "continuing anyway...\n", machine->pid);
 	}
 
-	/*
-	 * Now that we have all the maps created, just set the ->end of them:
-	 */
-	map_groups__fixup_end(&machine->kmaps);
-
 	if (!machine__get_running_kernel_start(machine, &name, &addr)) {
 		if (name &&
 		    maps__set_kallsyms_ref_reloc_sym(machine->vmlinux_maps, name, addr)) {
 			machine__destroy_kernel_maps(machine);
 			return -1;
 		}
+		machine__set_kernel_mmap(machine, addr, 0);
 	}
 
+	/*
+	 * Now that we have all the maps created, just set the ->end of them:
+	 */
+	map_groups__fixup_end(&machine->kmaps);
 	return 0;
-}
-
-static void machine__set_kernel_mmap_len(struct machine *machine,
-					 union perf_event *event)
-{
-	int i;
-
-	for (i = 0; i < MAP__NR_TYPES; i++) {
-		machine->vmlinux_maps[i]->start = event->mmap.start;
-		machine->vmlinux_maps[i]->end   = (event->mmap.start +
-						   event->mmap.len);
-		/*
-		 * Be a bit paranoid here, some perf.data file came with
-		 * a zero sized synthesized MMAP event for the kernel.
-		 */
-		if (machine->vmlinux_maps[i]->end == 0)
-			machine->vmlinux_maps[i]->end = ~0ULL;
-	}
 }
 
 static bool machine__uses_kcore(struct machine *machine)
@@ -1257,7 +1285,6 @@ static int machine__process_kernel_mmap_event(struct machine *machine,
 					      union perf_event *event)
 {
 	struct map *map;
-	char kmmap_prefix[PATH_MAX];
 	enum dso_kernel_type kernel_type;
 	bool is_kernel_mmap;
 
@@ -1265,15 +1292,14 @@ static int machine__process_kernel_mmap_event(struct machine *machine,
 	if (machine__uses_kcore(machine))
 		return 0;
 
-	machine__mmap_name(machine, kmmap_prefix, sizeof(kmmap_prefix));
 	if (machine__is_host(machine))
 		kernel_type = DSO_TYPE_KERNEL;
 	else
 		kernel_type = DSO_TYPE_GUEST_KERNEL;
 
 	is_kernel_mmap = memcmp(event->mmap.filename,
-				kmmap_prefix,
-				strlen(kmmap_prefix) - 1) == 0;
+				machine->mmap_name,
+				strlen(machine->mmap_name) - 1) == 0;
 	if (event->mmap.filename[0] == '/' ||
 	    (!is_kernel_mmap && event->mmap.filename[0] == '[')) {
 		map = machine__findnew_module_map(machine, event->mmap.start,
@@ -1284,7 +1310,7 @@ static int machine__process_kernel_mmap_event(struct machine *machine,
 		map->end = map->start + event->mmap.len;
 	} else if (is_kernel_mmap) {
 		const char *symbol_name = (event->mmap.filename +
-				strlen(kmmap_prefix));
+				strlen(machine->mmap_name));
 		/*
 		 * Should be there already, from the build-id table in
 		 * the header.
@@ -1292,7 +1318,7 @@ static int machine__process_kernel_mmap_event(struct machine *machine,
 		struct dso *kernel = NULL;
 		struct dso *dso;
 
-		pthread_rwlock_rdlock(&machine->dsos.lock);
+		down_read(&machine->dsos.lock);
 
 		list_for_each_entry(dso, &machine->dsos.head, node) {
 
@@ -1322,10 +1348,10 @@ static int machine__process_kernel_mmap_event(struct machine *machine,
 			break;
 		}
 
-		pthread_rwlock_unlock(&machine->dsos.lock);
+		up_read(&machine->dsos.lock);
 
 		if (kernel == NULL)
-			kernel = machine__findnew_dso(machine, kmmap_prefix);
+			kernel = machine__findnew_dso(machine, machine->mmap_name);
 		if (kernel == NULL)
 			goto out_problem;
 
@@ -1338,7 +1364,8 @@ static int machine__process_kernel_mmap_event(struct machine *machine,
 		if (strstr(kernel->long_name, "vmlinux"))
 			dso__set_short_name(kernel, "[kernel.vmlinux]", false);
 
-		machine__set_kernel_mmap_len(machine, event);
+		machine__set_kernel_mmap(machine, event->mmap.start,
+					 event->mmap.start + event->mmap.len);
 
 		/*
 		 * Avoid using a zero address (kptr_restrict) for the ref reloc
@@ -1479,23 +1506,25 @@ out_problem:
 
 static void __machine__remove_thread(struct machine *machine, struct thread *th, bool lock)
 {
-	if (machine->last_match == th)
-		machine->last_match = NULL;
+	struct threads *threads = machine__threads(machine, th->tid);
+
+	if (threads->last_match == th)
+		threads->last_match = NULL;
 
 	BUG_ON(refcount_read(&th->refcnt) == 0);
 	if (lock)
-		pthread_rwlock_wrlock(&machine->threads_lock);
-	rb_erase_init(&th->rb_node, &machine->threads);
+		down_write(&threads->lock);
+	rb_erase_init(&th->rb_node, &threads->entries);
 	RB_CLEAR_NODE(&th->rb_node);
-	--machine->nr_threads;
+	--threads->nr;
 	/*
 	 * Move it first to the dead_threads list, then drop the reference,
 	 * if this is the last reference, then the thread__delete destructor
 	 * will be called and we will remove it from the dead_threads list.
 	 */
-	list_add_tail(&th->node, &machine->dead_threads);
+	list_add_tail(&th->node, &threads->dead);
 	if (lock)
-		pthread_rwlock_unlock(&machine->threads_lock);
+		up_write(&threads->lock);
 	thread__put(th);
 }
 
@@ -1666,7 +1695,7 @@ static void ip__resolve_data(struct thread *thread,
 struct mem_info *sample__resolve_mem(struct perf_sample *sample,
 				     struct addr_location *al)
 {
-	struct mem_info *mi = zalloc(sizeof(*mi));
+	struct mem_info *mi = mem_info__new();
 
 	if (!mi)
 		return NULL;
@@ -1677,6 +1706,26 @@ struct mem_info *sample__resolve_mem(struct perf_sample *sample,
 	mi->data_src.val = sample->data_src;
 
 	return mi;
+}
+
+static char *callchain_srcline(struct map *map, struct symbol *sym, u64 ip)
+{
+	char *srcline = NULL;
+
+	if (!map || callchain_param.key == CCKEY_FUNCTION)
+		return srcline;
+
+	srcline = srcline__tree_find(&map->dso->srclines, ip);
+	if (!srcline) {
+		bool show_sym = false;
+		bool show_addr = callchain_param.key == CCKEY_ADDRESS;
+
+		srcline = get_srcline(map->dso, map__rip_2objdump(map, ip),
+				      sym, show_sym, show_addr, ip);
+		srcline__tree_insert(&map->dso->srclines, ip, srcline);
+	}
+
+	return srcline;
 }
 
 struct iterations {
@@ -1698,6 +1747,7 @@ static int add_callchain_ip(struct thread *thread,
 	struct addr_location al;
 	int nr_loop_iter = 0;
 	u64 iter_cycles = 0;
+	const char *srcline = NULL;
 
 	al.filtered = 0;
 	al.sym = NULL;
@@ -1753,9 +1803,10 @@ static int add_callchain_ip(struct thread *thread,
 		iter_cycles = iter->cycles;
 	}
 
+	srcline = callchain_srcline(al.map, al.sym, al.addr);
 	return callchain_cursor_append(cursor, al.addr, al.map, al.sym,
 				       branch, flags, nr_loop_iter,
-				       iter_cycles, branch_from);
+				       iter_cycles, branch_from, srcline);
 }
 
 struct branch_info *sample__resolve_bstack(struct perf_sample *sample,
@@ -2068,15 +2119,54 @@ check_calls:
 	return 0;
 }
 
+static int append_inlines(struct callchain_cursor *cursor,
+			  struct map *map, struct symbol *sym, u64 ip)
+{
+	struct inline_node *inline_node;
+	struct inline_list *ilist;
+	u64 addr;
+	int ret = 1;
+
+	if (!symbol_conf.inline_name || !map || !sym)
+		return ret;
+
+	addr = map__rip_2objdump(map, ip);
+
+	inline_node = inlines__tree_find(&map->dso->inlined_nodes, addr);
+	if (!inline_node) {
+		inline_node = dso__parse_addr_inlines(map->dso, addr, sym);
+		if (!inline_node)
+			return ret;
+		inlines__tree_insert(&map->dso->inlined_nodes, inline_node);
+	}
+
+	list_for_each_entry(ilist, &inline_node->val, list) {
+		ret = callchain_cursor_append(cursor, ip, map,
+					      ilist->symbol, false,
+					      NULL, 0, 0, 0, ilist->srcline);
+
+		if (ret != 0)
+			return ret;
+	}
+
+	return ret;
+}
+
 static int unwind_entry(struct unwind_entry *entry, void *arg)
 {
 	struct callchain_cursor *cursor = arg;
+	const char *srcline = NULL;
 
 	if (symbol_conf.hide_unresolved && entry->sym == NULL)
 		return 0;
+
+	if (append_inlines(cursor, entry->map, entry->sym, entry->ip) == 0)
+		return 0;
+
+	srcline = callchain_srcline(entry->map, entry->sym, entry->ip);
 	return callchain_cursor_append(cursor, entry->ip,
 				       entry->map, entry->sym,
-				       false, NULL, 0, 0, 0);
+				       false, NULL, 0, 0, 0, srcline);
 }
 
 static int thread__resolve_callchain_unwind(struct thread *thread,
@@ -2109,7 +2199,7 @@ int thread__resolve_callchain(struct thread *thread,
 {
 	int ret = 0;
 
-	callchain_cursor_reset(&callchain_cursor);
+	callchain_cursor_reset(cursor);
 
 	if (callchain_param.order == ORDER_CALLEE) {
 		ret = thread__resolve_callchain_sample(thread, cursor,
@@ -2140,21 +2230,26 @@ int machine__for_each_thread(struct machine *machine,
 			     int (*fn)(struct thread *thread, void *p),
 			     void *priv)
 {
+	struct threads *threads;
 	struct rb_node *nd;
 	struct thread *thread;
 	int rc = 0;
+	int i;
 
-	for (nd = rb_first(&machine->threads); nd; nd = rb_next(nd)) {
-		thread = rb_entry(nd, struct thread, rb_node);
-		rc = fn(thread, priv);
-		if (rc != 0)
-			return rc;
-	}
+	for (i = 0; i < THREADS__TABLE_SIZE; i++) {
+		threads = &machine->threads[i];
+		for (nd = rb_first(&threads->entries); nd; nd = rb_next(nd)) {
+			thread = rb_entry(nd, struct thread, rb_node);
+			rc = fn(thread, priv);
+			if (rc != 0)
+				return rc;
+		}
 
-	list_for_each_entry(thread, &machine->dead_threads, node) {
-		rc = fn(thread, priv);
-		if (rc != 0)
-			return rc;
+		list_for_each_entry(thread, &threads->dead, node) {
+			rc = fn(thread, priv);
+			if (rc != 0)
+				return rc;
+		}
 	}
 	return rc;
 }
@@ -2183,12 +2278,16 @@ int machines__for_each_thread(struct machines *machines,
 int __machine__synthesize_threads(struct machine *machine, struct perf_tool *tool,
 				  struct target *target, struct thread_map *threads,
 				  perf_event__handler_t process, bool data_mmap,
-				  unsigned int proc_map_timeout)
+				  unsigned int proc_map_timeout,
+				  unsigned int nr_threads_synthesize)
 {
 	if (target__has_task(target))
 		return perf_event__synthesize_thread_map(tool, threads, process, machine, data_mmap, proc_map_timeout);
 	else if (target__has_cpu(target))
-		return perf_event__synthesize_threads(tool, process, machine, data_mmap, proc_map_timeout);
+		return perf_event__synthesize_threads(tool, process,
+						      machine, data_mmap,
+						      proc_map_timeout,
+						      nr_threads_synthesize);
 	/* command specified */
 	return 0;
 }

@@ -12,10 +12,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  *
  */
 
@@ -34,10 +30,6 @@
 #include <media/media-entity.h>
 
 #include "../include/linux/atomisp_platform.h"
-
-#define OV2680_NAME		"ov2680"
-#define OV2680B_NAME	"ov2680b"
-#define OV2680F_NAME	"ov2680f"
 
 /* Defines for register writes and register array processing */
 #define I2C_MSG_LENGTH		0x2
@@ -182,7 +174,6 @@ struct ov2680_format {
 		struct mutex input_lock;
 	struct v4l2_ctrl_handler ctrl_handler;
 		struct camera_sensor_platform_data *platform_data;
-		struct timespec timestamp_t_focus_abs;
 		int vt_pix_clk_freq_mhz;
 		int fmt_idx;
 		int run_mode;
@@ -225,12 +216,6 @@ struct ov2680_format {
 	struct ov2680_write_ctrl {
 		int index;
 		struct ov2680_write_buffer buffer;
-	};
-
-	static const struct i2c_device_id ov2680_id[] = {
-		{OV2680B_NAME, 0},
-		{OV2680F_NAME, 0},
-		{}
 	};
 
 	static struct ov2680_reg const ov2680_global_setting[] = {
@@ -864,74 +849,6 @@ struct ov2680_format {
 	},
 };
 #define N_RES_PREVIEW (ARRAY_SIZE(ov2680_res_preview))
-
-static struct ov2680_resolution ov2680_res_still[] = {
-	{
-		.desc = "ov2680_1616x1216_30fps",
-		.width = 1616,
-		.height = 1216,
-		.pix_clk_freq = 66,
-		.fps = 30,
-		.used = 0,
-		.pixels_per_line = 1698,//1704,
-		.lines_per_frame = 1294,
-		.bin_factor_x = 0,
-		.bin_factor_y = 0,
-		.bin_mode = 0,
-		.skip_frames = 3,
-		.regs = ov2680_1616x1216_30fps,
-	},
-   	{
-		.desc = "ov2680_1616x916_30fps",
-		.width = 1616,
-		.height = 916,
-		.fps = 30,
-		.pix_clk_freq = 66,
-		.used = 0,
-		.pixels_per_line = 1698,//1704,
-		.lines_per_frame = 1294,
-		.bin_factor_x = 0,
-		.bin_factor_y = 0,
-		.bin_mode = 0,
-		.skip_frames = 3,
-		.regs = ov2680_1616x916_30fps,
-	},
-};
-#define N_RES_STILL (ARRAY_SIZE(ov2680_res_still))
-
-static struct ov2680_resolution ov2680_res_video[] = {
-	{
-		.desc = "ov2680_1616x1216_30fps",
-		.width = 1616,
-		.height = 1216,
-		.pix_clk_freq = 66,
-		.fps = 30,
-		.used = 0,
-		.pixels_per_line = 1698,//1704,
-		.lines_per_frame = 1294,
-		.bin_factor_x = 0,
-		.bin_factor_y = 0,
-		.bin_mode = 0,
-		.skip_frames = 3,
-		.regs = ov2680_1616x1216_30fps,
-	},
-	{
-		.desc = "ov2680_720p_30fps",
-		.width = 1616,
-		.height = 916,
-		.fps = 30,
-		.pix_clk_freq = 66,
-		.used = 0,
-		.pixels_per_line = 1698,//1704,
-		.lines_per_frame = 1294,
-		.bin_factor_x = 0,
-		.bin_factor_y = 0,
-		.bin_mode = 0,
-		.skip_frames = 3,
-		.regs = ov2680_1616x916_30fps,
-	},
-};
-#define N_RES_VIDEO (ARRAY_SIZE(ov2680_res_video))
 
 static struct ov2680_resolution *ov2680_res = ov2680_res_preview;
 static unsigned long N_RES = N_RES_PREVIEW;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * GPL HEADER START
  *
@@ -1832,7 +1833,7 @@ struct cl_io {
 	 */
 			     ci_verify_layout:1,
 	/**
-	 * file is released, restore has to to be triggered by vvp layer
+	 * file is released, restore has to be triggered by vvp layer
 	 */
 			     ci_restore_needed:1,
 	/**

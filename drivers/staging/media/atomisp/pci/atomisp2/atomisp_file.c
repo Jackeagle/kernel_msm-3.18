@@ -14,10 +14,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  *
  */
 
@@ -78,20 +74,6 @@ static int file_input_s_stream(struct v4l2_subdev *sd, int enable)
 		return 0;
 	}
 	cancel_work_sync(&file_dev->work);
-	return 0;
-}
-
-static int file_input_g_parm(struct v4l2_subdev *sd,
-		struct v4l2_streamparm *param)
-{
-	/*to fake*/
-	return 0;
-}
-
-static int file_input_s_parm(struct v4l2_subdev *sd,
-		struct v4l2_streamparm *param)
-{
-	/*to fake*/
 	return 0;
 }
 
@@ -170,8 +152,6 @@ static int file_input_enum_frame_ival(struct v4l2_subdev *sd,
 
 static const struct v4l2_subdev_video_ops file_input_video_ops = {
 	.s_stream = file_input_s_stream,
-	.g_parm = file_input_g_parm,
-	.s_parm = file_input_s_parm,
 };
 
 static const struct v4l2_subdev_core_ops file_input_core_ops = {

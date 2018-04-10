@@ -50,7 +50,7 @@
  * Number of free eraseblocks below which GC can also collect low frag
  * blocks.
  */
-#define LOW_FRAG_GC_TRESHOLD	5
+#define LOW_FRAG_GC_THRESHOLD	5
 
 /*
  * Wear level cost amortization. We want to do wear leveling on the background
@@ -536,18 +536,10 @@ static void mtdswap_store_eb(struct mtdswap_dev *d, struct swap_eb *eb)
 		mtdswap_rb_add(d, eb, MTDSWAP_HIFRAG);
 }
 
-
-static void mtdswap_erase_callback(struct erase_info *done)
-{
-	wait_queue_head_t *wait_q = (wait_queue_head_t *)done->priv;
-	wake_up(wait_q);
-}
-
 static int mtdswap_erase_block(struct mtdswap_dev *d, struct swap_eb *eb)
 {
 	struct mtd_info *mtd = d->mtd;
 	struct erase_info erase;
-	wait_queue_head_t wq;
 	unsigned int retries = 0;
 	int ret;
 
@@ -556,14 +548,9 @@ static int mtdswap_erase_block(struct mtdswap_dev *d, struct swap_eb *eb)
 		d->max_erase_count = eb->erase_count;
 
 retry:
-	init_waitqueue_head(&wq);
 	memset(&erase, 0, sizeof(struct erase_info));
-
-	erase.mtd	= mtd;
-	erase.callback	= mtdswap_erase_callback;
 	erase.addr	= mtdswap_eb_offset(d, eb);
 	erase.len	= mtd->erasesize;
-	erase.priv	= (u_long)&wq;
 
 	ret = mtd_erase(mtd, &erase);
 	if (ret) {
@@ -577,27 +564,6 @@ retry:
 
 		dev_err(d->dev, "Cannot erase erase block %#llx on %s\n",
 			erase.addr, mtd->name);
-
-		mtdswap_handle_badblock(d, eb);
-		return -EIO;
-	}
-
-	ret = wait_event_interruptible(wq, erase.state == MTD_ERASE_DONE ||
-					   erase.state == MTD_ERASE_FAILED);
-	if (ret) {
-		dev_err(d->dev, "Interrupted erase block %#llx erasure on %s\n",
-			erase.addr, mtd->name);
-		return -EINTR;
-	}
-
-	if (erase.state == MTD_ERASE_FAILED) {
-		if (retries++ < MTDSWAP_ERASE_RETRIES) {
-			dev_warn(d->dev,
-				"erase of erase block %#llx on %s failed",
-				erase.addr, mtd->name);
-			yield();
-			goto retry;
-		}
 
 		mtdswap_handle_badblock(d, eb);
 		return -EIO;
@@ -805,7 +771,7 @@ static int __mtdswap_choose_gc_tree(struct mtdswap_dev *d)
 {
 	int idx, stopat;
 
-	if (TREE_COUNT(d, CLEAN) < LOW_FRAG_GC_TRESHOLD)
+	if (TREE_COUNT(d, CLEAN) < LOW_FRAG_GC_THRESHOLD)
 		stopat = MTDSWAP_LOWFRAG;
 	else
 		stopat = MTDSWAP_HIFRAG;
@@ -1223,8 +1189,9 @@ static int mtdswap_show(struct seq_file *s, void *data)
 	unsigned int max[MTDSWAP_TREE_CNT];
 	unsigned int i, cw = 0, cwp = 0, cwecount = 0, bb_cnt, mapped, pages;
 	uint64_t use_size;
-	char *name[] = {"clean", "used", "low", "high", "dirty", "bitflip",
-			"failing"};
+	static const char * const name[] = {
+		"clean", "used", "low", "high", "dirty", "bitflip", "failing"
+	};
 
 	mutex_lock(&d->mbd_dev->lock);
 

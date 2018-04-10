@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*  arch/sparc64/kernel/process.c
  *
  *  Copyright (C) 1995, 1996, 2008 David S. Miller (davem@davemloft.net)
@@ -666,6 +667,31 @@ int copy_thread(unsigned long clone_flags, unsigned long sp,
 	if (clone_flags & CLONE_SETTLS)
 		t->kregs->u_regs[UREG_G7] = regs->u_regs[UREG_I3];
 
+	return 0;
+}
+
+/* TIF_MCDPER in thread info flags for current task is updated lazily upon
+ * a context switch. Update this flag in current task's thread flags
+ * before dup so the dup'd task will inherit the current TIF_MCDPER flag.
+ */
+int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
+{
+	if (adi_capable()) {
+		register unsigned long tmp_mcdper;
+
+		__asm__ __volatile__(
+			".word 0x83438000\n\t"	/* rd  %mcdper, %g1 */
+			"mov %%g1, %0\n\t"
+			: "=r" (tmp_mcdper)
+			:
+			: "g1");
+		if (tmp_mcdper)
+			set_thread_flag(TIF_MCDPER);
+		else
+			clear_thread_flag(TIF_MCDPER);
+	}
+
+	*dst = *src;
 	return 0;
 }
 

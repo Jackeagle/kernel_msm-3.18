@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * GPL HEADER START
  *
@@ -176,14 +177,14 @@ static int ll_page_mkwrite0(struct vm_area_struct *vma, struct page *vmpage,
 	vio->u.fault.ft_vma    = vma;
 	vio->u.fault.ft_vmpage = vmpage;
 
-	set = cfs_block_sigsinv(sigmask(SIGKILL) | sigmask(SIGTERM));
+	cfs_block_sigsinv(sigmask(SIGKILL) | sigmask(SIGTERM), &set);
 
 	inode = vvp_object_inode(io->ci_obj);
 	lli = ll_i2info(inode);
 
 	result = cl_io_loop(env, io);
 
-	cfs_restore_sigs(set);
+	cfs_restore_sigs(&set);
 
 	if (result == 0) {
 		struct inode *inode = file_inode(vma->vm_file);
@@ -208,7 +209,8 @@ static int ll_page_mkwrite0(struct vm_area_struct *vma, struct page *vmpage,
 			 */
 			unlock_page(vmpage);
 
-			CDEBUG(D_MMAP, "Race on page_mkwrite %p/%lu, page has been written out, retry.\n",
+			CDEBUG(D_MMAP,
+			       "Race on page_mkwrite %p/%lu, page has been written out, retry.\n",
 			       vmpage, vmpage->index);
 
 			*retry = true;
@@ -332,7 +334,7 @@ static int ll_fault(struct vm_fault *vmf)
 	 * so that it can be killed by admin but not cause segfault by
 	 * other signals.
 	 */
-	set = cfs_block_sigsinv(sigmask(SIGKILL) | sigmask(SIGTERM));
+	cfs_block_sigsinv(sigmask(SIGKILL) | sigmask(SIGTERM), &set);
 
 restart:
 	result = ll_fault0(vmf->vma, vmf);
@@ -358,7 +360,7 @@ restart:
 
 		result = VM_FAULT_LOCKED;
 	}
-	cfs_restore_sigs(set);
+	cfs_restore_sigs(&set);
 	return result;
 }
 

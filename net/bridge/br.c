@@ -52,7 +52,7 @@ static int br_device_event(struct notifier_block *unused, unsigned long event, v
 
 	switch (event) {
 	case NETDEV_CHANGEMTU:
-		dev_set_mtu(br->dev, br_min_mtu(br));
+		br_mtu_auto_adjust(br);
 		break;
 
 	case NETDEV_CHANGEADDR:
@@ -112,7 +112,7 @@ static int br_device_event(struct notifier_block *unused, unsigned long event, v
 	/* Events that may cause spanning tree to refresh */
 	if (event == NETDEV_CHANGEADDR || event == NETDEV_UP ||
 	    event == NETDEV_CHANGE || event == NETDEV_DOWN)
-		br_ifinfo_notify(RTM_NEWLINK, p);
+		br_ifinfo_notify(RTM_NEWLINK, NULL, p);
 
 	return NOTIFY_DONE;
 }

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __PERF_MACHINE_H
 #define __PERF_MACHINE_H
 
@@ -6,6 +7,7 @@
 #include "map.h"
 #include "dso.h"
 #include "event.h"
+#include "rwsem.h"
 
 struct addr_location;
 struct branch_stack;
@@ -23,6 +25,17 @@ extern const char *ref_reloc_sym_names[];
 
 struct vdso_info;
 
+#define THREADS__TABLE_BITS	8
+#define THREADS__TABLE_SIZE	(1 << THREADS__TABLE_BITS)
+
+struct threads {
+	struct rb_root	  entries;
+	struct rw_semaphore lock;
+	unsigned int	  nr;
+	struct list_head  dead;
+	struct thread	  *last_match;
+};
+
 struct machine {
 	struct rb_node	  rb_node;
 	pid_t		  pid;
@@ -30,11 +43,8 @@ struct machine {
 	bool		  comm_exec;
 	bool		  kptr_restrict_warned;
 	char		  *root_dir;
-	struct rb_root	  threads;
-	pthread_rwlock_t  threads_lock;
-	unsigned int	  nr_threads;
-	struct list_head  dead_threads;
-	struct thread	  *last_match;
+	char		  *mmap_name;
+	struct threads    threads[THREADS__TABLE_SIZE];
 	struct vdso_info  *vdso_info;
 	struct perf_env   *env;
 	struct dsos	  dsos;
@@ -47,6 +57,12 @@ struct machine {
 		u64	  db_id;
 	};
 };
+
+static inline struct threads *machine__threads(struct machine *machine, pid_t tid)
+{
+	/* Cast it to handle tid == -1 */
+	return &machine->threads[(unsigned int)tid % THREADS__TABLE_SIZE];
+}
 
 static inline
 struct map *__machine__kernel_map(struct machine *machine, enum map_type type)
@@ -127,8 +143,6 @@ struct machine *machines__find(struct machines *machines, pid_t pid);
 struct machine *machines__findnew(struct machines *machines, pid_t pid);
 
 void machines__set_id_hdr_size(struct machines *machines, u16 id_hdr_size);
-char *machine__mmap_name(struct machine *machine, char *bf, size_t size);
-
 void machines__set_comm_exec(struct machines *machines, bool comm_exec);
 
 struct machine *machine__new_host(void);
@@ -211,8 +225,6 @@ struct map *machine__findnew_module_map(struct machine *machine, u64 start,
 					const char *filename);
 int arch__fix_module_text_start(u64 *start, const char *name);
 
-int __machine__load_kallsyms(struct machine *machine, const char *filename,
-			     enum map_type type, bool no_kcore);
 int machine__load_kallsyms(struct machine *machine, const char *filename,
 			   enum map_type type);
 int machine__load_vmlinux_path(struct machine *machine, enum map_type type);
@@ -224,7 +236,6 @@ size_t machines__fprintf_dsos_buildid(struct machines *machines, FILE *fp,
 				     bool (skip)(struct dso *dso, int parm), int parm);
 
 void machine__destroy_kernel_maps(struct machine *machine);
-int __machine__create_kernel_maps(struct machine *machine, struct dso *kernel);
 int machine__create_kernel_maps(struct machine *machine);
 
 int machines__create_kernel_maps(struct machines *machines, pid_t pid);
@@ -243,15 +254,18 @@ int machines__for_each_thread(struct machines *machines,
 int __machine__synthesize_threads(struct machine *machine, struct perf_tool *tool,
 				  struct target *target, struct thread_map *threads,
 				  perf_event__handler_t process, bool data_mmap,
-				  unsigned int proc_map_timeout);
+				  unsigned int proc_map_timeout,
+				  unsigned int nr_threads_synthesize);
 static inline
 int machine__synthesize_threads(struct machine *machine, struct target *target,
 				struct thread_map *threads, bool data_mmap,
-				unsigned int proc_map_timeout)
+				unsigned int proc_map_timeout,
+				unsigned int nr_threads_synthesize)
 {
 	return __machine__synthesize_threads(machine, NULL, target, threads,
 					     perf_event__process, data_mmap,
-					     proc_map_timeout);
+					     proc_map_timeout,
+					     nr_threads_synthesize);
 }
 
 pid_t machine__get_current_tid(struct machine *machine, int cpu);

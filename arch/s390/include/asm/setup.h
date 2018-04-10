@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  S390 version
  *    Copyright IBM Corp. 1999, 2010
@@ -24,7 +25,6 @@
 #define MACHINE_FLAG_DIAG44	_BITUL(6)
 #define MACHINE_FLAG_EDAT1	_BITUL(7)
 #define MACHINE_FLAG_EDAT2	_BITUL(8)
-#define MACHINE_FLAG_LPP	_BITUL(9)
 #define MACHINE_FLAG_TOPOLOGY	_BITUL(10)
 #define MACHINE_FLAG_TE		_BITUL(11)
 #define MACHINE_FLAG_TLB_LC	_BITUL(12)
@@ -35,7 +35,7 @@
 #define MACHINE_FLAG_SCC	_BITUL(17)
 
 #define LPP_MAGIC		_BITUL(31)
-#define LPP_PFAULT_PID_MASK	_AC(0xffffffff, UL)
+#define LPP_PID_MASK		_AC(0xffffffff, UL)
 
 #ifndef __ASSEMBLY__
 
@@ -65,7 +65,6 @@ extern void detect_memory_memblock(void);
 #define MACHINE_HAS_DIAG44	(S390_lowcore.machine_flags & MACHINE_FLAG_DIAG44)
 #define MACHINE_HAS_EDAT1	(S390_lowcore.machine_flags & MACHINE_FLAG_EDAT1)
 #define MACHINE_HAS_EDAT2	(S390_lowcore.machine_flags & MACHINE_FLAG_EDAT2)
-#define MACHINE_HAS_LPP		(S390_lowcore.machine_flags & MACHINE_FLAG_LPP)
 #define MACHINE_HAS_TOPOLOGY	(S390_lowcore.machine_flags & MACHINE_FLAG_TOPOLOGY)
 #define MACHINE_HAS_TE		(S390_lowcore.machine_flags & MACHINE_FLAG_TE)
 #define MACHINE_HAS_TLB_LC	(S390_lowcore.machine_flags & MACHINE_FLAG_TLB_LC)
@@ -96,9 +95,6 @@ extern char vmpoff_cmd[];
 #define SET_CONSOLE_3270	do { console_mode = 3; } while (0)
 #define SET_CONSOLE_VT220	do { console_mode = 4; } while (0)
 #define SET_CONSOLE_HVC		do { console_mode = 5; } while (0)
-
-#define NSS_NAME_SIZE	8
-extern char kernel_nss_name[];
 
 #ifdef CONFIG_PFAULT
 extern int pfault_init(void);

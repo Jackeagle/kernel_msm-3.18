@@ -473,7 +473,7 @@ nomem:
 		tinfo->tidcnt = tididx;
 		tinfo->length = mapped_pages * PAGE_SIZE;
 
-		if (copy_to_user((void __user *)(unsigned long)tinfo->tidlist,
+		if (copy_to_user(u64_to_user_ptr(tinfo->tidlist),
 				 tidlist, sizeof(tidlist[0]) * tididx)) {
 			/*
 			 * On failure to copy to the user level, we need to undo
@@ -513,7 +513,7 @@ int hfi1_user_exp_rcv_clear(struct hfi1_filedata *fd,
 	if (unlikely(tinfo->tidcnt > fd->tid_used))
 		return -EINVAL;
 
-	tidinfo = memdup_user((void __user *)(unsigned long)tinfo->tidlist,
+	tidinfo = memdup_user(u64_to_user_ptr(tinfo->tidlist),
 			      sizeof(tidinfo[0]) * tinfo->tidcnt);
 	if (IS_ERR(tidinfo))
 		return PTR_ERR(tidinfo);
@@ -542,13 +542,9 @@ int hfi1_user_exp_rcv_invalid(struct hfi1_filedata *fd,
 {
 	struct hfi1_ctxtdata *uctxt = fd->uctxt;
 	unsigned long *ev = uctxt->dd->events +
-		(((uctxt->ctxt - uctxt->dd->first_dyn_alloc_ctxt) *
-		  HFI1_MAX_SHARED_CTXTS) + fd->subctxt);
+		(uctxt_offset(uctxt) + fd->subctxt);
 	u32 *array;
 	int ret = 0;
-
-	if (!fd->invalid_tids)
-		return -EINVAL;
 
 	/*
 	 * copy_to_user() can sleep, which will leave the invalid_lock
@@ -942,8 +938,7 @@ static int tid_rb_invalidate(void *arg, struct mmu_rb_node *mnode)
 			 * process in question.
 			 */
 			ev = uctxt->dd->events +
-			  (((uctxt->ctxt - uctxt->dd->first_dyn_alloc_ctxt) *
-			    HFI1_MAX_SHARED_CTXTS) + fdata->subctxt);
+				(uctxt_offset(uctxt) + fdata->subctxt);
 			set_bit(_HFI1_EVENT_TID_MMU_NOTIFY_BIT, ev);
 		}
 		fdata->invalid_tid_idx++;

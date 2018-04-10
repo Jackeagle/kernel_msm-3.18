@@ -70,6 +70,7 @@ struct vsp1_dl_body {
  * @dma: DMA address for the header
  * @body0: first display list body
  * @fragments: list of extra display list bodies
+ * @has_chain: if true, indicates that there's a partition chain
  * @chain: entry in the display list partition chain
  */
 struct vsp1_dl_list {
@@ -508,7 +509,8 @@ static bool vsp1_dl_list_hw_update_pending(struct vsp1_dl_manager *dlm)
 		return !!(vsp1_read(vsp1, VI6_DL_BODY_SIZE)
 			  & VI6_DL_BODY_SIZE_UPD);
 	else
-		return !!(vsp1_read(vsp1, VI6_CMD(dlm->index) & VI6_CMD_UPDHDR));
+		return !!(vsp1_read(vsp1, VI6_CMD(dlm->index))
+			  & VI6_CMD_UPDHDR);
 }
 
 static void vsp1_dl_list_hw_enqueue(struct vsp1_dl_list *dl)

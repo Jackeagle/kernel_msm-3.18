@@ -71,9 +71,8 @@ static struct renesas_sdhi_scc rcar_gen3_scc_taps[] = {
 };
 
 static const struct renesas_sdhi_of_data of_rcar_gen3_compatible = {
-	.tmio_flags	= TMIO_MMC_HAS_IDLE_WAIT | TMIO_MMC_WRPROTECT_DISABLE |
-			  TMIO_MMC_CLK_ACTUAL | TMIO_MMC_HAVE_CBSY |
-			  TMIO_MMC_MIN_RCAR2,
+	.tmio_flags	= TMIO_MMC_HAS_IDLE_WAIT | TMIO_MMC_CLK_ACTUAL |
+			  TMIO_MMC_HAVE_CBSY | TMIO_MMC_MIN_RCAR2,
 	.capabilities	= MMC_CAP_SD_HIGHSPEED | MMC_CAP_SDIO_IRQ |
 			  MMC_CAP_CMD23,
 	.bus_shift	= 2,
@@ -88,6 +87,7 @@ static const struct renesas_sdhi_of_data of_rcar_gen3_compatible = {
 static const struct of_device_id renesas_sdhi_internal_dmac_of_match[] = {
 	{ .compatible = "renesas,sdhi-r8a7795", .data = &of_rcar_gen3_compatible, },
 	{ .compatible = "renesas,sdhi-r8a7796", .data = &of_rcar_gen3_compatible, },
+	{ .compatible = "renesas,rcar-gen3-sdhi", .data = &of_rcar_gen3_compatible, },
 	{},
 };
 MODULE_DEVICE_TABLE(of, renesas_sdhi_internal_dmac_of_match);
@@ -102,6 +102,8 @@ renesas_sdhi_internal_dmac_dm_write(struct tmio_mmc_host *host,
 static void
 renesas_sdhi_internal_dmac_enable_dma(struct tmio_mmc_host *host, bool enable)
 {
+	struct renesas_sdhi *priv = host_to_priv(host);
+
 	if (!host->chan_tx || !host->chan_rx)
 		return;
 
@@ -109,8 +111,8 @@ renesas_sdhi_internal_dmac_enable_dma(struct tmio_mmc_host *host, bool enable)
 		renesas_sdhi_internal_dmac_dm_write(host, DM_CM_INFO1,
 						    INFO1_CLEAR);
 
-	if (host->dma->enable)
-		host->dma->enable(host, enable);
+	if (priv->dma_priv.enable)
+		priv->dma_priv.enable(host, enable);
 }
 
 static void
@@ -129,7 +131,9 @@ renesas_sdhi_internal_dmac_abort_dma(struct tmio_mmc_host *host) {
 
 static void
 renesas_sdhi_internal_dmac_dataend_dma(struct tmio_mmc_host *host) {
-	tasklet_schedule(&host->dma_complete);
+	struct renesas_sdhi *priv = host_to_priv(host);
+
+	tasklet_schedule(&priv->dma_priv.dma_complete);
 }
 
 static void
@@ -140,42 +144,39 @@ renesas_sdhi_internal_dmac_start_dma(struct tmio_mmc_host *host,
 	u32 dtran_mode = DTRAN_MODE_BUS_WID_TH | DTRAN_MODE_ADDR_MODE;
 	enum dma_data_direction dir;
 	int ret;
-	u32 irq_mask;
 
 	/* This DMAC cannot handle if sg_len is not 1 */
 	WARN_ON(host->sg_len > 1);
 
 	/* This DMAC cannot handle if buffer is not 8-bytes alignment */
-	if (!IS_ALIGNED(sg->offset, 8)) {
-		host->force_pio = true;
-		renesas_sdhi_internal_dmac_enable_dma(host, false);
-		return;
-	}
+	if (!IS_ALIGNED(sg->offset, 8))
+		goto force_pio;
 
 	if (data->flags & MMC_DATA_READ) {
 		dtran_mode |= DTRAN_MODE_CH_NUM_CH1;
 		dir = DMA_FROM_DEVICE;
-		irq_mask = TMIO_STAT_RXRDY;
 	} else {
 		dtran_mode |= DTRAN_MODE_CH_NUM_CH0;
 		dir = DMA_TO_DEVICE;
-		irq_mask = TMIO_STAT_TXRQ;
 	}
 
 	ret = dma_map_sg(&host->pdev->dev, sg, host->sg_len, dir);
-	if (ret < 0)
-		return;
+	if (ret == 0)
+		goto force_pio;
 
 	renesas_sdhi_internal_dmac_enable_dma(host, true);
-
-	/* disable PIO irqs to avoid "PIO IRQ in DMA mode!" */
-	tmio_mmc_disable_mmc_irqs(host, irq_mask);
 
 	/* set dma parameters */
 	renesas_sdhi_internal_dmac_dm_write(host, DM_CM_DTRAN_MODE,
 					    dtran_mode);
 	renesas_sdhi_internal_dmac_dm_write(host, DM_DTRAN_ADDR,
 					    sg->dma_address);
+
+	return;
+
+force_pio:
+	host->force_pio = true;
+	renesas_sdhi_internal_dmac_enable_dma(host, false);
 }
 
 static void renesas_sdhi_internal_dmac_issue_tasklet_fn(unsigned long arg)
@@ -216,10 +217,12 @@ static void
 renesas_sdhi_internal_dmac_request_dma(struct tmio_mmc_host *host,
 				       struct tmio_mmc_data *pdata)
 {
+	struct renesas_sdhi *priv = host_to_priv(host);
+
 	/* Each value is set to non-zero to assume "enabling" each DMA */
 	host->chan_rx = host->chan_tx = (void *)0xdeadbeaf;
 
-	tasklet_init(&host->dma_complete,
+	tasklet_init(&priv->dma_priv.dma_complete,
 		     renesas_sdhi_internal_dmac_complete_tasklet_fn,
 		     (unsigned long)host);
 	tasklet_init(&host->dma_issue,
@@ -251,6 +254,7 @@ static const struct soc_device_attribute gen3_soc_whitelist[] = {
         { .soc_id = "r8a7795", .revision = "ES1.*" },
         { .soc_id = "r8a7795", .revision = "ES2.0" },
         { .soc_id = "r8a7796", .revision = "ES1.0" },
+        { .soc_id = "r8a77995", .revision = "ES1.0" },
         { /* sentinel */ }
 };
 

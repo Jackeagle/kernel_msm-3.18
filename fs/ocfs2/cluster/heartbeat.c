@@ -570,7 +570,16 @@ static struct bio *o2hb_setup_one_bio(struct o2hb_region *reg,
 		     current_page, vec_len, vec_start);
 
 		len = bio_add_page(bio, page, vec_len, vec_start);
-		if (len != vec_len) break;
+		if (len != vec_len) {
+			mlog(ML_ERROR, "Adding page[%d] to bio failed, "
+			     "page %p, len %d, vec_len %u, vec_start %u, "
+			     "bi_sector %llu\n", current_page, page, len,
+			     vec_len, vec_start,
+			     (unsigned long long)bio->bi_iter.bi_sector);
+			bio_put(bio);
+			bio = ERR_PTR(-EIO);
+			return bio;
+		}
 
 		cs += vec_len / (PAGE_SIZE/spp);
 		vec_start = 0;
@@ -2025,7 +2034,7 @@ static struct configfs_item_operations o2hb_region_item_ops = {
 	.release		= o2hb_region_release,
 };
 
-static struct config_item_type o2hb_region_type = {
+static const struct config_item_type o2hb_region_type = {
 	.ct_item_ops	= &o2hb_region_item_ops,
 	.ct_attrs	= o2hb_region_attrs,
 	.ct_owner	= THIS_MODULE,
@@ -2310,7 +2319,7 @@ static struct configfs_group_operations o2hb_heartbeat_group_group_ops = {
 	.drop_item	= o2hb_heartbeat_group_drop_item,
 };
 
-static struct config_item_type o2hb_heartbeat_group_type = {
+static const struct config_item_type o2hb_heartbeat_group_type = {
 	.ct_group_ops	= &o2hb_heartbeat_group_group_ops,
 	.ct_attrs	= o2hb_heartbeat_group_attrs,
 	.ct_owner	= THIS_MODULE,

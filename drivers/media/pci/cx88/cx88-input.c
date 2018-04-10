@@ -180,7 +180,7 @@ static enum hrtimer_restart cx88_ir_work(struct hrtimer *timer)
 	struct cx88_IR *ir = container_of(timer, struct cx88_IR, timer);
 
 	cx88_ir_handle_key(ir);
-	missed = hrtimer_forward_now(&ir->timer, ir->polling * 1000000);
+	missed = hrtimer_forward_now(&ir->timer, ir->polling * 1000000LL);
 	if (missed > 1)
 		ir_dprintk("Missed ticks %ld\n", missed - 1);
 
@@ -200,7 +200,7 @@ static int __cx88_ir_start(void *priv)
 	if (ir->polling) {
 		hrtimer_init(&ir->timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 		ir->timer.function = cx88_ir_work;
-		hrtimer_start(&ir->timer, ir->polling * 1000000,
+		hrtimer_start(&ir->timer, ir->polling * 1000000LL,
 			      HRTIMER_MODE_REL);
 	}
 	if (ir->sampling) {
@@ -593,11 +593,11 @@ static int get_key_pvr2000(struct IR_i2c *ir, enum rc_proto *protocol,
 void cx88_i2c_init_ir(struct cx88_core *core)
 {
 	struct i2c_board_info info;
-	const unsigned short default_addr_list[] = {
+	static const unsigned short default_addr_list[] = {
 		0x18, 0x6b, 0x71,
 		I2C_CLIENT_END
 	};
-	const unsigned short pvr2000_addr_list[] = {
+	static const unsigned short pvr2000_addr_list[] = {
 		0x18, 0x1a,
 		I2C_CLIENT_END
 	};

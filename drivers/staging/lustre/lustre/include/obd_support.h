@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * GPL HEADER START
  *
@@ -515,7 +516,7 @@ extern char obd_jobid_var[];
 #define POISON_PTR(ptr)  ((void)0)
 #else
 #define POISON(ptr, c, s) memset(ptr, c, s)
-#define POISON_PTR(ptr)  (ptr) = (void *)0xdeadbeef
+#define POISON_PTR(ptr)  ((ptr) = (void *)0xdeadbeef)
 #endif
 
 #ifdef POISON_BULK

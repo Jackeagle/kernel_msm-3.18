@@ -14,10 +14,12 @@
  ******************************************************************************/
 #define _IOCTL_LINUX_C_
 
+#include <linux/etherdevice.h>
 #include <drv_types.h>
 #include <rtw_debug.h>
 #include <rtw_mp.h>
 #include <linux/jiffies.h>
+#include <linux/kernel.h>
 
 #define RTL_IOCTL_WPA_SUPPLICANT	(SIOCIWFIRSTPRIV+30)
 
@@ -123,7 +125,7 @@ void rtw_indicate_wx_disassoc_event(struct adapter *padapter)
 	memset(&wrqu, 0, sizeof(union iwreq_data));
 
 	wrqu.ap_addr.sa_family = ARPHRD_ETHER;
-	memset(wrqu.ap_addr.sa_data, 0, ETH_ALEN);
+	eth_zero_addr(wrqu.ap_addr.sa_data);
 }
 
 /*
@@ -370,7 +372,7 @@ static char *translate_scan(struct adapter *padapter,
 		u8 *wpsie_ptr = NULL;
 		uint wps_ielen = 0;
 
-		u8 *ie_ptr = pnetwork->network.IEs + ie_offset;
+		u8 *ie_ptr;
 		total_ielen = pnetwork->network.IELength - ie_offset;
 
 		if (pnetwork->network.Reserved[0] == 2) { /*  Probe Request */
@@ -474,26 +476,26 @@ static int wpa_set_auth_algs(struct net_device *dev, u32 value)
 	struct adapter *padapter = (struct adapter *) rtw_netdev_priv(dev);
 	int ret = 0;
 
-	if ((value & AUTH_ALG_SHARED_KEY) && (value & AUTH_ALG_OPEN_SYSTEM)) {
-		DBG_871X("wpa_set_auth_algs, AUTH_ALG_SHARED_KEY and  AUTH_ALG_OPEN_SYSTEM [value:0x%x]\n", value);
+	if ((value & WLAN_AUTH_SHARED_KEY) && (value & WLAN_AUTH_OPEN)) {
+		DBG_871X("wpa_set_auth_algs, WLAN_AUTH_SHARED_KEY and WLAN_AUTH_OPEN [value:0x%x]\n", value);
 		padapter->securitypriv.ndisencryptstatus = Ndis802_11Encryption1Enabled;
 		padapter->securitypriv.ndisauthtype = Ndis802_11AuthModeAutoSwitch;
 		padapter->securitypriv.dot11AuthAlgrthm = dot11AuthAlgrthm_Auto;
-	} else if (value & AUTH_ALG_SHARED_KEY)	{
-		DBG_871X("wpa_set_auth_algs, AUTH_ALG_SHARED_KEY  [value:0x%x]\n", value);
+	} else if (value & WLAN_AUTH_SHARED_KEY)	{
+		DBG_871X("wpa_set_auth_algs, WLAN_AUTH_SHARED_KEY  [value:0x%x]\n", value);
 		padapter->securitypriv.ndisencryptstatus = Ndis802_11Encryption1Enabled;
 
 		padapter->securitypriv.ndisauthtype = Ndis802_11AuthModeShared;
 		padapter->securitypriv.dot11AuthAlgrthm = dot11AuthAlgrthm_Shared;
-	} else if (value & AUTH_ALG_OPEN_SYSTEM) {
-		DBG_871X("wpa_set_auth_algs, AUTH_ALG_OPEN_SYSTEM\n");
+	} else if (value & WLAN_AUTH_OPEN) {
+		DBG_871X("wpa_set_auth_algs, WLAN_AUTH_OPEN\n");
 		/* padapter->securitypriv.ndisencryptstatus = Ndis802_11EncryptionDisabled; */
 		if (padapter->securitypriv.ndisauthtype < Ndis802_11AuthModeWPAPSK) {
 			padapter->securitypriv.ndisauthtype = Ndis802_11AuthModeOpen;
 			padapter->securitypriv.dot11AuthAlgrthm = dot11AuthAlgrthm_Open;
 		}
-	} else if (value & AUTH_ALG_LEAP) {
-		DBG_871X("wpa_set_auth_algs, AUTH_ALG_LEAP\n");
+	} else if (value & WLAN_AUTH_LEAP) {
+		DBG_871X("wpa_set_auth_algs, WLAN_AUTH_LEAP\n");
 	} else {
 		DBG_871X("wpa_set_auth_algs, error!\n");
 		ret = -EINVAL;
@@ -557,7 +559,7 @@ static int wpa_set_encryption(struct net_device *dev, struct ieee_param *param, 
 		if (wep_key_len > 0) {
 			wep_key_len = wep_key_len <= 5 ? 5 : 13;
 			wep_total_len = wep_key_len + FIELD_OFFSET(struct ndis_802_11_wep, KeyMaterial);
-			pwep =(struct ndis_802_11_wep	 *) rtw_malloc(wep_total_len);
+			pwep = rtw_malloc(wep_total_len);
 			if (pwep == NULL) {
 				RT_TRACE(_module_rtl871x_ioctl_os_c, _drv_err_, (" wpa_set_encryption: pwep allocate fail !!!\n"));
 				goto exit;
@@ -966,7 +968,7 @@ static int rtw_wx_set_mode(struct net_device *dev, struct iw_request_info *a,
 			break;
 
 		default :
-			ret = -EINVAL;;
+			ret = -EINVAL;
 			RT_TRACE(_module_rtl871x_ioctl_os_c, _drv_err_, ("\n Mode: %s is not supported \n", iw_operation_mode[wrqu->mode]));
 			goto exit;
 	}
@@ -1079,7 +1081,7 @@ static int rtw_wx_set_pmkid(struct net_device *dev,
 		for (j = 0 ; j<NUM_PMKID_CACHE; j++) {
 			if (!memcmp(psecuritypriv->PMKIDList[j].Bssid, strIssueBssid, ETH_ALEN)) {
 				/*  BSSID is matched, the same AP => Remove this PMKID information and reset it. */
-                                memset(psecuritypriv->PMKIDList[ j ].Bssid, 0x00, ETH_ALEN);
+                                eth_zero_addr(psecuritypriv->PMKIDList[j].Bssid);
                                 psecuritypriv->PMKIDList[ j ].bUsed = false;
 				break;
 			}
@@ -1293,7 +1295,7 @@ static int rtw_wx_get_wap(struct net_device *dev,
 
 	wrqu->ap_addr.sa_family = ARPHRD_ETHER;
 
-	memset(wrqu->ap_addr.sa_data, 0, ETH_ALEN);
+	eth_zero_addr(wrqu->ap_addr.sa_data);
 
 	RT_TRACE(_module_rtl871x_mlme_c_, _drv_info_, ("rtw_wx_get_wap\n"));
 
@@ -1302,7 +1304,7 @@ static int rtw_wx_get_wap(struct net_device *dev,
 			((check_fwstate(pmlmepriv, WIFI_AP_STATE)) == true)) {
 		memcpy(wrqu->ap_addr.sa_data, pcur_bss->MacAddress, ETH_ALEN);
 	} else {
-		memset(wrqu->ap_addr.sa_data, 0, ETH_ALEN);
+		eth_zero_addr(wrqu->ap_addr.sa_data);
 	}
 
 	return 0;
@@ -2123,84 +2125,71 @@ static int rtw_wx_set_gen_ie(struct net_device *dev,
 			     struct iw_request_info *info,
 			     union iwreq_data *wrqu, char *extra)
 {
-	int ret;
 	struct adapter *padapter = (struct adapter *)rtw_netdev_priv(dev);
 
-	ret = rtw_set_wpa_ie(padapter, extra, wrqu->data.length);
-
-	return ret;
+	return rtw_set_wpa_ie(padapter, extra, wrqu->data.length);
 }
 
 static int rtw_wx_set_auth(struct net_device *dev,
-			     struct iw_request_info *info,
-			     union iwreq_data *wrqu, char *extra)
+			   struct iw_request_info *info,
+			   union iwreq_data *wrqu, char *extra)
 {
 	struct adapter *padapter = (struct adapter *)rtw_netdev_priv(dev);
 	struct iw_param *param = (struct iw_param*)&(wrqu->param);
 	int ret = 0;
 
 	switch (param->flags & IW_AUTH_INDEX) {
-
 	case IW_AUTH_WPA_VERSION:
 		break;
 	case IW_AUTH_CIPHER_PAIRWISE:
-
 		break;
 	case IW_AUTH_CIPHER_GROUP:
-
 		break;
 	case IW_AUTH_KEY_MGMT:
 		/*
 		 *  ??? does not use these parameters
 		 */
 		break;
-
 	case IW_AUTH_TKIP_COUNTERMEASURES:
-        {
-		if (param->value) {
-			/*  wpa_supplicant is enabling the tkip countermeasure. */
+		/* wpa_supplicant is setting the tkip countermeasure. */
+		if (param->value) /* enabling */
 			padapter->securitypriv.btkip_countermeasure = true;
-		} else {
-			/*  wpa_supplicant is disabling the tkip countermeasure. */
+		else /* disabling */
 			padapter->securitypriv.btkip_countermeasure = false;
-		}
 		break;
-        }
 	case IW_AUTH_DROP_UNENCRYPTED:
-		{
-			/* HACK:
-			 *
-			 * wpa_supplicant calls set_wpa_enabled when the driver
-			 * is loaded and unloaded, regardless of if WPA is being
-			 * used.  No other calls are made which can be used to
-			 * determine if encryption will be used or not prior to
-			 * association being expected.  If encryption is not being
-			 * used, drop_unencrypted is set to false, else true -- we
-			 * can use this to determine if the CAP_PRIVACY_ON bit should
-			 * be set.
-			 */
-
-			if (padapter->securitypriv.ndisencryptstatus == Ndis802_11Encryption1Enabled) {
-				break;/* it means init value, or using wep, ndisencryptstatus = Ndis802_11Encryption1Enabled, */
-						/*  then it needn't reset it; */
-			}
-
-			if (param->value) {
-				padapter->securitypriv.ndisencryptstatus = Ndis802_11EncryptionDisabled;
-				padapter->securitypriv.dot11PrivacyAlgrthm = _NO_PRIVACY_;
-				padapter->securitypriv.dot118021XGrpPrivacy = _NO_PRIVACY_;
-				padapter->securitypriv.dot11AuthAlgrthm = dot11AuthAlgrthm_Open; /* open system */
-				padapter->securitypriv.ndisauthtype =Ndis802_11AuthModeOpen;
-			}
-
-			break;
-		}
-
-	case IW_AUTH_80211_AUTH_ALG:
+		/* HACK:
+		 *
+		 * wpa_supplicant calls set_wpa_enabled when the driver
+		 * is loaded and unloaded, regardless of if WPA is being
+		 * used.  No other calls are made which can be used to
+		 * determine if encryption will be used or not prior to
+		 * association being expected.  If encryption is not being
+		 * used, drop_unencrypted is set to false, else true -- we
+		 * can use this to determine if the CAP_PRIVACY_ON bit should
+		 * be set.
+		 */
 
 		/*
+		 * This means init value, or using wep, ndisencryptstatus =
+		 * Ndis802_11Encryption1Enabled, then it needn't reset it;
+		 */
+		if (padapter->securitypriv.ndisencryptstatus == Ndis802_11Encryption1Enabled)
+			break;
+
+		if (param->value) {
+			padapter->securitypriv.ndisencryptstatus = Ndis802_11EncryptionDisabled;
+			padapter->securitypriv.dot11PrivacyAlgrthm = _NO_PRIVACY_;
+			padapter->securitypriv.dot118021XGrpPrivacy = _NO_PRIVACY_;
+			padapter->securitypriv.dot11AuthAlgrthm = dot11AuthAlgrthm_Open; /* open system */
+			padapter->securitypriv.ndisauthtype =Ndis802_11AuthModeOpen;
+		}
+
+		break;
+	case IW_AUTH_80211_AUTH_ALG:
+		/*
 		 *  It's the starting point of a link layer connection using wpa_supplicant
-		*/
+		 */
 		if (check_fwstate(&padapter->mlmepriv, _FW_LINKED)) {
 			LeaveAllPowerSaveMode(padapter);
 			rtw_disassoc_cmd(padapter, 500, false);
@@ -2209,11 +2198,8 @@ static int rtw_wx_set_auth(struct net_device *dev,
 			rtw_free_assoc_resources(padapter, 1);
 		}
 
-
 		ret = wpa_set_auth_algs(dev, (u32)param->value);
-
 		break;
-
 	case IW_AUTH_WPA_ENABLED:
 		break;
 	case IW_AUTH_RX_UNENCRYPTED_EAPOL:
@@ -2223,6 +2209,7 @@ static int rtw_wx_set_auth(struct net_device *dev,
 	default:
 		return -EOPNOTSUPP;
 	}
+
 	return ret;
 }
 
@@ -2238,7 +2225,7 @@ static int rtw_wx_set_enc_ext(struct net_device *dev,
 	int ret = 0;
 
 	param_len = sizeof(struct ieee_param) + pext->key_len;
-	param = (struct ieee_param *)rtw_malloc(param_len);
+	param = rtw_malloc(param_len);
 	if (param == NULL)
 		return -1;
 
@@ -2347,7 +2334,7 @@ static int rtw_wx_read32(struct net_device *dev,
 	if (0 == len)
 		return -EINVAL;
 
-	ptmp = (u8 *)rtw_malloc(len);
+	ptmp = rtw_malloc(len);
 	if (NULL == ptmp)
 		return -ENOMEM;
 
@@ -3500,7 +3487,7 @@ static int wpa_supplicant_ioctl(struct net_device *dev, struct iw_point *p)
 		goto out;
 	}
 
-	param = (struct ieee_param *)rtw_malloc(p->length);
+	param = rtw_malloc(p->length);
 	if (param == NULL) {
 		ret = -ENOMEM;
 		goto out;
@@ -3621,7 +3608,7 @@ static int rtw_set_encryption(struct net_device *dev, struct ieee_param *param, 
 		if (wep_key_len > 0) {
 			wep_key_len = wep_key_len <= 5 ? 5 : 13;
 			wep_total_len = wep_key_len + FIELD_OFFSET(struct ndis_802_11_wep, KeyMaterial);
-			pwep =(struct ndis_802_11_wep *)rtw_malloc(wep_total_len);
+			pwep = rtw_malloc(wep_total_len);
 			if (pwep == NULL) {
 				DBG_871X(" r871x_set_encryption: pwep allocate fail !!!\n");
 				goto exit;
@@ -3857,7 +3844,6 @@ static int rtw_hostapd_sta_flush(struct net_device *dev)
 {
 	/* _irqL irqL; */
 	/* struct list_head	*phead, *plist; */
-	int ret = 0;
 	/* struct sta_info *psta = NULL; */
 	struct adapter *padapter = (struct adapter *)rtw_netdev_priv(dev);
 	/* struct sta_priv *pstapriv = &padapter->stapriv; */
@@ -3866,9 +3852,7 @@ static int rtw_hostapd_sta_flush(struct net_device *dev)
 
 	flush_all_cam_entry(padapter);	/* clear CAM */
 
-	ret = rtw_sta_flush(padapter);
-
-	return ret;
+	return rtw_sta_flush(padapter);
 
 }
 
@@ -4266,7 +4250,6 @@ static int rtw_set_hidden_ssid(struct net_device *dev, struct ieee_param *param,
 
 static int rtw_ioctl_acl_remove_sta(struct net_device *dev, struct ieee_param *param, int len)
 {
-	int ret = 0;
 	struct adapter *padapter = (struct adapter *)rtw_netdev_priv(dev);
 	struct mlme_priv *pmlmepriv = &(padapter->mlmepriv);
 
@@ -4279,15 +4262,12 @@ static int rtw_ioctl_acl_remove_sta(struct net_device *dev, struct ieee_param *p
 		return -EINVAL;
 	}
 
-	ret = rtw_acl_remove_sta(padapter, param->sta_addr);
-
-	return ret;
+	return rtw_acl_remove_sta(padapter, param->sta_addr);
 
 }
 
 static int rtw_ioctl_acl_add_sta(struct net_device *dev, struct ieee_param *param, int len)
 {
-	int ret = 0;
 	struct adapter *padapter = (struct adapter *)rtw_netdev_priv(dev);
 	struct mlme_priv *pmlmepriv = &(padapter->mlmepriv);
 
@@ -4300,9 +4280,7 @@ static int rtw_ioctl_acl_add_sta(struct net_device *dev, struct ieee_param *para
 		return -EINVAL;
 	}
 
-	ret = rtw_acl_add_sta(padapter, param->sta_addr);
-
-	return ret;
+	return rtw_acl_add_sta(padapter, param->sta_addr);
 
 }
 
@@ -4345,7 +4323,7 @@ static int rtw_hostapd_ioctl(struct net_device *dev, struct iw_point *p)
 		goto out;
 	}
 
-	param = (struct ieee_param *)rtw_malloc(p->length);
+	param = rtw_malloc(p->length);
 	if (param == NULL) {
 		ret = -ENOMEM;
 		goto out;
@@ -4673,7 +4651,7 @@ static int rtw_test(
 	DBG_871X("+%s\n", __func__);
 	len = wrqu->data.length;
 
-	pbuf = (u8 *)rtw_zmalloc(len);
+	pbuf = rtw_zmalloc(len);
 	if (pbuf == NULL) {
 		DBG_871X("%s: no memory!\n", __func__);
 		return -ENOMEM;
@@ -5029,12 +5007,12 @@ static struct iw_statistics *rtw_get_wireless_stats(struct net_device *dev)
 
 struct iw_handler_def rtw_handlers_def = {
 	.standard = rtw_handlers,
-	.num_standard = sizeof(rtw_handlers) / sizeof(iw_handler),
+	.num_standard = ARRAY_SIZE(rtw_handlers),
 #if defined(CONFIG_WEXT_PRIV)
 	.private = rtw_private_handler,
 	.private_args = (struct iw_priv_args *)rtw_private_args,
-	.num_private = sizeof(rtw_private_handler) / sizeof(iw_handler),
-	.num_private_args = sizeof(rtw_private_args) / sizeof(struct iw_priv_args),
+	.num_private = ARRAY_SIZE(rtw_private_handler),
+	.num_private_args = ARRAY_SIZE(rtw_private_args),
 #endif
 	.get_wireless_stats = rtw_get_wireless_stats,
 };
@@ -5121,8 +5099,8 @@ static int rtw_ioctl_wext_private(struct net_device *dev, union iwreq_data *wrq_
 
 	priv = rtw_private_handler;
 	priv_args = rtw_private_args;
-	num_priv = sizeof(rtw_private_handler) / sizeof(iw_handler);
-	num_priv_args = sizeof(rtw_private_args) / sizeof(struct iw_priv_args);
+	num_priv = ARRAY_SIZE(rtw_private_handler);
+	num_priv_args = ARRAY_SIZE(rtw_private_args);
 
 	if (num_priv_args == 0) {
 		err = -EOPNOTSUPP;

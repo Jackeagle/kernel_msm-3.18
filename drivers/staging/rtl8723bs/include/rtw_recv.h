@@ -99,20 +99,20 @@ struct signal_stat {
 };
 
 struct phy_info {
-	u8 RxPWDBAll;
+	u8 rx_pwd_ba11;
 
 	u8 SignalQuality;	 /*  in 0-100 index. */
-	s8		RxMIMOSignalQuality[4];	/* per-path's EVM */
+	s8		rx_mimo_signal_quality[4];	/* per-path's EVM */
 	u8 RxMIMOEVMdbm[4];		/* per-path's EVM dbm */
 
-	u8 RxMIMOSignalStrength[4];/*  in 0~100 index */
+	u8 rx_mimo_signal_strength[4];/*  in 0~100 index */
 
 	u16 	Cfo_short[4];			/*  per-path's Cfo_short */
 	u16 	Cfo_tail[4];			/*  per-path's Cfo_tail */
 
 	s8		RxPower; /*  in dBm Translate from PWdB */
 	s8		RecvSignalPower;/*  Real power in dBm for this packet, no beautification and aggregation. Keep this raw info to be used for the other procedures. */
-	u8 BTRxRSSIPercentage;
+	u8 bt_rx_rssi_percentage;
 	u8 SignalStrength; /*  in 0-100 index. */
 
 	s8		RxPwr[4];				/* per-path's pwdb */
@@ -187,7 +187,7 @@ struct rx_pkt_attrib	{
 	u8 signal_qual;
 	s8	rx_mimo_signal_qual[2];
 	u8 signal_strength;
-	u32 RxPWDBAll;
+	u32 rx_pwd_ba11;
 	s32	RecvSignalPower;
 */
 	struct phy_info phy_info;
@@ -411,7 +411,7 @@ sint rtw_enqueue_recvbuf_to_head(struct recv_buf *precvbuf, struct __queue *queu
 sint rtw_enqueue_recvbuf(struct recv_buf *precvbuf, struct __queue *queue);
 struct recv_buf *rtw_dequeue_recvbuf (struct __queue *queue);
 
-void rtw_reordering_ctrl_timeout_handler(void *pcontext);
+void rtw_reordering_ctrl_timeout_handler(struct timer_list *t);
 
 __inline static u8 *get_rxmem(union recv_frame *precvframe)
 {

@@ -38,6 +38,8 @@
 #define	DWMAC_CORE_3_40	0x34
 #define	DWMAC_CORE_3_50	0x35
 #define	DWMAC_CORE_4_00	0x40
+#define DWMAC_CORE_5_00 0x50
+#define DWMAC_CORE_5_10 0x51
 #define STMMAC_CHAN0	0	/* Always supported and default for all chips */
 
 /* These need to be power of two, and >= 4 */
@@ -173,6 +175,17 @@ struct stmmac_extra_stats {
 	unsigned long tx_tso_frames;
 	unsigned long tx_tso_nfrags;
 };
+
+/* Safety Feature statistics exposed by ethtool */
+struct stmmac_safety_stats {
+	unsigned long mac_errors[32];
+	unsigned long mtl_errors[32];
+	unsigned long dma_errors[32];
+};
+
+/* Number of fields in Safety Stats */
+#define STMMAC_SAFETY_FEAT_SIZE	\
+	(sizeof(struct stmmac_safety_stats) / sizeof(unsigned long))
 
 /* CSR Frequency Access Defines*/
 #define CSR_F_35M	35000000
@@ -336,6 +349,8 @@ struct dma_features {
 	/* TX and RX FIFO sizes */
 	unsigned int tx_fifo_size;
 	unsigned int rx_fifo_size;
+	/* Automotive Safety Package */
+	unsigned int asp;
 };
 
 /* GMAC TX FIFO is 8K, Rx FIFO is 16K */
@@ -409,7 +424,7 @@ struct stmmac_desc_ops {
 	/* get timestamp value */
 	 u64(*get_timestamp) (void *desc, u32 ats);
 	/* get rx timestamp status */
-	int (*get_rx_timestamp_status) (void *desc, u32 ats);
+	int (*get_rx_timestamp_status)(void *desc, void *next_desc, u32 ats);
 	/* Display ring */
 	void (*display_ring)(void *head, unsigned int size, bool rx);
 	/* set MSS via context descriptor */
@@ -442,8 +457,9 @@ struct stmmac_dma_ops {
 	void (*dma_mode)(void __iomem *ioaddr, int txmode, int rxmode,
 			 int rxfifosz);
 	void (*dma_rx_mode)(void __iomem *ioaddr, int mode, u32 channel,
-			    int fifosz);
-	void (*dma_tx_mode)(void __iomem *ioaddr, int mode, u32 channel);
+			    int fifosz, u8 qmode);
+	void (*dma_tx_mode)(void __iomem *ioaddr, int mode, u32 channel,
+			    int fifosz, u8 qmode);
 	/* To track extra statistic (if supported) */
 	void (*dma_diagnostic_fr) (void *data, struct stmmac_extra_stats *x,
 				   void __iomem *ioaddr);
@@ -473,7 +489,7 @@ struct mac_device_info;
 /* Helpers to program the MAC core */
 struct stmmac_ops {
 	/* MAC core initialization */
-	void (*core_init)(struct mac_device_info *hw, int mtu);
+	void (*core_init)(struct mac_device_info *hw, struct net_device *dev);
 	/* Enable the MAC RX/TX */
 	void (*set_mac)(void __iomem *ioaddr, bool enable);
 	/* Enable and verify that the IPC module is supported */
@@ -531,6 +547,13 @@ struct stmmac_ops {
 			     bool loopback);
 	void (*pcs_rane)(void __iomem *ioaddr, bool restart);
 	void (*pcs_get_adv_lp)(void __iomem *ioaddr, struct rgmii_adv *adv);
+	/* Safety Features */
+	int (*safety_feat_config)(void __iomem *ioaddr, unsigned int asp);
+	bool (*safety_feat_irq_status)(struct net_device *ndev,
+			void __iomem *ioaddr, unsigned int asp,
+			struct stmmac_safety_stats *stats);
+	const char *(*safety_feat_dump)(struct stmmac_safety_stats *stats,
+			int index, unsigned long *count);
 };
 
 /* PTP and HW Timer helpers */

@@ -1,5 +1,5 @@
 /*
- * OPAL hypervisor Maintenance interrupt handling support in PowreNV.
+ * OPAL hypervisor Maintenance interrupt handling support in PowerNV.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -314,7 +314,7 @@ static int opal_handle_hmi_event(struct notifier_block *nb,
 		pr_err("HMI: out of memory, Opal message event not handled\n");
 		return -ENOMEM;
 	}
-	memcpy(&msg_node->hmi_evt, hmi_evt, sizeof(struct OpalHMIEvent));
+	memcpy(&msg_node->hmi_evt, hmi_evt, sizeof(*hmi_evt));
 
 	spin_lock_irqsave(&opal_hmi_evt_lock, flags);
 	list_add(&msg_node->list, &opal_hmi_evt_list);

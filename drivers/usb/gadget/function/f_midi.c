@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * f_midi.c -- USB MIDI class function driver
  *
@@ -15,8 +16,6 @@
  * and drivers/usb/gadget/midi.c,
  *   Copyright (C) 2006 Thumtronics Pty Ltd.
  *   Ben Williamson <ben.williamson@greyinnovation.com>
- *
- * Licensed under the GPL-2 or later.
  */
 
 #include <linux/kernel.h>
@@ -405,7 +404,8 @@ static int f_midi_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 		if (err) {
 			ERROR(midi, "%s: couldn't enqueue request: %d\n",
 				    midi->out_ep->name, err);
-			free_ep_req(midi->out_ep, req);
+			if (req->buf != NULL)
+				free_ep_req(midi->out_ep, req);
 			return err;
 		}
 	}
@@ -1189,7 +1189,7 @@ static struct configfs_attribute *midi_attrs[] = {
 	NULL,
 };
 
-static struct config_item_type midi_func_type = {
+static const struct config_item_type midi_func_type = {
 	.ct_item_ops	= &midi_item_ops,
 	.ct_attrs	= midi_attrs,
 	.ct_owner	= THIS_MODULE,

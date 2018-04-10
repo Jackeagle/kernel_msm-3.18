@@ -433,13 +433,12 @@ s32 rtl8723b_FirmwareDownload(struct adapter *padapter, bool  bUsedWoWLANFw)
 		goto exit;
 	}
 
-	pFirmware->szFwBuffer = kzalloc(fw->size, GFP_KERNEL);
+	pFirmware->szFwBuffer = kmemdup(fw->data, fw->size, GFP_KERNEL);
 	if (!pFirmware->szFwBuffer) {
 		rtStatus = _FAIL;
 		goto exit;
 	}
 
-	memcpy(pFirmware->szFwBuffer, fw->data, fw->size);
 	pFirmware->ulFwLength = fw->size;
 	release_firmware(fw);
 	if (pFirmware->ulFwLength > FW_8723B_SIZE) {
@@ -891,7 +890,7 @@ static void hal_ReadEFuse_WiFi(
 		return;
 	}
 
-	efuseTbl = (u8 *)rtw_malloc(EFUSE_MAX_MAP_LEN);
+	efuseTbl = rtw_malloc(EFUSE_MAX_MAP_LEN);
 	if (efuseTbl == NULL) {
 		DBG_8192C("%s: alloc efuseTbl fail!\n", __func__);
 		return;

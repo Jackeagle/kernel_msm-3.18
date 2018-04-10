@@ -1,15 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * System Trace Module (STM) infrastructure
  * Copyright (c) 2014, Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
  *
  * STM class implements generic infrastructure for  System Trace Module devices
  * as defined in MIPI STPv2 specification.
@@ -1119,7 +1111,7 @@ void stm_source_unregister_device(struct stm_source_data *data)
 
 	stm_source_link_drop(src);
 
-	device_destroy(&stm_source_class, src->dev.devt);
+	device_unregister(&src->dev);
 }
 EXPORT_SYMBOL_GPL(stm_source_unregister_device);
 

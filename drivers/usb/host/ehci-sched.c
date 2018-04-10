@@ -1,20 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (c) 2001-2004 by David Brownell
  * Copyright (c) 2003 Michal Sojka, for high-speed iso transfers
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
- * or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 /* this file is part of ehci-hcd.c */
@@ -1300,7 +1287,7 @@ itd_urb_transaction(
 		} else {
  alloc_itd:
 			spin_unlock_irqrestore(&ehci->lock, flags);
-			itd = dma_pool_alloc(ehci->itd_pool, mem_flags,
+			itd = dma_pool_zalloc(ehci->itd_pool, mem_flags,
 					&itd_dma);
 			spin_lock_irqsave(&ehci->lock, flags);
 			if (!itd) {
@@ -1310,7 +1297,6 @@ itd_urb_transaction(
 			}
 		}
 
-		memset(itd, 0, sizeof(*itd));
 		itd->itd_dma = itd_dma;
 		itd->frame = NO_FRAME;
 		list_add(&itd->itd_list, &sched->td_list);
@@ -2094,7 +2080,7 @@ sitd_urb_transaction(
 		} else {
  alloc_sitd:
 			spin_unlock_irqrestore(&ehci->lock, flags);
-			sitd = dma_pool_alloc(ehci->sitd_pool, mem_flags,
+			sitd = dma_pool_zalloc(ehci->sitd_pool, mem_flags,
 					&sitd_dma);
 			spin_lock_irqsave(&ehci->lock, flags);
 			if (!sitd) {
@@ -2104,7 +2090,6 @@ sitd_urb_transaction(
 			}
 		}
 
-		memset(sitd, 0, sizeof(*sitd));
 		sitd->sitd_dma = sitd_dma;
 		sitd->frame = NO_FRAME;
 		list_add(&sitd->sitd_list, &iso_sched->td_list);

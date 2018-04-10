@@ -71,11 +71,10 @@ config SAMPLE_RPMSG_CLIENT
 	  the rpmsg bus.
 
 config SAMPLE_LIVEPATCH
-	tristate "Build live patching sample -- loadable modules only"
+	tristate "Build live patching samples -- loadable modules only"
 	depends on LIVEPATCH && m
 	help
-	  Builds a sample live patch that replaces the procfs handler
-	  for /proc/cmdline to print "this has been live patched".
+	  Build sample live patch demonstrations.
 
 config SAMPLE_CONFIGFS
 	tristate "Build configfs patching sample -- loadable modules only"
@@ -98,12 +97,6 @@ config SAMPLE_SECCOMP
 	help
 	  Build samples of seccomp filters using various methods of
 	  BPF filter construction.
-
-config SAMPLE_BLACKFIN_GPTIMERS
-	tristate "Build blackfin gptimers sample code -- loadable modules only"
-	depends on BLACKFIN && BFIN_GPTIMERS && m
-	help
-	  Build samples of blackfin gptimers sample module.
 
 config SAMPLE_VFIO_MDEV_MTTY
 	tristate "Build VFIO mtty example mediated device sample code -- loadable modules only"

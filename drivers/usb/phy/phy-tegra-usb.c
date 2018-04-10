@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2010 Google, Inc.
  * Copyright (C) 2013 NVIDIA Corporation
@@ -6,16 +7,6 @@
  *	Erik Gilling <konkers@google.com>
  *	Benoit Goby <benoit@android.com>
  *	Venu Byravarasu <vbyravarasu@nvidia.com>
- *
- * This software is licensed under the terms of the GNU General Public
- * License version 2, as published by the Free Software Foundation, and
- * may be copied, distributed, and modified under those terms.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
  */
 
 #include <linux/resource.h>
@@ -25,7 +16,7 @@
 #include <linux/export.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
-#include <linux/io.h>
+#include <linux/iopoll.h>
 #include <linux/gpio.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
@@ -314,20 +305,24 @@ static int utmip_pad_power_off(struct tegra_usb_phy *phy)
 
 static int utmi_wait_register(void __iomem *reg, u32 mask, u32 result)
 {
-	unsigned long timeout = 2000;
-	do {
-		if ((readl(reg) & mask) == result)
-			return 0;
-		udelay(1);
-		timeout--;
-	} while (timeout);
-	return -1;
+	u32 tmp;
+
+	return readl_poll_timeout(reg, tmp, (tmp & mask) == result,
+				  2000, 6000);
 }
 
 static void utmi_phy_clk_disable(struct tegra_usb_phy *phy)
 {
 	unsigned long val;
 	void __iomem *base = phy->regs;
+
+	/*
+	 * The USB driver may have already initiated the phy clock
+	 * disable so wait to see if the clock turns off and if not
+	 * then proceed with gating the clock.
+	 */
+	if (utmi_wait_register(base + USB_SUSP_CTRL, USB_PHY_CLK_VALID, 0) == 0)
+		return;
 
 	if (phy->is_legacy_phy) {
 		val = readl(base + USB_SUSP_CTRL);
@@ -350,6 +345,15 @@ static void utmi_phy_clk_enable(struct tegra_usb_phy *phy)
 {
 	unsigned long val;
 	void __iomem *base = phy->regs;
+
+	/*
+	 * The USB driver may have already initiated the phy clock
+	 * enable so wait to see if the clock turns on and if not
+	 * then proceed with ungating the clock.
+	 */
+	if (utmi_wait_register(base + USB_SUSP_CTRL, USB_PHY_CLK_VALID,
+			       USB_PHY_CLK_VALID) == 0)
+		return;
 
 	if (phy->is_legacy_phy) {
 		val = readl(base + USB_SUSP_CTRL);

@@ -278,6 +278,18 @@ ring_doorbell(struct octeon_device *oct, struct octeon_instr_queue *iq)
 	}
 }
 
+void
+octeon_ring_doorbell_locked(struct octeon_device *oct, u32 iq_no)
+{
+	struct octeon_instr_queue *iq;
+
+	iq = oct->instr_queue[iq_no];
+	spin_lock(&iq->post_lock);
+	if (iq->fill_cnt)
+		ring_doorbell(oct, iq);
+	spin_unlock(&iq->post_lock);
+}
+
 static inline void __copy_cmd_into_iq(struct octeon_instr_queue *iq,
 				      u8 *cmd)
 {
@@ -354,6 +366,7 @@ int
 lio_process_iq_request_list(struct octeon_device *oct,
 			    struct octeon_instr_queue *iq, u32 napi_budget)
 {
+	struct cavium_wq *cwq = &oct->dma_comp_wq;
 	int reqtype;
 	void *buf;
 	u32 old = iq->flush_index;
@@ -438,6 +451,10 @@ lio_process_iq_request_list(struct octeon_device *oct,
 						   bytes_compl);
 	iq->flush_index = old;
 
+	if (atomic_read(&oct->response_list
+			[OCTEON_ORDERED_SC_LIST].pending_req_count))
+		queue_delayed_work(cwq->wq, &cwq->wk.work, msecs_to_jiffies(1));
+
 	return inst_count;
 }
 
@@ -477,8 +494,6 @@ octeon_flush_iq(struct octeon_device *oct, struct octeon_instr_queue *iq,
 		}
 
 		tot_inst_processed += inst_processed;
-		inst_processed = 0;
-
 	} while (tot_inst_processed < napi_budget);
 
 	if (napi_budget && (tot_inst_processed >= napi_budget))
@@ -543,6 +558,7 @@ octeon_send_command(struct octeon_device *oct, u32 iq_no,
 		    u32 force_db, void *cmd, void *buf,
 		    u32 datasize, u32 reqtype)
 {
+	int xmit_stopped;
 	struct iq_post_status st;
 	struct octeon_instr_queue *iq = oct->instr_queue[iq_no];
 
@@ -554,12 +570,13 @@ octeon_send_command(struct octeon_device *oct, u32 iq_no,
 	st = __post_command2(iq, cmd);
 
 	if (st.status != IQ_SEND_FAILED) {
-		octeon_report_sent_bytes_to_bql(buf, reqtype);
+		xmit_stopped = octeon_report_sent_bytes_to_bql(buf, reqtype);
 		__add_to_request_list(iq, st.index, buf, reqtype);
 		INCR_INSTRQUEUE_PKT_COUNT(oct, iq_no, bytes_sent, datasize);
 		INCR_INSTRQUEUE_PKT_COUNT(oct, iq_no, instr_posted, 1);
 
-		if (force_db)
+		if (iq->fill_cnt >= MAX_OCTEON_FILL_COUNT || force_db ||
+		    xmit_stopped || st.status == IQ_SEND_STOP)
 			ring_doorbell(oct, iq);
 	} else {
 		INCR_INSTRQUEUE_PKT_COUNT(oct, iq_no, instr_dropped, 1);
@@ -611,7 +628,8 @@ octeon_prepare_soft_command(struct octeon_device *oct,
 		pki_ih3->tag     = LIO_CONTROL;
 		pki_ih3->tagtype = ATOMIC_TAG;
 		pki_ih3->qpg         =
-			oct->instr_queue[sc->iq_no]->txpciq.s.qpg;
+			oct->instr_queue[sc->iq_no]->txpciq.s.ctrl_qpg;
+
 		pki_ih3->pm          = 0x7;
 		pki_ih3->sl          = 8;
 

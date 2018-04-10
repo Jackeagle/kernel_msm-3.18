@@ -1,19 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * EHCI-compliant USB host controller driver for NVIDIA Tegra SoCs
  *
  * Copyright (C) 2010 Google, Inc.
  * Copyright (C) 2009 - 2013 NVIDIA Corporation
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
  */
 
 #include <linux/clk.h>
@@ -471,6 +461,7 @@ static int tegra_ehci_probe(struct platform_device *pdev)
 		goto cleanup_clk_en;
 	}
 	hcd->usb_phy = u_phy;
+	hcd->skip_phy_initialization = 1;
 
 	tegra->needs_double_reset = of_property_read_bool(pdev->dev.of_node,
 		"nvidia,needs-double-reset");

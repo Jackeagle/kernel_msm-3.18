@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * (C) 2001 Clemson University and The University of Chicago
  *
@@ -8,7 +9,6 @@
 #include "orangefs-kernel.h"
 #include "orangefs-bufmap.h"
 #include <linux/posix_acl_xattr.h>
-#include <linux/fs_struct.h>
 
 struct posix_acl *orangefs_get_acl(struct inode *inode, int type)
 {
@@ -154,12 +154,10 @@ int orangefs_set_acl(struct inode *inode, struct posix_acl *acl, int type)
 
 int orangefs_init_acl(struct inode *inode, struct inode *dir)
 {
-	struct orangefs_inode_s *orangefs_inode = ORANGEFS_I(inode);
 	struct posix_acl *default_acl, *acl;
 	umode_t mode = inode->i_mode;
+	struct iattr iattr;
 	int error = 0;
-
-	ClearModeFlag(orangefs_inode);
 
 	error = posix_acl_create(dir, &mode, &default_acl, &acl);
 	if (error)
@@ -179,9 +177,11 @@ int orangefs_init_acl(struct inode *inode, struct inode *dir)
 
 	/* If mode of the inode was changed, then do a forcible ->setattr */
 	if (mode != inode->i_mode) {
-		SetModeFlag(orangefs_inode);
+		memset(&iattr, 0, sizeof iattr);
 		inode->i_mode = mode;
-		orangefs_flush_inode(inode);
+		iattr.ia_mode = mode;
+		iattr.ia_valid |= ATTR_MODE;
+		orangefs_inode_setattr(inode, &iattr);
 	}
 
 	return error;

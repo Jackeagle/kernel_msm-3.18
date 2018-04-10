@@ -20,14 +20,14 @@
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/clk.h>
-#include <asm/cpu_device_id.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
 #include <sound/jack.h>
+#include <sound/soc-acpi.h>
 #include "../../codecs/rt5670.h"
 #include "../atom/sst-atom-controls.h"
-#include "../common/sst-acpi.h"
+
 
 /* The platform clock #3 outputs 19.2Mhz clock to codec as I2S MCLK */
 #define CHT_PLAT_CLK_3_HZ	19200000
@@ -35,7 +35,7 @@
 
 struct cht_mc_private {
 	struct snd_soc_jack headset;
-	char codec_name[16];
+	char codec_name[SND_ACPI_I2C_ID_LEN];
 	struct clk *mclk;
 };
 
@@ -51,18 +51,6 @@ static struct snd_soc_jack_pin cht_bsw_headset_pins[] = {
 	},
 };
 
-static inline struct snd_soc_dai *cht_get_codec_dai(struct snd_soc_card *card)
-{
-	struct snd_soc_pcm_runtime *rtd;
-
-	list_for_each_entry(rtd, &card->rtd_list, list) {
-		if (!strncmp(rtd->codec_dai->name, CHT_CODEC_DAI,
-			     strlen(CHT_CODEC_DAI)))
-			return rtd->codec_dai;
-	}
-	return NULL;
-}
-
 static int platform_clock_control(struct snd_soc_dapm_widget *w,
 		struct snd_kcontrol *k, int  event)
 {
@@ -72,7 +60,7 @@ static int platform_clock_control(struct snd_soc_dapm_widget *w,
 	struct cht_mc_private *ctx = snd_soc_card_get_drvdata(card);
 	int ret;
 
-	codec_dai = cht_get_codec_dai(card);
+	codec_dai = snd_soc_card_get_codec_dai(card, CHT_CODEC_DAI);
 	if (!codec_dai) {
 		dev_err(card->dev, "Codec dai not found; Unable to set platform clock\n");
 		return -EIO;
@@ -195,10 +183,10 @@ static int cht_codec_init(struct snd_soc_pcm_runtime *runtime)
 {
 	int ret;
 	struct snd_soc_dai *codec_dai = runtime->codec_dai;
-	struct snd_soc_codec *codec = codec_dai->codec;
+	struct snd_soc_component *component = codec_dai->component;
 	struct cht_mc_private *ctx = snd_soc_card_get_drvdata(runtime->card);
 
-	if (devm_acpi_dev_add_driver_gpios(codec->dev, cht_rt5672_gpios))
+	if (devm_acpi_dev_add_driver_gpios(component->dev, cht_rt5672_gpios))
 		dev_warn(runtime->dev, "Unable to add GPIO mapping table\n");
 
 	/* TDM 4 slots 24 bit, set Rx & Tx bitmask to 4 active slots */
@@ -213,7 +201,7 @@ static int cht_codec_init(struct snd_soc_pcm_runtime *runtime)
 	 * be supported by RT5672. Otherwise, ASRC will be disabled and cause
 	 * noise.
 	 */
-	rt5670_sel_asrc_clk_src(codec,
+	rt5670_sel_asrc_clk_src(component,
 				RT5670_DA_STEREO_FILTER
 				| RT5670_DA_MONO_L_FILTER
 				| RT5670_DA_MONO_R_FILTER
@@ -231,7 +219,7 @@ static int cht_codec_init(struct snd_soc_pcm_runtime *runtime)
         if (ret)
                 return ret;
 
-	rt5670_set_jack_detect(codec, &ctx->headset);
+	rt5670_set_jack_detect(component, &ctx->headset);
 	if (ctx->mclk) {
 		/*
 		 * The firmware might enable the clock at
@@ -315,20 +303,12 @@ static struct snd_soc_dai_link cht_dailink[] = {
 		.dpcm_playback = 1,
 		.ops = &cht_aif1_ops,
 	},
-	[MERR_DPCM_COMPR] = {
-		.name = "Compressed Port",
-		.stream_name = "Compress",
-		.cpu_dai_name = "compress-cpu-dai",
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.codec_name = "snd-soc-dummy",
-		.platform_name = "sst-mfld-platform",
-	},
 
 	/* Back End DAI links */
 	{
 		/* SSP2 - Codec */
 		.name = "SSP2-Codec",
-		.id = 1,
+		.id = 0,
 		.cpu_dai_name = "ssp2-port",
 		.platform_name = "sst-mfld-platform",
 		.no_pcm = 1,
@@ -348,13 +328,14 @@ static struct snd_soc_dai_link cht_dailink[] = {
 static int cht_suspend_pre(struct snd_soc_card *card)
 {
 	struct snd_soc_component *component;
+	struct cht_mc_private *ctx = snd_soc_card_get_drvdata(card);
 
 	list_for_each_entry(component, &card->component_dev_list, card_list) {
-		if (!strcmp(component->name, "i2c-10EC5670:00")) {
-			struct snd_soc_codec *codec = snd_soc_component_to_codec(component);
+		if (!strncmp(component->name,
+			     ctx->codec_name, sizeof(ctx->codec_name))) {
 
-			dev_dbg(codec->dev, "disabling jack detect before going to suspend.\n");
-			rt5670_jack_suspend(codec);
+			dev_dbg(component->dev, "disabling jack detect before going to suspend.\n");
+			rt5670_jack_suspend(component);
 			break;
 		}
 	}
@@ -364,13 +345,14 @@ static int cht_suspend_pre(struct snd_soc_card *card)
 static int cht_resume_post(struct snd_soc_card *card)
 {
 	struct snd_soc_component *component;
+	struct cht_mc_private *ctx = snd_soc_card_get_drvdata(card);
 
 	list_for_each_entry(component, &card->component_dev_list, card_list) {
-		if (!strcmp(component->name, "i2c-10EC5670:00")) {
-			struct snd_soc_codec *codec = snd_soc_component_to_codec(component);
+		if (!strncmp(component->name,
+			     ctx->codec_name, sizeof(ctx->codec_name))) {
 
-			dev_dbg(codec->dev, "enabling jack detect for resume.\n");
-			rt5670_jack_resume(codec);
+			dev_dbg(component->dev, "enabling jack detect for resume.\n");
+			rt5670_jack_resume(component);
 			break;
 		}
 	}
@@ -380,7 +362,7 @@ static int cht_resume_post(struct snd_soc_card *card)
 
 /* SoC card */
 static struct snd_soc_card snd_soc_card_cht = {
-	.name = "cherrytrailcraudio",
+	.name = "cht-bsw-rt5672",
 	.owner = THIS_MODULE,
 	.dai_link = cht_dailink,
 	.num_links = ARRAY_SIZE(cht_dailink),
@@ -394,25 +376,13 @@ static struct snd_soc_card snd_soc_card_cht = {
 	.resume_post = cht_resume_post,
 };
 
-static bool is_valleyview(void)
-{
-	static const struct x86_cpu_id cpu_ids[] = {
-		{ X86_VENDOR_INTEL, 6, 55 }, /* Valleyview, Bay Trail */
-		{}
-	};
-
-	if (!x86_match_cpu(cpu_ids))
-		return false;
-	return true;
-}
-
 #define RT5672_I2C_DEFAULT	"i2c-10EC5670:00"
 
 static int snd_cht_mc_probe(struct platform_device *pdev)
 {
 	int ret_val = 0;
 	struct cht_mc_private *drv;
-	struct sst_acpi_mach *mach = pdev->dev.platform_data;
+	struct snd_soc_acpi_mach *mach = pdev->dev.platform_data;
 	const char *i2c_name;
 	int i;
 
@@ -424,7 +394,7 @@ static int snd_cht_mc_probe(struct platform_device *pdev)
 
 	/* fixup codec name based on HID */
 	if (mach) {
-		i2c_name = sst_acpi_find_name_from_hid(mach->id);
+		i2c_name = acpi_dev_get_first_match_name(mach->id, NULL, -1);
 		if (i2c_name) {
 			snprintf(drv->codec_name, sizeof(drv->codec_name),
 				 "i2c-%s", i2c_name);
@@ -439,14 +409,12 @@ static int snd_cht_mc_probe(struct platform_device *pdev)
 		}
 	}
 
-	if (is_valleyview()) {
-		drv->mclk = devm_clk_get(&pdev->dev, "pmc_plt_clk_3");
-		if (IS_ERR(drv->mclk)) {
-			dev_err(&pdev->dev,
-				"Failed to get MCLK from pmc_plt_clk_3: %ld\n",
-				PTR_ERR(drv->mclk));
-			return PTR_ERR(drv->mclk);
-		}
+	drv->mclk = devm_clk_get(&pdev->dev, "pmc_plt_clk_3");
+	if (IS_ERR(drv->mclk)) {
+		dev_err(&pdev->dev,
+			"Failed to get MCLK from pmc_plt_clk_3: %ld\n",
+			PTR_ERR(drv->mclk));
+		return PTR_ERR(drv->mclk);
 	}
 	snd_soc_card_set_drvdata(&snd_soc_card_cht, drv);
 

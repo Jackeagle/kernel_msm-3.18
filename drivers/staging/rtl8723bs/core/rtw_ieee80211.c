@@ -1189,9 +1189,9 @@ void rtw_macaddr_cfg(struct device *dev, u8 *mac_addr)
 	     (mac[3] == 0xff) && (mac[4] == 0xff) && (mac[5] == 0xff)) ||
 	    ((mac[0] == 0x00) && (mac[1] == 0x00) && (mac[2] == 0x00) &&
 	     (mac[3] == 0x00) && (mac[4] == 0x00) && (mac[5] == 0x00))) {
-	        if (np &&
-	            (addr = of_get_property(np, "local-mac-address", &len)) &&
-	            len == ETH_ALEN) {
+		if (np &&
+		    (addr = of_get_property(np, "local-mac-address", &len)) &&
+		    len == ETH_ALEN) {
 			memcpy(mac_addr, addr, ETH_ALEN);
 		} else {
 			mac[0] = 0x00;
@@ -1380,8 +1380,8 @@ int rtw_action_frame_parse(const u8 *frame, u32 frame_len, u8 *category, u8 *act
 
 	fc = le16_to_cpu(((struct ieee80211_hdr_3addr *)frame)->frame_control);
 
-	if ((fc & (RTW_IEEE80211_FCTL_FTYPE|RTW_IEEE80211_FCTL_STYPE))
-		!= (RTW_IEEE80211_FTYPE_MGMT|RTW_IEEE80211_STYPE_ACTION)
+	if ((fc & (IEEE80211_FCTL_FTYPE|IEEE80211_FCTL_STYPE))
+		!= (IEEE80211_FTYPE_MGMT|IEEE80211_STYPE_ACTION)
 	) {
 		return false;
 	}

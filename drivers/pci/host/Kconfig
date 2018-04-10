@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0
+
 menu "PCI host controller drivers"
 	depends on PCI
 
@@ -36,6 +38,7 @@ config PCI_FTPCI100
 config PCI_TEGRA
 	bool "NVIDIA Tegra PCIe controller"
 	depends on ARCH_TEGRA
+	depends on PCI_MSI_IRQ_DOMAIN
 	help
 	  Say Y here if you want support for the PCIe host controller found
 	  on NVIDIA Tegra SoCs.
@@ -94,6 +97,12 @@ config PCI_XGENE_MSI
 	help
 	  Say Y here if you want PCIe MSI support for the APM X-Gene v1 SoC.
 	  This MSI driver supports 5 PCIe ports on the APM X-Gene v1 SoC.
+
+config PCI_V3_SEMI
+	bool "V3 Semiconductor PCI controller"
+	depends on OF
+	depends on ARM
+	default ARCH_INTEGRATOR_AP
 
 config PCI_VERSATILE
 	bool "ARM Versatile PB PCI controller"
@@ -207,7 +216,6 @@ config PCIE_TANGO_SMP8759
 config VMD
 	depends on PCI_MSI && X86_64 && SRCU
 	tristate "Intel Volume Management Device Driver"
-	default N
 	---help---
 	  Adds support for the Intel Volume Management Device (VMD). VMD is a
 	  secondary PCI host bridge that allows PCI Express root ports,

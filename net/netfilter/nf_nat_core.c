@@ -8,6 +8,8 @@
  * published by the Free Software Foundation.
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/timer.h>
@@ -542,17 +544,14 @@ static int nf_nat_proto_clean(struct nf_conn *ct, void *data)
 	if (nf_nat_proto_remove(ct, data))
 		return 1;
 
-	if ((ct->status & IPS_SRC_NAT_DONE) == 0)
-		return 0;
-
-	/* This netns is being destroyed, and conntrack has nat null binding.
+	/* This module is being removed and conntrack has nat null binding.
 	 * Remove it from bysource hash, as the table will be freed soon.
 	 *
 	 * Else, when the conntrack is destoyed, nf_nat_cleanup_conntrack()
 	 * will delete entry from already-freed table.
 	 */
-	clear_bit(IPS_SRC_NAT_DONE_BIT, &ct->status);
-	__nf_nat_cleanup_conntrack(ct);
+	if (test_and_clear_bit(IPS_SRC_NAT_DONE_BIT, &ct->status))
+		__nf_nat_cleanup_conntrack(ct);
 
 	/* don't delete conntrack.  Although that would make things a lot
 	 * simpler, we'd end up flushing all conntracks on nat rmmod.
@@ -817,7 +816,7 @@ static int __init nf_nat_init(void)
 	ret = nf_ct_extend_register(&nat_extend);
 	if (ret < 0) {
 		nf_ct_free_hashtable(nf_nat_bysource, nf_nat_htable_size);
-		printk(KERN_ERR "nf_nat_core: Unable to register extension\n");
+		pr_err("Unable to register extension\n");
 		return ret;
 	}
 

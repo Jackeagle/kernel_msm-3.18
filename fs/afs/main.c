@@ -31,30 +31,145 @@ static char *rootcell;
 module_param(rootcell, charp, 0);
 MODULE_PARM_DESC(rootcell, "root AFS cell name and VL server IP addr list");
 
-struct afs_uuid afs_uuid;
 struct workqueue_struct *afs_wq;
+struct afs_net __afs_net;
+
+#if defined(CONFIG_ALPHA)
+const char afs_init_sysname[] = "alpha_linux26";
+#elif defined(CONFIG_X86_64)
+const char afs_init_sysname[] = "amd64_linux26";
+#elif defined(CONFIG_ARM)
+const char afs_init_sysname[] = "arm_linux26";
+#elif defined(CONFIG_ARM64)
+const char afs_init_sysname[] = "aarch64_linux26";
+#elif defined(CONFIG_X86_32)
+const char afs_init_sysname[] = "i386_linux26";
+#elif defined(CONFIG_IA64)
+const char afs_init_sysname[] = "ia64_linux26";
+#elif defined(CONFIG_PPC64)
+const char afs_init_sysname[] = "ppc64_linux26";
+#elif defined(CONFIG_PPC32)
+const char afs_init_sysname[] = "ppc_linux26";
+#elif defined(CONFIG_S390)
+#ifdef CONFIG_64BIT
+const char afs_init_sysname[] = "s390x_linux26";
+#else
+const char afs_init_sysname[] = "s390_linux26";
+#endif
+#elif defined(CONFIG_SPARC64)
+const char afs_init_sysname[] = "sparc64_linux26";
+#elif defined(CONFIG_SPARC32)
+const char afs_init_sysname[] = "sparc_linux26";
+#else
+const char afs_init_sysname[] = "unknown_linux26";
+#endif
+
+/*
+ * Initialise an AFS network namespace record.
+ */
+static int __net_init afs_net_init(struct afs_net *net)
+{
+	struct afs_sysnames *sysnames;
+	int ret;
+
+	net->live = true;
+	generate_random_uuid((unsigned char *)&net->uuid);
+
+	INIT_WORK(&net->charge_preallocation_work, afs_charge_preallocation);
+	mutex_init(&net->socket_mutex);
+
+	net->cells = RB_ROOT;
+	seqlock_init(&net->cells_lock);
+	INIT_WORK(&net->cells_manager, afs_manage_cells);
+	timer_setup(&net->cells_timer, afs_cells_timer, 0);
+
+	spin_lock_init(&net->proc_cells_lock);
+	INIT_LIST_HEAD(&net->proc_cells);
+
+	seqlock_init(&net->fs_lock);
+	net->fs_servers = RB_ROOT;
+	INIT_LIST_HEAD(&net->fs_updates);
+	INIT_HLIST_HEAD(&net->fs_proc);
+
+	INIT_HLIST_HEAD(&net->fs_addresses4);
+	INIT_HLIST_HEAD(&net->fs_addresses6);
+	seqlock_init(&net->fs_addr_lock);
+
+	INIT_WORK(&net->fs_manager, afs_manage_servers);
+	timer_setup(&net->fs_timer, afs_servers_timer, 0);
+
+	ret = -ENOMEM;
+	sysnames = kzalloc(sizeof(*sysnames), GFP_KERNEL);
+	if (!sysnames)
+		goto error_sysnames;
+	sysnames->subs[0] = (char *)&afs_init_sysname;
+	sysnames->nr = 1;
+	refcount_set(&sysnames->usage, 1);
+	net->sysnames = sysnames;
+	rwlock_init(&net->sysnames_lock);
+
+	/* Register the /proc stuff */
+	ret = afs_proc_init(net);
+	if (ret < 0)
+		goto error_proc;
+
+	/* Initialise the cell DB */
+	ret = afs_cell_init(net, rootcell);
+	if (ret < 0)
+		goto error_cell_init;
+
+	/* Create the RxRPC transport */
+	ret = afs_open_socket(net);
+	if (ret < 0)
+		goto error_open_socket;
+
+	return 0;
+
+error_open_socket:
+	net->live = false;
+	afs_cell_purge(net);
+	afs_purge_servers(net);
+error_cell_init:
+	net->live = false;
+	afs_proc_cleanup(net);
+error_proc:
+	afs_put_sysnames(net->sysnames);
+error_sysnames:
+	net->live = false;
+	return ret;
+}
+
+/*
+ * Clean up and destroy an AFS network namespace record.
+ */
+static void __net_exit afs_net_exit(struct afs_net *net)
+{
+	net->live = false;
+	afs_cell_purge(net);
+	afs_purge_servers(net);
+	afs_close_socket(net);
+	afs_proc_cleanup(net);
+	afs_put_sysnames(net->sysnames);
+}
 
 /*
  * initialise the AFS client FS module
  */
 static int __init afs_init(void)
 {
-	int ret;
+	int ret = -ENOMEM;
 
 	printk(KERN_INFO "kAFS: Red Hat AFS client v0.1 registering.\n");
 
-	generate_random_uuid((unsigned char *)&afs_uuid);
-
-	/* create workqueue */
-	ret = -ENOMEM;
 	afs_wq = alloc_workqueue("afs", 0, 0);
 	if (!afs_wq)
-		return ret;
-
-	/* register the /proc stuff */
-	ret = afs_proc_init();
-	if (ret < 0)
-		goto error_proc;
+		goto error_afs_wq;
+	afs_async_calls = alloc_workqueue("kafsd", WQ_MEM_RECLAIM, 0);
+	if (!afs_async_calls)
+		goto error_async;
+	afs_lock_manager = alloc_workqueue("kafs_lockd", WQ_MEM_RECLAIM, 0);
+	if (!afs_lock_manager)
+		goto error_lockmgr;
 
 #ifdef CONFIG_AFS_FSCACHE
 	/* we want to be able to cache */
@@ -63,25 +178,9 @@ static int __init afs_init(void)
 		goto error_cache;
 #endif
 
-	/* initialise the cell DB */
-	ret = afs_cell_init(rootcell);
+	ret = afs_net_init(&__afs_net);
 	if (ret < 0)
-		goto error_cell_init;
-
-	/* initialise the VL update process */
-	ret = afs_vlocation_update_init();
-	if (ret < 0)
-		goto error_vl_update_init;
-
-	/* initialise the callback update process */
-	ret = afs_callback_update_init();
-	if (ret < 0)
-		goto error_callback_update_init;
-
-	/* create the RxRPC transport */
-	ret = afs_open_socket();
-	if (ret < 0)
-		goto error_open_socket;
+		goto error_net;
 
 	/* register the filesystems */
 	ret = afs_fs_init();
@@ -91,21 +190,18 @@ static int __init afs_init(void)
 	return ret;
 
 error_fs:
-	afs_close_socket();
-error_open_socket:
-	afs_callback_update_kill();
-error_callback_update_init:
-	afs_vlocation_purge();
-error_vl_update_init:
-	afs_cell_purge();
-error_cell_init:
+	afs_net_exit(&__afs_net);
+error_net:
 #ifdef CONFIG_AFS_FSCACHE
 	fscache_unregister_netfs(&afs_cache_netfs);
 error_cache:
 #endif
-	afs_proc_cleanup();
-error_proc:
+	destroy_workqueue(afs_lock_manager);
+error_lockmgr:
+	destroy_workqueue(afs_async_calls);
+error_async:
 	destroy_workqueue(afs_wq);
+error_afs_wq:
 	rcu_barrier();
 	printk(KERN_ERR "kAFS: failed to register: %d\n", ret);
 	return ret;
@@ -124,17 +220,14 @@ static void __exit afs_exit(void)
 	printk(KERN_INFO "kAFS: Red Hat AFS client v0.1 unregistering.\n");
 
 	afs_fs_exit();
-	afs_kill_lock_manager();
-	afs_close_socket();
-	afs_purge_servers();
-	afs_callback_update_kill();
-	afs_vlocation_purge();
-	destroy_workqueue(afs_wq);
-	afs_cell_purge();
+	afs_net_exit(&__afs_net);
 #ifdef CONFIG_AFS_FSCACHE
 	fscache_unregister_netfs(&afs_cache_netfs);
 #endif
-	afs_proc_cleanup();
+	destroy_workqueue(afs_lock_manager);
+	destroy_workqueue(afs_async_calls);
+	destroy_workqueue(afs_wq);
+	afs_clean_up_permit_cache();
 	rcu_barrier();
 }
 

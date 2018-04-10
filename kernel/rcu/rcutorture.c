@@ -51,6 +51,7 @@
 #include <asm/byteorder.h>
 #include <linux/torture.h>
 #include <linux/vmalloc.h>
+#include <linux/sched/debug.h>
 
 #include "rcu.h"
 
@@ -89,6 +90,7 @@ torture_param(int, shutdown_secs, 0, "Shutdown time (s), <= zero to disable.");
 torture_param(int, stall_cpu, 0, "Stall duration (s), zero to disable.");
 torture_param(int, stall_cpu_holdoff, 10,
 	     "Time to wait before starting stall (s).");
+torture_param(int, stall_cpu_irqsoff, 0, "Disable interrupts while stalling.");
 torture_param(int, stat_interval, 60,
 	     "Number of seconds between stats printk()s");
 torture_param(int, stutter, 5, "Number of seconds to run/halt test");
@@ -184,10 +186,6 @@ static const char *rcu_torture_writer_state_getname(void)
 		return "???";
 	return rcu_torture_writer_state_names[i];
 }
-
-static int torture_runnable = IS_ENABLED(MODULE);
-module_param(torture_runnable, int, 0444);
-MODULE_PARM_DESC(torture_runnable, "Start rcutorture at boot");
 
 #if defined(CONFIG_RCU_BOOST) && !defined(CONFIG_HOTPLUG_CPU)
 #define rcu_can_boost() 1
@@ -313,11 +311,9 @@ static void rcu_read_delay(struct torture_random_state *rrsp)
 	}
 	if (!(torture_random(rrsp) % (nrealreaders * 2 * shortdelay_us)))
 		udelay(shortdelay_us);
-#ifdef CONFIG_PREEMPT
 	if (!preempt_count() &&
-	    !(torture_random(rrsp) % (nrealreaders * 20000)))
-		preempt_schedule();  /* No QS if preempt_disable() in effect */
-#endif
+	    !(torture_random(rrsp) % (nrealreaders * 500)))
+		torture_preempt_schedule();  /* QS only if preemptible. */
 }
 
 static void rcu_torture_read_unlock(int idx) __releases(RCU)
@@ -913,34 +909,38 @@ rcu_torture_writer(void *arg)
 	int nsynctypes = 0;
 
 	VERBOSE_TOROUT_STRING("rcu_torture_writer task started");
-	if (!can_expedite) {
+	if (!can_expedite)
 		pr_alert("%s" TORTURE_FLAG
-			 " GP expediting controlled from boot/sysfs for %s,\n",
+			 " GP expediting controlled from boot/sysfs for %s.\n",
 			 torture_type, cur_ops->name);
-		pr_alert("%s" TORTURE_FLAG
-			 " Disabled dynamic grace-period expediting.\n",
-			 torture_type);
-	}
 
 	/* Initialize synctype[] array.  If none set, take default. */
 	if (!gp_cond1 && !gp_exp1 && !gp_normal1 && !gp_sync1)
 		gp_cond1 = gp_exp1 = gp_normal1 = gp_sync1 = true;
-	if (gp_cond1 && cur_ops->get_state && cur_ops->cond_sync)
+	if (gp_cond1 && cur_ops->get_state && cur_ops->cond_sync) {
 		synctype[nsynctypes++] = RTWS_COND_GET;
-	else if (gp_cond && (!cur_ops->get_state || !cur_ops->cond_sync))
-		pr_alert("rcu_torture_writer: gp_cond without primitives.\n");
-	if (gp_exp1 && cur_ops->exp_sync)
+		pr_info("%s: Testing conditional GPs.\n", __func__);
+	} else if (gp_cond && (!cur_ops->get_state || !cur_ops->cond_sync)) {
+		pr_alert("%s: gp_cond without primitives.\n", __func__);
+	}
+	if (gp_exp1 && cur_ops->exp_sync) {
 		synctype[nsynctypes++] = RTWS_EXP_SYNC;
-	else if (gp_exp && !cur_ops->exp_sync)
-		pr_alert("rcu_torture_writer: gp_exp without primitives.\n");
-	if (gp_normal1 && cur_ops->deferred_free)
+		pr_info("%s: Testing expedited GPs.\n", __func__);
+	} else if (gp_exp && !cur_ops->exp_sync) {
+		pr_alert("%s: gp_exp without primitives.\n", __func__);
+	}
+	if (gp_normal1 && cur_ops->deferred_free) {
 		synctype[nsynctypes++] = RTWS_DEF_FREE;
-	else if (gp_normal && !cur_ops->deferred_free)
-		pr_alert("rcu_torture_writer: gp_normal without primitives.\n");
-	if (gp_sync1 && cur_ops->sync)
+		pr_info("%s: Testing asynchronous GPs.\n", __func__);
+	} else if (gp_normal && !cur_ops->deferred_free) {
+		pr_alert("%s: gp_normal without primitives.\n", __func__);
+	}
+	if (gp_sync1 && cur_ops->sync) {
 		synctype[nsynctypes++] = RTWS_SYNC;
-	else if (gp_sync && !cur_ops->sync)
-		pr_alert("rcu_torture_writer: gp_sync without primitives.\n");
+		pr_info("%s: Testing normal GPs.\n", __func__);
+	} else if (gp_sync && !cur_ops->sync) {
+		pr_alert("%s: gp_sync without primitives.\n", __func__);
+	}
 	if (WARN_ONCE(nsynctypes == 0,
 		      "rcu_torture_writer: No update-side primitives.\n")) {
 		/*
@@ -1015,6 +1015,9 @@ rcu_torture_writer(void *arg)
 				rcu_unexpedite_gp();
 			if (++expediting > 3)
 				expediting = -expediting;
+		} else if (!can_expedite) { /* Disabled during boot, recheck. */
+			can_expedite = !rcu_gp_is_expedited() &&
+				       !rcu_gp_is_normal();
 		}
 		rcu_torture_writer_state = RTWS_STUTTER;
 		stutter_wait("rcu_torture_writer");
@@ -1025,6 +1028,10 @@ rcu_torture_writer(void *arg)
 	while (can_expedite && expediting++ < 0)
 		rcu_unexpedite_gp();
 	WARN_ON_ONCE(can_expedite && rcu_gp_is_expedited());
+	if (!can_expedite)
+		pr_alert("%s" TORTURE_FLAG
+			 " Dynamic grace-period expediting was disabled.\n",
+			 torture_type);
 	rcu_torture_writer_state = RTWS_STOPPING;
 	torture_kthread_stopping("rcu_torture_writer");
 	return 0;
@@ -1049,13 +1056,13 @@ rcu_torture_fakewriter(void *arg)
 		    torture_random(&rand) % (nfakewriters * 8) == 0) {
 			cur_ops->cb_barrier();
 		} else if (gp_normal == gp_exp) {
-			if (torture_random(&rand) & 0x80)
+			if (cur_ops->sync && torture_random(&rand) & 0x80)
 				cur_ops->sync();
-			else
+			else if (cur_ops->exp_sync)
 				cur_ops->exp_sync();
-		} else if (gp_normal) {
+		} else if (gp_normal && cur_ops->sync) {
 			cur_ops->sync();
-		} else {
+		} else if (cur_ops->exp_sync) {
 			cur_ops->exp_sync();
 		}
 		stutter_wait("rcu_torture_fakewriter");
@@ -1076,7 +1083,7 @@ static void rcu_torture_timer_cb(struct rcu_head *rhp)
  * counter in the element should never be greater than 1, otherwise, the
  * RCU implementation is broken.
  */
-static void rcu_torture_timer(unsigned long unused)
+static void rcu_torture_timer(struct timer_list *unused)
 {
 	int idx;
 	unsigned long started;
@@ -1163,7 +1170,7 @@ rcu_torture_reader(void *arg)
 	VERBOSE_TOROUT_STRING("rcu_torture_reader task started");
 	set_user_nice(current, MAX_NICE);
 	if (irqreader && cur_ops->irq_capable)
-		setup_timer_on_stack(&t, rcu_torture_timer, 0);
+		timer_setup_on_stack(&t, rcu_torture_timer, 0);
 
 	do {
 		if (irqreader && cur_ops->irq_capable) {
@@ -1239,6 +1246,7 @@ rcu_torture_stats_print(void)
 	long pipesummary[RCU_TORTURE_PIPE_LEN + 1] = { 0 };
 	long batchsummary[RCU_TORTURE_PIPE_LEN + 1] = { 0 };
 	static unsigned long rtcv_snap = ULONG_MAX;
+	static bool splatted;
 	struct task_struct *wtp;
 
 	for_each_possible_cpu(cpu) {
@@ -1324,6 +1332,10 @@ rcu_torture_stats_print(void)
 			 gpnum, completed, flags,
 			 wtp == NULL ? ~0UL : wtp->state,
 			 wtp == NULL ? -1 : (int)task_cpu(wtp));
+		if (!splatted && wtp) {
+			sched_show_task(wtp);
+			splatted = true;
+		}
 		show_rcu_gp_kthreads();
 		rcu_ftrace_dump(DUMP_ALL);
 	}
@@ -1357,7 +1369,7 @@ rcu_torture_print_module_parms(struct rcu_torture_ops *cur_ops, const char *tag)
 		 "fqs_duration=%d fqs_holdoff=%d fqs_stutter=%d "
 		 "test_boost=%d/%d test_boost_interval=%d "
 		 "test_boost_duration=%d shutdown_secs=%d "
-		 "stall_cpu=%d stall_cpu_holdoff=%d "
+		 "stall_cpu=%d stall_cpu_holdoff=%d stall_cpu_irqsoff=%d "
 		 "n_barrier_cbs=%d "
 		 "onoff_interval=%d onoff_holdoff=%d\n",
 		 torture_type, tag, nrealreaders, nfakewriters,
@@ -1365,7 +1377,7 @@ rcu_torture_print_module_parms(struct rcu_torture_ops *cur_ops, const char *tag)
 		 stutter, irqreader, fqs_duration, fqs_holdoff, fqs_stutter,
 		 test_boost, cur_ops->can_boost,
 		 test_boost_interval, test_boost_duration, shutdown_secs,
-		 stall_cpu, stall_cpu_holdoff,
+		 stall_cpu, stall_cpu_holdoff, stall_cpu_irqsoff,
 		 n_barrier_cbs,
 		 onoff_interval, onoff_holdoff);
 }
@@ -1430,12 +1442,19 @@ static int rcu_torture_stall(void *args)
 	if (!kthread_should_stop()) {
 		stop_at = get_seconds() + stall_cpu;
 		/* RCU CPU stall is expected behavior in following code. */
-		pr_alert("rcu_torture_stall start.\n");
 		rcu_read_lock();
-		preempt_disable();
+		if (stall_cpu_irqsoff)
+			local_irq_disable();
+		else
+			preempt_disable();
+		pr_alert("rcu_torture_stall start on CPU %d.\n",
+			 smp_processor_id());
 		while (ULONG_CMP_LT(get_seconds(), stop_at))
 			continue;  /* Induce RCU CPU stall warning. */
-		preempt_enable();
+		if (stall_cpu_irqsoff)
+			local_irq_enable();
+		else
+			preempt_enable();
 		rcu_read_unlock();
 		pr_alert("rcu_torture_stall end.\n");
 	}
@@ -1549,11 +1568,10 @@ static int rcu_torture_barrier_init(void)
 	atomic_set(&barrier_cbs_count, 0);
 	atomic_set(&barrier_cbs_invoked, 0);
 	barrier_cbs_tasks =
-		kzalloc(n_barrier_cbs * sizeof(barrier_cbs_tasks[0]),
+		kcalloc(n_barrier_cbs, sizeof(barrier_cbs_tasks[0]),
 			GFP_KERNEL);
 	barrier_cbs_wq =
-		kzalloc(n_barrier_cbs * sizeof(barrier_cbs_wq[0]),
-			GFP_KERNEL);
+		kcalloc(n_barrier_cbs, sizeof(barrier_cbs_wq[0]), GFP_KERNEL);
 	if (barrier_cbs_tasks == NULL || !barrier_cbs_wq)
 		return -ENOMEM;
 	for (i = 0; i < n_barrier_cbs; i++) {
@@ -1666,7 +1684,7 @@ static void rcu_torture_err_cb(struct rcu_head *rhp)
 	 * next grace period.  Unlikely, but can happen.  If it
 	 * does happen, the debug-objects subsystem won't have splatted.
 	 */
-	pr_alert("rcutorture: duplicated callback was invoked.\n");
+	pr_alert("%s: duplicated callback was invoked.\n", KBUILD_MODNAME);
 }
 #endif /* #ifdef CONFIG_DEBUG_OBJECTS_RCU_HEAD */
 
@@ -1683,7 +1701,7 @@ static void rcu_test_debug_objects(void)
 
 	init_rcu_head_on_stack(&rh1);
 	init_rcu_head_on_stack(&rh2);
-	pr_alert("rcutorture: WARN: Duplicate call_rcu() test starting.\n");
+	pr_alert("%s: WARN: Duplicate call_rcu() test starting.\n", KBUILD_MODNAME);
 
 	/* Try to queue the rh2 pair of callbacks for the same grace period. */
 	preempt_disable(); /* Prevent preemption from interrupting test. */
@@ -1698,11 +1716,11 @@ static void rcu_test_debug_objects(void)
 
 	/* Wait for them all to get done so we can safely return. */
 	rcu_barrier();
-	pr_alert("rcutorture: WARN: Duplicate call_rcu() test complete.\n");
+	pr_alert("%s: WARN: Duplicate call_rcu() test complete.\n", KBUILD_MODNAME);
 	destroy_rcu_head_on_stack(&rh1);
 	destroy_rcu_head_on_stack(&rh2);
 #else /* #ifdef CONFIG_DEBUG_OBJECTS_RCU_HEAD */
-	pr_alert("rcutorture: !CONFIG_DEBUG_OBJECTS_RCU_HEAD, not testing duplicate call_rcu()\n");
+	pr_alert("%s: !CONFIG_DEBUG_OBJECTS_RCU_HEAD, not testing duplicate call_rcu()\n", KBUILD_MODNAME);
 #endif /* #else #ifdef CONFIG_DEBUG_OBJECTS_RCU_HEAD */
 }
 
@@ -1717,7 +1735,7 @@ rcu_torture_init(void)
 		&sched_ops, &tasks_ops,
 	};
 
-	if (!torture_init_begin(torture_type, verbose, &torture_runnable))
+	if (!torture_init_begin(torture_type, verbose))
 		return -EBUSY;
 
 	/* Process args and tell the world that the torturer is on the job. */
@@ -1791,7 +1809,7 @@ rcu_torture_init(void)
 	if (firsterr)
 		goto unwind;
 	if (nfakewriters > 0) {
-		fakewriter_tasks = kzalloc(nfakewriters *
+		fakewriter_tasks = kcalloc(nfakewriters,
 					   sizeof(fakewriter_tasks[0]),
 					   GFP_KERNEL);
 		if (fakewriter_tasks == NULL) {
@@ -1806,7 +1824,7 @@ rcu_torture_init(void)
 		if (firsterr)
 			goto unwind;
 	}
-	reader_tasks = kzalloc(nrealreaders * sizeof(reader_tasks[0]),
+	reader_tasks = kcalloc(nrealreaders, sizeof(reader_tasks[0]),
 			       GFP_KERNEL);
 	if (reader_tasks == NULL) {
 		VERBOSE_TOROUT_ERRSTRING("out of memory");

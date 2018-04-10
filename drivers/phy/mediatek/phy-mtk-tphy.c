@@ -20,6 +20,7 @@
 #include <linux/iopoll.h>
 #include <linux/module.h>
 #include <linux/of_address.h>
+#include <linux/of_device.h>
 #include <linux/phy/phy.h>
 #include <linux/platform_device.h>
 
@@ -27,6 +28,7 @@
 /* banks shared by multiple phys */
 #define SSUSB_SIFSLV_V1_SPLLC		0x000	/* shared by u3 phys */
 #define SSUSB_SIFSLV_V1_U2FREQ		0x100	/* shared by u2 phys */
+#define SSUSB_SIFSLV_V1_CHIP		0x300	/* shared by u3 phys */
 /* u2 phy bank */
 #define SSUSB_SIFSLV_V1_U2PHY_COM	0x000
 /* u3/pcie/sata phy banks */
@@ -95,9 +97,11 @@
 
 #define U3P_U2PHYDTM1		0x06C
 #define P2C_RG_UART_EN			BIT(16)
+#define P2C_FORCE_IDDIG		BIT(9)
 #define P2C_RG_VBUSVALID		BIT(5)
 #define P2C_RG_SESSEND			BIT(4)
 #define P2C_RG_AVALID			BIT(2)
+#define P2C_RG_IDDIG			BIT(1)
 
 #define U3P_U3_CHIP_GPIO_CTLD		0x0c
 #define P3C_REG_IP_SW_RST		BIT(31)
@@ -302,6 +306,8 @@ struct mtk_tphy {
 	const struct mtk_phy_pdata *pdata;
 	struct mtk_phy_instance **phys;
 	int nphys;
+	int src_ref_clk; /* MHZ, reference clock for slew rate calibrate */
+	int src_coef; /* coefficient for slew rate calibrate */
 };
 
 static void hs_slew_rate_calibrate(struct mtk_tphy *tphy,
@@ -356,16 +362,17 @@ static void hs_slew_rate_calibrate(struct mtk_tphy *tphy,
 	writel(tmp, fmreg + U3P_U2FREQ_FMMONR1);
 
 	if (fm_out) {
-		/* ( 1024 / FM_OUT ) x reference clock frequency x 0.028 */
-		tmp = U3P_FM_DET_CYCLE_CNT * U3P_REF_CLK * U3P_SLEW_RATE_COEF;
-		tmp /= fm_out;
+		/* ( 1024 / FM_OUT ) x reference clock frequency x coef */
+		tmp = tphy->src_ref_clk * tphy->src_coef;
+		tmp = (tmp * U3P_FM_DET_CYCLE_CNT) / fm_out;
 		calibration_val = DIV_ROUND_CLOSEST(tmp, U3P_SR_COEF_DIVISOR);
 	} else {
 		/* if FM detection fail, set default value */
 		calibration_val = 4;
 	}
-	dev_dbg(tphy->dev, "phy:%d, fm_out:%d, calib:%d\n",
-		instance->index, fm_out, calibration_val);
+	dev_dbg(tphy->dev, "phy:%d, fm_out:%d, calib:%d (clk:%d, coef:%d)\n",
+		instance->index, fm_out, calibration_val,
+		tphy->src_ref_clk, tphy->src_coef);
 
 	/* set HS slew rate */
 	tmp = readl(com + U3P_USBPHYACR5);
@@ -437,9 +444,9 @@ static void u2_phy_instance_init(struct mtk_tphy *tphy,
 	u32 index = instance->index;
 	u32 tmp;
 
-	/* switch to USB function. (system register, force ip into usb mode) */
+	/* switch to USB function, and enable usb pll */
 	tmp = readl(com + U3P_U2PHYDTM0);
-	tmp &= ~P2C_FORCE_UART_EN;
+	tmp &= ~(P2C_FORCE_UART_EN | P2C_FORCE_SUSPENDM);
 	tmp |= P2C_RG_XCVRSEL_VAL(1) | P2C_RG_DATAIN_VAL(0);
 	writel(tmp, com + U3P_U2PHYDTM0);
 
@@ -499,10 +506,8 @@ static void u2_phy_instance_power_on(struct mtk_tphy *tphy,
 	u32 index = instance->index;
 	u32 tmp;
 
-	/* (force_suspendm=0) (let suspendm=1, enable usb 480MHz pll) */
 	tmp = readl(com + U3P_U2PHYDTM0);
-	tmp &= ~(P2C_FORCE_SUSPENDM | P2C_RG_XCVRSEL);
-	tmp &= ~(P2C_RG_DATAIN | P2C_DTM0_PART_MASK);
+	tmp &= ~(P2C_RG_XCVRSEL | P2C_RG_DATAIN | P2C_DTM0_PART_MASK);
 	writel(tmp, com + U3P_U2PHYDTM0);
 
 	/* OTG Enable */
@@ -537,7 +542,6 @@ static void u2_phy_instance_power_off(struct mtk_tphy *tphy,
 
 	tmp = readl(com + U3P_U2PHYDTM0);
 	tmp &= ~(P2C_RG_XCVRSEL | P2C_RG_DATAIN);
-	tmp |= P2C_FORCE_SUSPENDM;
 	writel(tmp, com + U3P_U2PHYDTM0);
 
 	/* OTG Disable */
@@ -545,18 +549,16 @@ static void u2_phy_instance_power_off(struct mtk_tphy *tphy,
 	tmp &= ~PA6_RG_U2_OTG_VBUSCMP_EN;
 	writel(tmp, com + U3P_USBPHYACR6);
 
-	/* let suspendm=0, set utmi into analog power down */
-	tmp = readl(com + U3P_U2PHYDTM0);
-	tmp &= ~P2C_RG_SUSPENDM;
-	writel(tmp, com + U3P_U2PHYDTM0);
-	udelay(1);
-
 	tmp = readl(com + U3P_U2PHYDTM1);
 	tmp &= ~(P2C_RG_VBUSVALID | P2C_RG_AVALID);
 	tmp |= P2C_RG_SESSEND;
 	writel(tmp, com + U3P_U2PHYDTM1);
 
 	if (tphy->pdata->avoid_rx_sen_degradation && index) {
+		tmp = readl(com + U3P_U2PHYDTM0);
+		tmp &= ~(P2C_RG_SUSPENDM | P2C_FORCE_SUSPENDM);
+		writel(tmp, com + U3P_U2PHYDTM0);
+
 		tmp = readl(com + U3D_U2PHYDCR0);
 		tmp &= ~P2C_RG_SIF_U2PLL_FORCE_ON;
 		writel(tmp, com + U3D_U2PHYDCR0);
@@ -582,6 +584,31 @@ static void u2_phy_instance_exit(struct mtk_tphy *tphy,
 		tmp &= ~P2C_FORCE_SUSPENDM;
 		writel(tmp, com + U3P_U2PHYDTM0);
 	}
+}
+
+static void u2_phy_instance_set_mode(struct mtk_tphy *tphy,
+				     struct mtk_phy_instance *instance,
+				     enum phy_mode mode)
+{
+	struct u2phy_banks *u2_banks = &instance->u2_banks;
+	u32 tmp;
+
+	tmp = readl(u2_banks->com + U3P_U2PHYDTM1);
+	switch (mode) {
+	case PHY_MODE_USB_DEVICE:
+		tmp |= P2C_FORCE_IDDIG | P2C_RG_IDDIG;
+		break;
+	case PHY_MODE_USB_HOST:
+		tmp |= P2C_FORCE_IDDIG;
+		tmp &= ~P2C_RG_IDDIG;
+		break;
+	case PHY_MODE_USB_OTG:
+		tmp &= ~(P2C_FORCE_IDDIG | P2C_RG_IDDIG);
+		break;
+	default:
+		return;
+	}
+	writel(tmp, u2_banks->com + U3P_U2PHYDTM1);
 }
 
 static void pcie_phy_instance_init(struct mtk_tphy *tphy,
@@ -664,8 +691,7 @@ static void pcie_phy_instance_power_on(struct mtk_tphy *tphy,
 	u32 tmp;
 
 	tmp = readl(bank->chip + U3P_U3_CHIP_GPIO_CTLD);
-	tmp &= ~(P3C_FORCE_IP_SW_RST | P3C_MCU_BUS_CK_GATE_EN |
-		P3C_REG_IP_SW_RST);
+	tmp &= ~(P3C_FORCE_IP_SW_RST | P3C_REG_IP_SW_RST);
 	writel(tmp, bank->chip + U3P_U3_CHIP_GPIO_CTLD);
 
 	tmp = readl(bank->chip + U3P_U3_CHIP_GPIO_CTLE);
@@ -762,7 +788,7 @@ static void phy_v1_banks_init(struct mtk_tphy *tphy,
 	case PHY_TYPE_USB3:
 	case PHY_TYPE_PCIE:
 		u3_banks->spllc = tphy->sif_base + SSUSB_SIFSLV_V1_SPLLC;
-		u3_banks->chip = NULL;
+		u3_banks->chip = tphy->sif_base + SSUSB_SIFSLV_V1_CHIP;
 		u3_banks->phyd = instance->port_base + SSUSB_SIFSLV_V1_U3PHYD;
 		u3_banks->phya = instance->port_base + SSUSB_SIFSLV_V1_U3PHYA;
 		break;
@@ -880,6 +906,17 @@ static int mtk_phy_exit(struct phy *phy)
 	return 0;
 }
 
+static int mtk_phy_set_mode(struct phy *phy, enum phy_mode mode)
+{
+	struct mtk_phy_instance *instance = phy_get_drvdata(phy);
+	struct mtk_tphy *tphy = dev_get_drvdata(phy->dev.parent);
+
+	if (instance->type == PHY_TYPE_USB2)
+		u2_phy_instance_set_mode(tphy, instance, mode);
+
+	return 0;
+}
+
 static struct phy *mtk_phy_xlate(struct device *dev,
 					struct of_phandle_args *args)
 {
@@ -930,6 +967,7 @@ static const struct phy_ops mtk_tphy_ops = {
 	.exit		= mtk_phy_exit,
 	.power_on	= mtk_phy_power_on,
 	.power_off	= mtk_phy_power_off,
+	.set_mode	= mtk_phy_set_mode,
 	.owner		= THIS_MODULE,
 };
 
@@ -960,7 +998,6 @@ MODULE_DEVICE_TABLE(of, mtk_tphy_id_table);
 
 static int mtk_tphy_probe(struct platform_device *pdev)
 {
-	const struct of_device_id *match;
 	struct device *dev = &pdev->dev;
 	struct device_node *np = dev->of_node;
 	struct device_node *child_np;
@@ -970,15 +1007,14 @@ static int mtk_tphy_probe(struct platform_device *pdev)
 	struct resource res;
 	int port, retval;
 
-	match = of_match_node(mtk_tphy_id_table, pdev->dev.of_node);
-	if (!match)
-		return -EINVAL;
-
 	tphy = devm_kzalloc(dev, sizeof(*tphy), GFP_KERNEL);
 	if (!tphy)
 		return -ENOMEM;
 
-	tphy->pdata = match->data;
+	tphy->pdata = of_device_get_match_data(dev);
+	if (!tphy->pdata)
+		return -EINVAL;
+
 	tphy->nphys = of_get_child_count(np);
 	tphy->phys = devm_kcalloc(dev, tphy->nphys,
 				       sizeof(*tphy->phys), GFP_KERNEL);
@@ -988,9 +1024,10 @@ static int mtk_tphy_probe(struct platform_device *pdev)
 	tphy->dev = dev;
 	platform_set_drvdata(pdev, tphy);
 
-	if (tphy->pdata->version == MTK_PHY_V1) {
+	sif_res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	/* SATA phy of V1 needn't it if not shared with PCIe or USB */
+	if (sif_res && tphy->pdata->version == MTK_PHY_V1) {
 		/* get banks shared by multiple phys */
-		sif_res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 		tphy->sif_base = devm_ioremap_resource(dev, sif_res);
 		if (IS_ERR(tphy->sif_base)) {
 			dev_err(dev, "failed to remap sif regs\n");
@@ -1006,6 +1043,13 @@ static int mtk_tphy_probe(struct platform_device *pdev)
 
 		tphy->u3phya_ref = NULL;
 	}
+
+	tphy->src_ref_clk = U3P_REF_CLK;
+	tphy->src_coef = U3P_SLEW_RATE_COEF;
+	/* update parameters of slew rate calibrate if exist */
+	device_property_read_u32(dev, "mediatek,src-ref-clk-mhz",
+		&tphy->src_ref_clk);
+	device_property_read_u32(dev, "mediatek,src-coef", &tphy->src_coef);
 
 	port = 0;
 	for_each_child_of_node(np, child_np) {

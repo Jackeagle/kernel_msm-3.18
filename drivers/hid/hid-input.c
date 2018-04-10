@@ -797,6 +797,15 @@ static void hidinput_configure_usage(struct hid_input *hidinput, struct hid_fiel
 			map_key_clear(BTN_STYLUS);
 			break;
 
+		case 0x45: /* ERASER */
+			/*
+			 * This event is reported when eraser tip touches the surface.
+			 * Actual eraser (BTN_TOOL_RUBBER) is set by Invert usage when
+			 * tool gets in proximity.
+			 */
+			map_key_clear(BTN_TOUCH);
+			break;
+
 		case 0x46: /* TabletPick */
 		case 0x5a: /* SecondaryBarrelSwitch */
 			map_key_clear(BTN_STYLUS2);
@@ -1359,7 +1368,8 @@ static void hidinput_led_worker(struct work_struct *work)
 					      led_work);
 	struct hid_field *field;
 	struct hid_report *report;
-	int len, ret;
+	int ret;
+	u32 len;
 	__u8 *buf;
 
 	field = hidinput_get_led_field(hid);
@@ -1647,16 +1657,16 @@ int hidinput_connect(struct hid_device *hid, unsigned int force)
 	}
 
 	list_for_each_entry_safe(hidinput, next, &hid->inputs, list) {
-		if ((hid->quirks & HID_QUIRK_NO_EMPTY_INPUT) &&
-		    !hidinput_has_been_populated(hidinput)) {
+		if (drv->input_configured &&
+		    drv->input_configured(hid, hidinput))
+			goto out_unwind;
+
+		if (!hidinput_has_been_populated(hidinput)) {
 			/* no need to register an input device not populated */
 			hidinput_cleanup_hidinput(hid, hidinput);
 			continue;
 		}
 
-		if (drv->input_configured &&
-		    drv->input_configured(hid, hidinput))
-			goto out_unwind;
 		if (input_register_device(hidinput->input))
 			goto out_unwind;
 		hidinput->registered = true;

@@ -18,6 +18,7 @@
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_fb_cma_helper.h>
 #include <drm/drm_gem_cma_helper.h>
+#include <drm/drm_gem_framebuffer_helper.h>
 
 #include <linux/of_graph.h>
 #include <linux/wait.h>
@@ -26,7 +27,6 @@
 #include "rcar_du_drv.h"
 #include "rcar_du_encoder.h"
 #include "rcar_du_kms.h"
-#include "rcar_du_lvdsenc.h"
 #include "rcar_du_regs.h"
 #include "rcar_du_vsp.h"
 
@@ -213,7 +213,7 @@ rcar_du_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 		}
 	}
 
-	return drm_fb_cma_create(dev, file_priv, mode_cmd);
+	return drm_gem_fb_create(dev, file_priv, mode_cmd);
 }
 
 static void rcar_du_output_poll_changed(struct drm_device *dev)
@@ -340,11 +340,10 @@ static int rcar_du_encoders_init_one(struct rcar_du_device *rcdu,
 	of_node_put(entity_ep_node);
 
 	if (!encoder) {
-		/*
-		 * If no encoder has been found the entity must be the
-		 * connector.
-		 */
-		connector = entity;
+		dev_warn(rcdu->dev,
+			 "no encoder found for endpoint %pOF, skipping\n",
+			 ep->local_node);
+		return -ENODEV;
 	}
 
 	ret = rcar_du_encoder_init(rcdu, output, encoder, connector);
@@ -594,10 +593,6 @@ int rcar_du_modeset_init(struct rcar_du_device *rcdu)
 	}
 
 	/* Initialize the encoders. */
-	ret = rcar_du_lvdsenc_init(rcdu);
-	if (ret < 0)
-		return ret;
-
 	ret = rcar_du_encoders_init(rcdu);
 	if (ret < 0)
 		return ret;

@@ -23,6 +23,7 @@
 #define  _OCTEON_DEVICE_H_
 
 #include <linux/interrupt.h>
+#include <net/devlink.h>
 
 /** PCI VendorId Device Id */
 #define  OCTEON_CN68XX_PCIID          0x91177d
@@ -48,6 +49,13 @@ enum octeon_pci_swap_mode {
 	OCTEON_PCI_64BIT_SWAP = 1,
 	OCTEON_PCI_32BIT_BYTE_SWAP = 2,
 	OCTEON_PCI_32BIT_LW_SWAP = 3
+};
+
+enum lio_fw_state {
+	FW_IS_PRELOADED = 0,
+	FW_NEEDS_TO_BE_LOADED = 1,
+	FW_IS_BEING_LOADED = 2,
+	FW_HAS_BEEN_LOADED = 3,
 };
 
 enum {
@@ -362,6 +370,8 @@ struct octeon_sriov_info {
 
 	u32	sriov_enabled;
 
+	struct lio_trusted_vf	trusted_vf;
+
 	/*lookup table that maps DPI ring number to VF pci_dev struct pointer*/
 	struct pci_dev *dpiring_to_vfpcidev_lut[MAX_POSSIBLE_VFS];
 
@@ -382,6 +392,15 @@ struct octeon_ioq_vector {
 	struct octeon_mbox     *mbox;
 	struct cpumask		affinity_mask;
 	u32			ioq_num;
+};
+
+struct lio_vf_rep_list {
+	int num_vfs;
+	struct net_device *ndev[CN23XX_MAX_VFS_PER_PF];
+};
+
+struct lio_devlink_priv {
+	struct octeon_device *oct;
 };
 
 /** The Octeon device.
@@ -557,7 +576,14 @@ struct octeon_device {
 	} loc;
 
 	atomic_t *adapter_refcount; /* reference count of adapter */
+
+	atomic_t *adapter_fw_state; /* per-adapter, lio_fw_state */
+
 	bool ptp_enable;
+
+	struct lio_vf_rep_list vf_rep_list;
+	struct devlink *devlink;
+	enum devlink_eswitch_mode eswitch_mode;
 };
 
 #define  OCT_DRV_ONLINE 1

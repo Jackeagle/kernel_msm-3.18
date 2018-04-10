@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Freescale QUICC Engine USB Host Controller Driver
  *
@@ -8,11 +9,6 @@
  *               Peter Barada <peterb@logicpd.com>
  * Copyright (c) MontaVista Software, Inc. 2008.
  *               Anton Vorontsov <avorontsov@ru.mvista.com>
- *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
- * option) any later version.
  */
 
 #include <linux/kernel.h>
@@ -59,6 +55,7 @@ static int fhci_dfs_regs_show(struct seq_file *s, void *v)
 
 	return 0;
 }
+DEFINE_SHOW_ATTRIBUTE(fhci_dfs_regs);
 
 static int fhci_dfs_irq_stat_show(struct seq_file *s, void *v)
 {
@@ -79,30 +76,7 @@ static int fhci_dfs_irq_stat_show(struct seq_file *s, void *v)
 
 	return 0;
 }
-
-static int fhci_dfs_regs_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, fhci_dfs_regs_show, inode->i_private);
-}
-
-static int fhci_dfs_irq_stat_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, fhci_dfs_irq_stat_show, inode->i_private);
-}
-
-static const struct file_operations fhci_dfs_regs_fops = {
-	.open = fhci_dfs_regs_open,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = single_release,
-};
-
-static const struct file_operations fhci_dfs_irq_stat_fops = {
-	.open = fhci_dfs_irq_stat_open,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = single_release,
-};
+DEFINE_SHOW_ATTRIBUTE(fhci_dfs_irq_stat);
 
 void fhci_dfs_create(struct fhci_hcd *fhci)
 {

@@ -544,7 +544,7 @@ static void setup_itct_v1_hw(struct hisi_hba *hisi_hba,
 				(0xff00ULL << ITCT_HDR_REJ_OPEN_TL_OFF));
 }
 
-static void free_device_v1_hw(struct hisi_hba *hisi_hba,
+static void clear_itct_v1_hw(struct hisi_hba *hisi_hba,
 			      struct hisi_sas_device *sas_dev)
 {
 	u64 dev_id = sas_dev->device_id;
@@ -651,8 +651,10 @@ static int reset_hw_v1_hw(struct hisi_hba *hisi_hba)
 			dev_err(dev, "De-reset failed\n");
 			return -EIO;
 		}
-	} else
+	} else {
 		dev_warn(dev, "no reset method\n");
+		return -EINVAL;
+	}
 
 	return 0;
 }
@@ -807,9 +809,9 @@ static void phy_hard_reset_v1_hw(struct hisi_hba *hisi_hba, int phy_no)
 	start_phy_v1_hw(hisi_hba, phy_no);
 }
 
-static void start_phys_v1_hw(unsigned long data)
+static void start_phys_v1_hw(struct timer_list *t)
 {
-	struct hisi_hba *hisi_hba = (struct hisi_hba *)data;
+	struct hisi_hba *hisi_hba = from_timer(hisi_hba, t, timer);
 	int i;
 
 	for (i = 0; i < hisi_hba->n_phy; i++) {
@@ -828,7 +830,7 @@ static void phys_init_v1_hw(struct hisi_hba *hisi_hba)
 		hisi_sas_phy_read32(hisi_hba, i, CHL_INT2_MSK);
 	}
 
-	setup_timer(timer, start_phys_v1_hw, (unsigned long)hisi_hba);
+	timer_setup(timer, start_phys_v1_hw, 0);
 	mod_timer(timer, jiffies + HZ);
 }
 
@@ -873,7 +875,6 @@ static void phy_set_linkrate_v1_hw(struct hisi_hba *hisi_hba, int phy_no,
 	sas_phy->phy->maximum_linkrate = max;
 	sas_phy->phy->minimum_linkrate = min;
 
-	min -= SAS_LINK_RATE_1_5_GBPS;
 	max -= SAS_LINK_RATE_1_5_GBPS;
 
 	for (i = 0; i <= max; i++)
@@ -882,10 +883,11 @@ static void phy_set_linkrate_v1_hw(struct hisi_hba *hisi_hba, int phy_no,
 	prog_phy_link_rate &= ~0xff;
 	prog_phy_link_rate |= rate_mask;
 
+	disable_phy_v1_hw(hisi_hba, phy_no);
+	msleep(100);
 	hisi_sas_phy_write32(hisi_hba, phy_no, PROG_PHY_LINK_RATE,
 			prog_phy_link_rate);
-
-	phy_hard_reset_v1_hw(hisi_hba, phy_no);
+	start_phy_v1_hw(hisi_hba, phy_no);
 }
 
 static int get_wideport_bitmap_v1_hw(struct hisi_hba *hisi_hba, int port_id)
@@ -1407,9 +1409,6 @@ static int slot_complete_v1_hw(struct hisi_hba *hisi_hba,
 	}
 
 out:
-	if (sas_dev)
-		atomic64_dec(&sas_dev->running_req);
-
 	hisi_sas_slot_task_free(hisi_hba, task, slot);
 	sts = ts->stat;
 
@@ -1482,7 +1481,7 @@ static irqreturn_t int_phyup_v1_hw(int irq_no, void *p)
 	else if (phy->identify.device_type != SAS_PHY_UNUSED)
 		phy->identify.target_port_protocols =
 			SAS_PROTOCOL_SMP;
-	queue_work(hisi_hba->wq, &phy->phyup_ws);
+	hisi_sas_notify_phy_event(phy, HISI_PHYE_PHY_UP);
 
 end:
 	hisi_sas_phy_write32(hisi_hba, phy_no, CHL_INT2,
@@ -1850,14 +1849,14 @@ static const struct hisi_sas_hw hisi_sas_v1_hw = {
 	.hw_init = hisi_sas_v1_init,
 	.setup_itct = setup_itct_v1_hw,
 	.sl_notify = sl_notify_v1_hw,
-	.free_device = free_device_v1_hw,
+	.clear_itct = clear_itct_v1_hw,
 	.prep_smp = prep_smp_v1_hw,
 	.prep_ssp = prep_ssp_v1_hw,
 	.get_free_slot = get_free_slot_v1_hw,
 	.start_delivery = start_delivery_v1_hw,
 	.slot_complete = slot_complete_v1_hw,
 	.phys_init = phys_init_v1_hw,
-	.phy_enable = enable_phy_v1_hw,
+	.phy_start = start_phy_v1_hw,
 	.phy_disable = disable_phy_v1_hw,
 	.phy_hard_reset = phy_hard_reset_v1_hw,
 	.phy_set_linkrate = phy_set_linkrate_v1_hw,

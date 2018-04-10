@@ -8,10 +8,9 @@
  * All enquiries to support@picochip.com
  */
 #include <linux/acpi.h>
-#include <linux/gpio/driver.h>
-/* FIXME: for gpio_get_value(), replace this with direct register read */
-#include <linux/gpio.h>
+#include <linux/clk.h>
 #include <linux/err.h>
+#include <linux/gpio/driver.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
@@ -25,6 +24,7 @@
 #include <linux/of_irq.h>
 #include <linux/platform_device.h>
 #include <linux/property.h>
+#include <linux/reset.h>
 #include <linux/spinlock.h>
 #include <linux/platform_data/gpio-dwapb.h>
 #include <linux/slab.h>
@@ -52,9 +52,9 @@
 #define GPIO_EXT_PORTD		0x5c
 
 #define DWAPB_MAX_PORTS		4
-#define GPIO_EXT_PORT_SIZE	(GPIO_EXT_PORTB - GPIO_EXT_PORTA)
-#define GPIO_SWPORT_DR_SIZE	(GPIO_SWPORTB_DR - GPIO_SWPORTA_DR)
-#define GPIO_SWPORT_DDR_SIZE	(GPIO_SWPORTB_DDR - GPIO_SWPORTA_DDR)
+#define GPIO_EXT_PORT_STRIDE	0x04 /* register stride 32 bits */
+#define GPIO_SWPORT_DR_STRIDE	0x0c /* register stride 3*32 bits */
+#define GPIO_SWPORT_DDR_STRIDE	0x0c /* register stride 3*32 bits */
 
 #define GPIO_REG_OFFSET_V2	1
 
@@ -77,6 +77,7 @@ struct dwapb_context {
 	u32 int_type;
 	u32 int_pol;
 	u32 int_deb;
+	u32 wake_en;
 };
 #endif
 
@@ -97,6 +98,8 @@ struct dwapb_gpio {
 	unsigned int		nr_ports;
 	struct irq_domain	*domain;
 	unsigned int		flags;
+	struct reset_control	*rst;
+	struct clk		*clk;
 };
 
 static inline u32 gpio_reg_v2_convert(unsigned int offset)
@@ -150,16 +153,40 @@ static int dwapb_gpio_to_irq(struct gpio_chip *gc, unsigned offset)
 	return irq_find_mapping(gpio->domain, offset);
 }
 
+static struct dwapb_gpio_port *dwapb_offs_to_port(struct dwapb_gpio *gpio, unsigned int offs)
+{
+	struct dwapb_gpio_port *port;
+	int i;
+
+	for (i = 0; i < gpio->nr_ports; i++) {
+		port = &gpio->ports[i];
+		if (port->idx == offs / 32)
+			return port;
+	}
+
+	return NULL;
+}
+
 static void dwapb_toggle_trigger(struct dwapb_gpio *gpio, unsigned int offs)
 {
-	u32 v = dwapb_read(gpio, GPIO_INT_POLARITY);
+	struct dwapb_gpio_port *port = dwapb_offs_to_port(gpio, offs);
+	struct gpio_chip *gc;
+	u32 pol;
+	int val;
 
-	if (gpio_get_value(gpio->ports[0].gc.base + offs))
-		v &= ~BIT(offs);
+	if (!port)
+		return;
+	gc = &port->gc;
+
+	pol = dwapb_read(gpio, GPIO_INT_POLARITY);
+	/* Just read the current value right out of the data register */
+	val = gc->get(gc, offs % 32);
+	if (val)
+		pol &= ~BIT(offs);
 	else
-		v |= BIT(offs);
+		pol |= BIT(offs);
 
-	dwapb_write(gpio, GPIO_INT_POLARITY, v);
+	dwapb_write(gpio, GPIO_INT_POLARITY, pol);
 }
 
 static u32 dwapb_do_irq(struct dwapb_gpio *gpio)
@@ -295,13 +322,29 @@ static int dwapb_irq_set_type(struct irq_data *d, u32 type)
 	return 0;
 }
 
+#ifdef CONFIG_PM_SLEEP
+static int dwapb_irq_set_wake(struct irq_data *d, unsigned int enable)
+{
+	struct irq_chip_generic *igc = irq_data_get_irq_chip_data(d);
+	struct dwapb_gpio *gpio = igc->private;
+	struct dwapb_context *ctx = gpio->ports[0].ctx;
+
+	if (enable)
+		ctx->wake_en |= BIT(d->hwirq);
+	else
+		ctx->wake_en &= ~BIT(d->hwirq);
+
+	return 0;
+}
+#endif
+
 static int dwapb_gpio_set_debounce(struct gpio_chip *gc,
 				   unsigned offset, unsigned debounce)
 {
 	struct dwapb_gpio_port *port = gpiochip_get_data(gc);
 	struct dwapb_gpio *gpio = port->gpio;
 	unsigned long flags, val_deb;
-	unsigned long mask = gc->pin2mask(gc, offset);
+	unsigned long mask = BIT(offset);
 
 	spin_lock_irqsave(&gc->bgpio_lock, flags);
 
@@ -385,6 +428,9 @@ static void dwapb_configure_irqs(struct dwapb_gpio *gpio,
 		ct->chip.irq_disable = dwapb_irq_disable;
 		ct->chip.irq_request_resources = dwapb_irq_reqres;
 		ct->chip.irq_release_resources = dwapb_irq_relres;
+#ifdef CONFIG_PM_SLEEP
+		ct->chip.irq_set_wake = dwapb_irq_set_wake;
+#endif
 		ct->regs.ack = gpio_reg_convert(gpio, GPIO_PORTA_EOI);
 		ct->regs.mask = gpio_reg_convert(gpio, GPIO_INTMASK);
 		ct->type = IRQ_TYPE_LEVEL_MASK;
@@ -454,13 +500,14 @@ static int dwapb_gpio_add_port(struct dwapb_gpio *gpio,
 		return -ENOMEM;
 #endif
 
-	dat = gpio->regs + GPIO_EXT_PORTA + (pp->idx * GPIO_EXT_PORT_SIZE);
-	set = gpio->regs + GPIO_SWPORTA_DR + (pp->idx * GPIO_SWPORT_DR_SIZE);
+	dat = gpio->regs + GPIO_EXT_PORTA + (pp->idx * GPIO_EXT_PORT_STRIDE);
+	set = gpio->regs + GPIO_SWPORTA_DR + (pp->idx * GPIO_SWPORT_DR_STRIDE);
 	dirout = gpio->regs + GPIO_SWPORTA_DDR +
-		(pp->idx * GPIO_SWPORT_DDR_SIZE);
+		(pp->idx * GPIO_SWPORT_DDR_STRIDE);
 
+	/* This registers 32 GPIO lines per port */
 	err = bgpio_init(&port->gc, gpio->dev, 4, dat, set, NULL, dirout,
-			 NULL, false);
+			 NULL, 0);
 	if (err) {
 		dev_err(gpio->dev, "failed to init gpio chip for port%d\n",
 			port->idx);
@@ -609,6 +656,12 @@ static int dwapb_gpio_probe(struct platform_device *pdev)
 	gpio->dev = &pdev->dev;
 	gpio->nr_ports = pdata->nports;
 
+	gpio->rst = devm_reset_control_get_optional_shared(dev, NULL);
+	if (IS_ERR(gpio->rst))
+		return PTR_ERR(gpio->rst);
+
+	reset_control_deassert(gpio->rst);
+
 	gpio->ports = devm_kcalloc(&pdev->dev, gpio->nr_ports,
 				   sizeof(*gpio->ports), GFP_KERNEL);
 	if (!gpio->ports)
@@ -618,6 +671,16 @@ static int dwapb_gpio_probe(struct platform_device *pdev)
 	gpio->regs = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(gpio->regs))
 		return PTR_ERR(gpio->regs);
+
+	/* Optional bus clock */
+	gpio->clk = devm_clk_get(&pdev->dev, "bus");
+	if (!IS_ERR(gpio->clk)) {
+		err = clk_prepare_enable(gpio->clk);
+		if (err) {
+			dev_info(&pdev->dev, "Cannot enable clock\n");
+			return err;
+		}
+	}
 
 	gpio->flags = 0;
 	if (dev->of_node) {
@@ -660,6 +723,8 @@ static int dwapb_gpio_remove(struct platform_device *pdev)
 
 	dwapb_gpio_unregister(gpio);
 	dwapb_irq_teardown(gpio);
+	reset_control_assert(gpio->rst);
+	clk_disable_unprepare(gpio->clk);
 
 	return 0;
 }
@@ -681,13 +746,13 @@ static int dwapb_gpio_suspend(struct device *dev)
 
 		BUG_ON(!ctx);
 
-		offset = GPIO_SWPORTA_DDR + idx * GPIO_SWPORT_DDR_SIZE;
+		offset = GPIO_SWPORTA_DDR + idx * GPIO_SWPORT_DDR_STRIDE;
 		ctx->dir = dwapb_read(gpio, offset);
 
-		offset = GPIO_SWPORTA_DR + idx * GPIO_SWPORT_DR_SIZE;
+		offset = GPIO_SWPORTA_DR + idx * GPIO_SWPORT_DR_STRIDE;
 		ctx->data = dwapb_read(gpio, offset);
 
-		offset = GPIO_EXT_PORTA + idx * GPIO_EXT_PORT_SIZE;
+		offset = GPIO_EXT_PORTA + idx * GPIO_EXT_PORT_STRIDE;
 		ctx->ext = dwapb_read(gpio, offset);
 
 		/* Only port A can provide interrupts */
@@ -699,10 +764,13 @@ static int dwapb_gpio_suspend(struct device *dev)
 			ctx->int_deb	= dwapb_read(gpio, GPIO_PORTA_DEBOUNCE);
 
 			/* Mask out interrupts */
-			dwapb_write(gpio, GPIO_INTMASK, 0xffffffff);
+			dwapb_write(gpio, GPIO_INTMASK,
+				    0xffffffff & ~ctx->wake_en);
 		}
 	}
 	spin_unlock_irqrestore(&gc->bgpio_lock, flags);
+
+	clk_disable_unprepare(gpio->clk);
 
 	return 0;
 }
@@ -715,6 +783,9 @@ static int dwapb_gpio_resume(struct device *dev)
 	unsigned long flags;
 	int i;
 
+	if (!IS_ERR(gpio->clk))
+		clk_prepare_enable(gpio->clk);
+
 	spin_lock_irqsave(&gc->bgpio_lock, flags);
 	for (i = 0; i < gpio->nr_ports; i++) {
 		unsigned int offset;
@@ -723,13 +794,13 @@ static int dwapb_gpio_resume(struct device *dev)
 
 		BUG_ON(!ctx);
 
-		offset = GPIO_SWPORTA_DR + idx * GPIO_SWPORT_DR_SIZE;
+		offset = GPIO_SWPORTA_DR + idx * GPIO_SWPORT_DR_STRIDE;
 		dwapb_write(gpio, offset, ctx->data);
 
-		offset = GPIO_SWPORTA_DDR + idx * GPIO_SWPORT_DDR_SIZE;
+		offset = GPIO_SWPORTA_DDR + idx * GPIO_SWPORT_DDR_STRIDE;
 		dwapb_write(gpio, offset, ctx->dir);
 
-		offset = GPIO_EXT_PORTA + idx * GPIO_EXT_PORT_SIZE;
+		offset = GPIO_EXT_PORTA + idx * GPIO_EXT_PORT_STRIDE;
 		dwapb_write(gpio, offset, ctx->ext);
 
 		/* Only port A can provide interrupts */
