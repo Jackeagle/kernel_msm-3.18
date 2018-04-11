@@ -63,7 +63,7 @@ ENTRY(cpu_v7_switch_mm)
 ENDPROC(cpu_v7_switch_mm)
 
 /*
- * Qualcomm Inc. Krait processors - require bp invalidation
+ * Qualcomm Technologies Inc. Krait processors - require bp invalidation
  */
 ENTRY(cpu_krait_switch_mm)
 /* Sanitize link stack
