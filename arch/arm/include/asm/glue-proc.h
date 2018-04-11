@@ -221,15 +221,6 @@
 # endif
 #endif
 
-#ifdef CONFIG_CPU_V7
-# ifdef CPU_NAME
-#  undef  MULTI_CPU
-#  define MULTI_CPU
-# else
-#  define CPU_NAME cpu_v7
-# endif
-#endif
-
 #ifdef CONFIG_CPU_PJ4B
 # ifdef CPU_NAME
 #  undef  MULTI_CPU
@@ -237,6 +228,15 @@
 # else
 #  define CPU_NAME cpu_pj4b
 # endif
+#endif
+
+#ifdef CONFIG_CPU_V7
+/*
+ * The spectre fix need different cpu operations
+ * Hence let it call come from processor struct
+ */
+#  undef  MULTI_CPU
+#  define MULTI_CPU
 #endif
 
 #ifndef MULTI_CPU
