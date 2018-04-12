@@ -799,7 +799,8 @@ int smb3_validate_negotiate(const unsigned int xid, struct cifs_tcon *tcon)
 			cpu_to_le16(tcon->ses->server->vals->protocol_id);
 		vneg_inbuf.DialectCount = cpu_to_le16(1);
 		/* structure is big enough for 3 dialects, sending only 1 */
-		inbuflen = sizeof(struct validate_negotiate_info_req) - 4;
+		inbuflen = sizeof(struct validate_negotiate_info_req) -
+			tcon->ses->server->vals->header_preamble_size;
 	}
 
 	rc = SMB2_ioctl(xid, tcon, NO_FILE_ID, NO_FILE_ID,
