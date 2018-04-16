@@ -339,8 +339,8 @@ int bpf_prog_array_copy_to_user(struct bpf_prog_array __rcu *progs,
 void bpf_prog_array_delete_safe(struct bpf_prog_array __rcu *progs,
 				struct bpf_prog *old_prog);
 int bpf_prog_array_copy_info(struct bpf_prog_array __rcu *array,
-			     __u32 __user *prog_ids, u32 request_cnt,
-			     __u32 __user *prog_cnt);
+			     u32 *prog_ids, u32 request_cnt,
+			     u32 *prog_cnt);
 int bpf_prog_array_copy(struct bpf_prog_array __rcu *old_array,
 			struct bpf_prog *exclude_prog,
 			struct bpf_prog *include_prog,
@@ -646,6 +646,7 @@ static inline void bpf_map_offload_map_free(struct bpf_map *map)
 #if defined(CONFIG_STREAM_PARSER) && defined(CONFIG_BPF_SYSCALL) && defined(CONFIG_INET)
 struct sock  *__sock_map_lookup_elem(struct bpf_map *map, u32 key);
 int sock_map_prog(struct bpf_map *map, struct bpf_prog *prog, u32 type);
+void sock_map_release(struct bpf_map *map);
 #else
 static inline struct sock  *__sock_map_lookup_elem(struct bpf_map *map, u32 key)
 {
@@ -658,6 +659,8 @@ static inline int sock_map_prog(struct bpf_map *map,
 {
 	return -EOPNOTSUPP;
 }
+
+static inline void sock_map_release(struct bpf_map *map) {}
 #endif
 
 /* verifier prototypes for helper functions called from eBPF programs */
