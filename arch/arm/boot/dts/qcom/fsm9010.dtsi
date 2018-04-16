@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1185,6 +1185,7 @@
 		reg = <0xe8000000 0x20000>,
 			<0xe8004000 0x22000>;
 		qcom,ee = <0>;
+		qcom,secure-mode-enabled;
 	};
 
 	crypto1: crypto@e8400000 {
@@ -1193,6 +1194,7 @@
 		reg = <0xe8400000 0x20000>,
 			<0xe8404000 0x22000>;
 		qcom,ee = <0>;
+		qcom,secure-mode-enabled;
 	};
 };
 
