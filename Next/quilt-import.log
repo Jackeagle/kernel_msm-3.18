@@ -1,0 +1,17 @@
+Importing dmi based on 4.16
+$ git clone -s -l -n -q . ../quilt-tmp
+$ cd ../quilt-tmp
+$ git reset --hard 0adb32858b0bddf4ada5f364a84ed60b196dbcda
+HEAD is now at 0adb32858b0b Linux 4.16
+$ git am -s --patch-format=mbox ../quilt/dmi/firmware-dmi_scan-fix-uuid-length-check.patch
+Applying: firmware: dmi_scan: Fix UUID length safety check
+$ git am -s --patch-format=mbox ../quilt/dmi/firmware-dmi_scan-add-dmi_oem_string-support-to-dmi_matches.patch
+Applying: firmware: dmi_scan: Add DMI_OEM_STRING support to dmi_matches
+$ git am -s --patch-format=mbox ../quilt/dmi/firmware-dmi_scan-uuid-lowercase.patch
+Applying: firmware: dmi_scan: Use lowercase letters for UUID
+$ cd /home/sfr/kernels/next/next
+$ git fetch -f ../quilt-tmp master:dmi/master
+From ../quilt-tmp
+ + 1efd78fbd137...0a5f08c2f0c7 master     -> dmi/master  (forced update)
+Importing dmi based on 4.16
+Unchanged quilt series dmi
