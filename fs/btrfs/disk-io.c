@@ -55,7 +55,9 @@
 static const struct extent_io_ops btree_extent_io_ops;
 static void end_workqueue_fn(struct btrfs_work *work);
 static void free_fs_root(struct btrfs_root *root);
-static int btrfs_check_super_valid(struct btrfs_fs_info *fs_info);
+static int btrfs_check_super_valid(struct btrfs_fs_info *fs_info,
+				   struct btrfs_super_block *sb,
+				   int super_mirror);
 static void btrfs_destroy_ordered_extents(struct btrfs_root *root);
 static int btrfs_destroy_delayed_refs(struct btrfs_transaction *trans,
 				      struct btrfs_fs_info *fs_info);
@@ -2667,7 +2669,7 @@ int open_ctree(struct super_block *sb,
 
 	memcpy(fs_info->fsid, fs_info->super_copy->fsid, BTRFS_FSID_SIZE);
 
-	ret = btrfs_check_super_valid(fs_info);
+	ret = btrfs_check_super_valid(fs_info, fs_info->super_copy, 0);
 	if (ret) {
 		btrfs_err(fs_info, "superblock contains fatal errors");
 		err = -EINVAL;
@@ -3562,6 +3564,16 @@ int write_all_supers(struct btrfs_fs_info *fs_info, int max_mirrors)
 	sb = fs_info->super_for_commit;
 	dev_item = &sb->dev_item;
 
+	/*
+	 * super_bytenr will be updated in write_dev_supers(), even if it is
+	 * corrupted in current copy, it won't reach disk. So skip bytenr check.
+	 */
+	if (btrfs_check_super_valid(fs_info, sb, -1)) {
+		btrfs_err(fs_info,
+		"superblock corruption detected before transaction commit");
+		return -EUCLEAN;
+	}
+
 	mutex_lock(&fs_info->fs_devices->device_list_mutex);
 	head = &fs_info->fs_devices->devices;
 	max_errors = btrfs_super_num_devices(fs_info->super_copy) - 1;
@@ -3973,9 +3985,19 @@ int btrfs_read_buffer(struct extent_buffer *buf, u64 parent_transid, int level,
 					      level, first_key);
 }
 
-static int btrfs_check_super_valid(struct btrfs_fs_info *fs_info)
+/*
+ * Check the validity of btrfs super block
+ *
+ * @sb:			super block to check
+ * @super_mirror:	the super block number to check its bytenr:
+ * 			0 means the primary (1st) sb,
+ * 			1 and 2 means 2nd and 3rd backup copy
+ * 			-1 means to skip bytenr check
+ */
+static int btrfs_check_super_valid(struct btrfs_fs_info *fs_info,
+				   struct btrfs_super_block *sb,
+				   int super_mirror)
 {
-	struct btrfs_super_block *sb = fs_info->super_copy;
 	u64 nodesize = btrfs_super_nodesize(sb);
 	u64 sectorsize = btrfs_super_sectorsize(sb);
 	int ret = 0;
@@ -4088,9 +4110,10 @@ static int btrfs_check_super_valid(struct btrfs_fs_info *fs_info)
 		ret = -EINVAL;
 	}
 
-	if (btrfs_super_bytenr(sb) != BTRFS_SUPER_INFO_OFFSET) {
-		btrfs_err(fs_info, "super offset mismatch %llu != %u",
-			  btrfs_super_bytenr(sb), BTRFS_SUPER_INFO_OFFSET);
+	if (super_mirror >= 0 &&
+	    btrfs_super_bytenr(sb) != btrfs_sb_offset(super_mirror)) {
+		btrfs_err(fs_info, "super offset mismatch %llu != %llu",
+			btrfs_super_bytenr(sb), btrfs_sb_offset(super_mirror));
 		ret = -EINVAL;
 	}
 
