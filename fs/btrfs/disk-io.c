@@ -4104,6 +4104,19 @@ static int btrfs_check_super_valid(struct btrfs_fs_info *fs_info)
 	}
 
 	/*
+	 * Before calling btrfs_check_super_valid() we have already checked
+	 * incompat flags. So if we developr new incompat flags, it's must be
+	 * some corruption.
+	 */
+	if (btrfs_super_incompat_flags(sb) & ~BTRFS_FEATURE_INCOMPAT_SUPP) {
+		btrfs_err(fs_info,
+		"corrupted incompat flags detected 0x%llx, supported 0x%llx",
+			  btrfs_super_incompat_flags(sb),
+			  BTRFS_FEATURE_INCOMPAT_SUPP);
+		ret = -EINVAL;
+	}
+
+	/*
 	 * The generation is a global counter, we'll trust it more than the others
 	 * but it's still possible that it's the one that's wrong.
 	 */
