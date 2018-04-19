@@ -3984,6 +3984,16 @@ static int btrfs_check_super_valid(struct btrfs_fs_info *fs_info)
 		btrfs_err(fs_info, "no valid FS found");
 		ret = -EINVAL;
 	}
+
+	/*
+	 * For write time check, as for mount time we have checked csum before
+	 * calling btrfs_check_super_valid(), so it must be a corruption
+	 */
+	if (btrfs_super_csum_type(sb) >= ARRAY_SIZE(btrfs_csum_sizes)) {
+		btrfs_err(fs_info, "corrupted csum type %u",
+			  btrfs_super_csum_type(sb));
+		ret = -EINVAL;
+	}
 	if (btrfs_super_flags(sb) & ~BTRFS_SUPER_FLAG_SUPP) {
 		btrfs_err(fs_info, "unrecognized or unsupported super flag: %llu",
 				btrfs_super_flags(sb) & ~BTRFS_SUPER_FLAG_SUPP);
