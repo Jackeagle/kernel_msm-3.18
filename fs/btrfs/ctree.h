@@ -732,6 +732,11 @@ struct btrfs_delayed_root;
  * (device replace, resize, device add/delete, balance)
  */
 #define BTRFS_FS_EXCL_OP			16
+/*
+ * Indicate that balance has been set up from the ioctl and is in the main
+ * phase. The fs_info::balance_ctl is initialized.
+ */
+#define BTRFS_FS_BALANCE_RUNNING		17
 
 /*
  * To info transaction_kthread we need an immediate commit so it doesn't
@@ -838,7 +843,6 @@ struct btrfs_fs_info {
 	struct mutex transaction_kthread_mutex;
 	struct mutex cleaner_mutex;
 	struct mutex chunk_mutex;
-	struct mutex volume_mutex;
 
 	/*
 	 * this is taken to make sure we don't set block groups ro after
@@ -1004,7 +1008,6 @@ struct btrfs_fs_info {
 	/* restriper state */
 	spinlock_t balance_lock;
 	struct mutex balance_mutex;
-	atomic_t balance_running;
 	atomic_t balance_pause_req;
 	atomic_t balance_cancel_req;
 	struct btrfs_balance_control *balance_ctl;
@@ -2814,7 +2817,10 @@ u64 btrfs_account_ro_block_groups_free_space(struct btrfs_space_info *sinfo);
 int btrfs_error_unpin_extent_range(struct btrfs_fs_info *fs_info,
 				   u64 start, u64 end);
 int btrfs_discard_extent(struct btrfs_fs_info *fs_info, u64 bytenr,
-			 u64 num_bytes, u64 *actual_bytes);
+			 u64 num_bytes, u64 *actual_bytes,
+			 enum btrfs_clear_op_type clear);
+int btrfs_clear_free_space(struct btrfs_root *root,
+		struct btrfs_ioctl_clear_free_args *args);
 int btrfs_force_chunk_alloc(struct btrfs_trans_handle *trans,
 			    struct btrfs_fs_info *fs_info, u64 type);
 int btrfs_trim_fs(struct btrfs_fs_info *fs_info, struct fstrim_range *range);
@@ -3173,7 +3179,6 @@ struct btrfs_delalloc_work {
 
 struct btrfs_delalloc_work *btrfs_alloc_delalloc_work(struct inode *inode,
 						    int delay_iput);
-void btrfs_wait_and_free_delalloc_work(struct btrfs_delalloc_work *work);
 
 struct extent_map *btrfs_get_extent_fiemap(struct btrfs_inode *inode,
 		struct page *page, size_t pg_offset, u64 start,
@@ -3191,10 +3196,7 @@ int btrfs_unlink_inode(struct btrfs_trans_handle *trans,
 int btrfs_add_link(struct btrfs_trans_handle *trans,
 		   struct btrfs_inode *parent_inode, struct btrfs_inode *inode,
 		   const char *name, int name_len, int add_backref, u64 index);
-int btrfs_unlink_subvol(struct btrfs_trans_handle *trans,
-			struct btrfs_root *root,
-			struct inode *dir, u64 objectid,
-			const char *name, int name_len);
+int btrfs_delete_subvolume(struct inode *dir, struct dentry *dentry);
 int btrfs_truncate_block(struct inode *inode, loff_t from, loff_t len,
 			int front);
 int btrfs_truncate_inode_items(struct btrfs_trans_handle *trans,
@@ -3260,14 +3262,14 @@ void btrfs_test_inode_set_ops(struct inode *inode);
 long btrfs_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
 long btrfs_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
 int btrfs_ioctl_get_supported_features(void __user *arg);
-void btrfs_update_iflags(struct inode *inode);
+void btrfs_sync_inode_flags_to_i_flags(struct inode *inode);
 int btrfs_is_empty_uuid(u8 *uuid);
 int btrfs_defrag_file(struct inode *inode, struct file *file,
 		      struct btrfs_ioctl_defrag_range_args *range,
 		      u64 newer_than, unsigned long max_pages);
 void btrfs_get_block_group_info(struct list_head *groups_list,
 				struct btrfs_ioctl_space_info *space);
-void update_ioctl_balance_args(struct btrfs_fs_info *fs_info, int lock,
+void btrfs_update_ioctl_balance_args(struct btrfs_fs_info *fs_info,
 			       struct btrfs_ioctl_balance_args *bargs);
 ssize_t btrfs_dedupe_file_range(struct file *src_file, u64 loff, u64 olen,
 			   struct file *dst_file, u64 dst_loff);

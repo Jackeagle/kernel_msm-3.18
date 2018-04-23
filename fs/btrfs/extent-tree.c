@@ -744,12 +744,12 @@ static struct btrfs_space_info *__find_space_info(struct btrfs_fs_info *info,
 }
 
 static void add_pinned_bytes(struct btrfs_fs_info *fs_info, s64 num_bytes,
-			     u64 owner, u64 root_objectid)
+			     bool metadata, u64 root_objectid)
 {
 	struct btrfs_space_info *space_info;
 	u64 flags;
 
-	if (owner < BTRFS_FIRST_FREE_OBJECTID) {
+	if (metadata) {
 		if (root_objectid == BTRFS_CHUNK_TREE_OBJECTID)
 			flags = BTRFS_BLOCK_GROUP_SYSTEM;
 		else
@@ -2034,9 +2034,40 @@ static int remove_extent_backref(struct btrfs_trans_handle *trans,
 	return ret;
 }
 
+static int btrfs_issue_clear_op(struct block_device *bdev, u64 start, u64 size,
+		enum btrfs_clear_op_type clear)
+{
+	int flags = 0;
+
+	switch (clear) {
+	case BTRFS_CLEAR_OP_DISCARD_SECURE:
+		flags = BLKDEV_DISCARD_SECURE;
+		/* fall through */
+	case BTRFS_CLEAR_OP_DISCARD:
+		return blkdev_issue_discard(bdev, start >> 9, size >> 9,
+				GFP_NOFS, flags);
+	case BTRFS_CLEAR_OP_ZERO_NOUNMAP:
+		flags = BLKDEV_ZERO_NOUNMAP;
+		goto zeroout;
+	case BTRFS_CLEAR_OP_ZERO_NOFALLBACK:
+		flags = BLKDEV_ZERO_NOFALLBACK;
+		goto zeroout;
+	case BTRFS_CLEAR_OP_ZERO_NOUNMAP_NOFALLBACK:
+		flags = BLKDEV_ZERO_NOUNMAP | BLKDEV_ZERO_NOFALLBACK;
+		/* fall through */
+	case BTRFS_CLEAR_OP_ZERO:
+zeroout:
+		return blkdev_issue_zeroout(bdev, start >> 9, size >> 9,
+				GFP_NOFS, flags);
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
 #define in_range(b, first, len)        ((b) >= (first) && (b) < (first) + (len))
 static int btrfs_issue_discard(struct block_device *bdev, u64 start, u64 len,
-			       u64 *discarded_bytes)
+			       u64 *discarded_bytes,
+			       enum btrfs_clear_op_type clear)
 {
 	int j, ret = 0;
 	u64 bytes_left, end;
@@ -2080,10 +2111,8 @@ static int btrfs_issue_discard(struct block_device *bdev, u64 start, u64 len,
 			bytes_left = end - start;
 			continue;
 		}
-
 		if (size) {
-			ret = blkdev_issue_discard(bdev, start >> 9, size >> 9,
-						   GFP_NOFS, 0);
+			ret = btrfs_issue_clear_op(bdev, start, size, clear);
 			if (!ret)
 				*discarded_bytes += size;
 			else if (ret != -EOPNOTSUPP)
@@ -2099,8 +2128,7 @@ static int btrfs_issue_discard(struct block_device *bdev, u64 start, u64 len,
 	}
 
 	if (bytes_left) {
-		ret = blkdev_issue_discard(bdev, start >> 9, bytes_left >> 9,
-					   GFP_NOFS, 0);
+		ret = btrfs_issue_clear_op(bdev, start, bytes_left, clear);
 		if (!ret)
 			*discarded_bytes += bytes_left;
 	}
@@ -2108,12 +2136,19 @@ static int btrfs_issue_discard(struct block_device *bdev, u64 start, u64 len,
 }
 
 int btrfs_discard_extent(struct btrfs_fs_info *fs_info, u64 bytenr,
-			 u64 num_bytes, u64 *actual_bytes)
+			 u64 num_bytes, u64 *actual_bytes,
+			 enum btrfs_clear_op_type clear)
 {
 	int ret;
 	u64 discarded_bytes = 0;
 	struct btrfs_bio *bbio = NULL;
+	int rw;
 
+	if (clear == BTRFS_CLEAR_OP_DISCARD ||
+	    clear == BTRFS_CLEAR_OP_DISCARD_SECURE)
+		rw = BTRFS_MAP_DISCARD;
+	else
+		rw = BTRFS_MAP_WRITE;
 
 	/*
 	 * Avoid races with device replace and make sure our bbio has devices
@@ -2121,8 +2156,7 @@ int btrfs_discard_extent(struct btrfs_fs_info *fs_info, u64 bytenr,
 	 */
 	btrfs_bio_counter_inc_blocked(fs_info);
 	/* Tell the block device(s) that the sectors can be discarded */
-	ret = btrfs_map_block(fs_info, BTRFS_MAP_DISCARD, bytenr, &num_bytes,
-			      &bbio, 0);
+	ret = btrfs_map_block(fs_info, rw, bytenr, &num_bytes, &bbio, 0);
 	/* Error condition is -ENOMEM */
 	if (!ret) {
 		struct btrfs_bio_stripe *stripe = bbio->stripes;
@@ -2138,13 +2172,18 @@ int btrfs_discard_extent(struct btrfs_fs_info *fs_info, u64 bytenr,
 				continue;
 			}
 			req_q = bdev_get_queue(stripe->dev->bdev);
-			if (!blk_queue_discard(req_q))
+			if (clear == BTRFS_CLEAR_OP_DISCARD &&
+			    !blk_queue_discard(req_q))
+				continue;
+
+			if (clear == BTRFS_CLEAR_OP_DISCARD_SECURE &&
+			    !blk_queue_secure_erase(req_q))
 				continue;
 
 			ret = btrfs_issue_discard(stripe->dev->bdev,
 						  stripe->physical,
 						  stripe->length,
-						  &bytes);
+						  &bytes, clear);
 			if (!ret)
 				discarded_bytes += bytes;
 			else if (ret != -EOPNOTSUPP)
@@ -2200,8 +2239,11 @@ int btrfs_inc_extent_ref(struct btrfs_trans_handle *trans,
 						 &old_ref_mod, &new_ref_mod);
 	}
 
-	if (ret == 0 && old_ref_mod < 0 && new_ref_mod >= 0)
-		add_pinned_bytes(fs_info, -num_bytes, owner, root_objectid);
+	if (ret == 0 && old_ref_mod < 0 && new_ref_mod >= 0) {
+		bool metadata = owner < BTRFS_FIRST_FREE_OBJECTID;
+
+		add_pinned_bytes(fs_info, -num_bytes, metadata, root_objectid);
+	}
 
 	return ret;
 }
@@ -2594,8 +2636,8 @@ static int cleanup_ref_head(struct btrfs_trans_handle *trans,
 	delayed_refs->num_heads--;
 	rb_erase(&head->href_node, &delayed_refs->href_root);
 	RB_CLEAR_NODE(&head->href_node);
-	spin_unlock(&delayed_refs->lock);
 	spin_unlock(&head->lock);
+	spin_unlock(&delayed_refs->lock);
 	atomic_dec(&delayed_refs->num_entries);
 
 	trace_run_delayed_ref_head(fs_info, head, 0);
@@ -2700,8 +2742,7 @@ static noinline int __btrfs_run_delayed_refs(struct btrfs_trans_handle *trans,
 		 * insert_inline_extent_backref()).
 		 */
 		spin_lock(&locked_ref->lock);
-		btrfs_merge_delayed_refs(trans, fs_info, delayed_refs,
-					 locked_ref);
+		btrfs_merge_delayed_refs(trans, delayed_refs, locked_ref);
 
 		/*
 		 * locked_ref is the head node, so we have to go one
@@ -2710,7 +2751,7 @@ static noinline int __btrfs_run_delayed_refs(struct btrfs_trans_handle *trans,
 		ref = select_delayed_ref(locked_ref);
 
 		if (ref && ref->seq &&
-		    btrfs_check_delayed_seq(fs_info, delayed_refs, ref->seq)) {
+		    btrfs_check_delayed_seq(fs_info, ref->seq)) {
 			spin_unlock(&locked_ref->lock);
 			unselect_delayed_ref_head(delayed_refs, locked_ref);
 			locked_ref = NULL;
@@ -4115,7 +4156,7 @@ static void set_avail_alloc_bits(struct btrfs_fs_info *fs_info, u64 flags)
  * returns target flags in extended format or 0 if restripe for this
  * chunk_type is not in progress
  *
- * should be called with either volume_mutex or balance_lock held
+ * should be called with balance_lock held
  */
 static u64 get_restripe_target(struct btrfs_fs_info *fs_info, u64 flags)
 {
@@ -4671,12 +4712,14 @@ again:
 	trans->allocating_chunk = false;
 
 	spin_lock(&space_info->lock);
-	if (ret < 0 && ret != -ENOSPC)
-		goto out;
-	if (ret)
-		space_info->full = 1;
-	else
+	if (ret < 0) {
+		if (ret == -ENOSPC)
+			space_info->full = 1;
+		else
+			goto out;
+	} else {
 		ret = 1;
+	}
 
 	space_info->force_alloc = CHUNK_ALLOC_NO_FORCE;
 out:
@@ -6824,7 +6867,8 @@ int btrfs_finish_extent_commit(struct btrfs_trans_handle *trans)
 
 		if (btrfs_test_opt(fs_info, DISCARD))
 			ret = btrfs_discard_extent(fs_info, start,
-						   end + 1 - start, NULL);
+						   end + 1 - start, NULL,
+						   BTRFS_CLEAR_OP_DISCARD);
 
 		clear_extent_dirty(unpin, start, end);
 		unpin_extent_range(fs_info, start, end, true);
@@ -6846,7 +6890,8 @@ int btrfs_finish_extent_commit(struct btrfs_trans_handle *trans)
 			ret = btrfs_discard_extent(fs_info,
 						   block_group->key.objectid,
 						   block_group->key.offset,
-						   &trimmed);
+						   &trimmed,
+						   BTRFS_CLEAR_OP_DISCARD);
 
 		list_del_init(&block_group->bg_list);
 		btrfs_put_block_group_trimming(block_group);
@@ -7259,7 +7304,7 @@ void btrfs_free_tree_block(struct btrfs_trans_handle *trans,
 	}
 out:
 	if (pin)
-		add_pinned_bytes(fs_info, buf->len, btrfs_header_level(buf),
+		add_pinned_bytes(fs_info, buf->len, true,
 				 root->root_key.objectid);
 
 	if (last_ref) {
@@ -7313,8 +7358,11 @@ int btrfs_free_extent(struct btrfs_trans_handle *trans,
 						 &old_ref_mod, &new_ref_mod);
 	}
 
-	if (ret == 0 && old_ref_mod >= 0 && new_ref_mod < 0)
-		add_pinned_bytes(fs_info, num_bytes, owner, root_objectid);
+	if (ret == 0 && old_ref_mod >= 0 && new_ref_mod < 0) {
+		bool metadata = owner < BTRFS_FIRST_FREE_OBJECTID;
+
+		add_pinned_bytes(fs_info, num_bytes, metadata, root_objectid);
+	}
 
 	return ret;
 }
@@ -8095,7 +8143,8 @@ static int __btrfs_free_reserved_extent(struct btrfs_fs_info *fs_info,
 		pin_down_extent(fs_info, cache, start, len, 1);
 	else {
 		if (btrfs_test_opt(fs_info, DISCARD))
-			ret = btrfs_discard_extent(fs_info, start, len, NULL);
+			ret = btrfs_discard_extent(fs_info, start, len, NULL,
+					BTRFS_CLEAR_OP_DISCARD);
 		btrfs_add_free_space(cache, start, len);
 		btrfs_free_reserved_bytes(cache, len, delalloc);
 		trace_btrfs_reserved_extent_free(fs_info, start, len);
@@ -10931,7 +10980,8 @@ int btrfs_error_unpin_extent_range(struct btrfs_fs_info *fs_info,
  * transaction.
  */
 static int btrfs_trim_free_extents(struct btrfs_device *device,
-				   u64 minlen, u64 *trimmed)
+				   u64 minlen, u64 *trimmed,
+				   enum btrfs_clear_op_type clear)
 {
 	u64 start = 0, len = 0;
 	int ret;
@@ -10978,7 +11028,8 @@ static int btrfs_trim_free_extents(struct btrfs_device *device,
 			break;
 		}
 
-		ret = btrfs_issue_discard(device->bdev, start, len, &bytes);
+		ret = btrfs_issue_discard(device->bdev, start, len, &bytes,
+				clear);
 		up_read(&fs_info->commit_root_sem);
 		mutex_unlock(&fs_info->chunk_mutex);
 
@@ -11046,7 +11097,8 @@ int btrfs_trim_fs(struct btrfs_fs_info *fs_info, struct fstrim_range *range)
 						     &group_trimmed,
 						     start,
 						     end,
-						     range->minlen);
+						     range->minlen,
+						     BTRFS_CLEAR_OP_DISCARD);
 
 			trimmed += group_trimmed;
 			if (ret) {
@@ -11062,7 +11114,8 @@ int btrfs_trim_fs(struct btrfs_fs_info *fs_info, struct fstrim_range *range)
 	devices = &fs_info->fs_devices->alloc_list;
 	list_for_each_entry(device, devices, dev_alloc_list) {
 		ret = btrfs_trim_free_extents(device, range->minlen,
-					      &group_trimmed);
+					      &group_trimmed,
+					      BTRFS_CLEAR_OP_DISCARD);
 		if (ret)
 			break;
 
@@ -11071,6 +11124,54 @@ int btrfs_trim_fs(struct btrfs_fs_info *fs_info, struct fstrim_range *range)
 	mutex_unlock(&fs_info->fs_devices->device_list_mutex);
 
 	range->len = trimmed;
+	return ret;
+}
+
+int btrfs_clear_free_space(struct btrfs_root *root,
+		struct btrfs_ioctl_clear_free_args *args)
+{
+	struct btrfs_fs_info *fs_info = root->fs_info;
+	struct btrfs_block_group_cache *cache = NULL;
+	u64 group_cleared;
+	u64 start;
+	u64 cleared = 0;
+	u64 end;
+	int ret = 0;
+
+	cache = btrfs_lookup_first_block_group(fs_info, args->start);
+
+	while (cache) {
+		if (cache->key.objectid >= (args->start + args->length)) {
+			btrfs_put_block_group(cache);
+			break;
+		}
+
+		start = max(args->start, cache->key.objectid);
+		end = min(args->start + args->length,
+				cache->key.objectid + cache->key.offset);
+
+		if (end - start >= args->minlen) {
+			if (!block_group_cache_done(cache)) {
+				ret = cache_block_group(cache, 0);
+				if (!ret)
+					wait_block_group_cache_done(cache);
+			}
+			ret = btrfs_trim_block_group(cache, &group_cleared,
+					start, end, args->minlen,
+					args->type);
+
+			if (ret) {
+				btrfs_put_block_group(cache);
+				break;
+			}
+			cleared += group_cleared;
+		}
+
+		cache = next_block_group(fs_info, cache);
+	}
+
+	args->length = cleared;
+
 	return ret;
 }
 
