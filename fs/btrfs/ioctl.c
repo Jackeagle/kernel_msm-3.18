@@ -1457,7 +1457,6 @@ static noinline int btrfs_ioctl_resize(struct file *file,
 		return BTRFS_ERROR_DEV_EXCL_RUN_IN_PROGRESS;
 	}
 
-	mutex_lock(&fs_info->volume_mutex);
 	vol_args = memdup_user(arg, sizeof(*vol_args));
 	if (IS_ERR(vol_args)) {
 		ret = PTR_ERR(vol_args);
@@ -1565,7 +1564,6 @@ static noinline int btrfs_ioctl_resize(struct file *file,
 out_free:
 	kfree(vol_args);
 out:
-	mutex_unlock(&fs_info->volume_mutex);
 	clear_bit(BTRFS_FS_EXCL_OP, &fs_info->flags);
 	mnt_drop_write_file(file);
 	return ret;
@@ -2459,7 +2457,6 @@ static long btrfs_ioctl_add_dev(struct btrfs_fs_info *fs_info, void __user *arg)
 	if (test_and_set_bit(BTRFS_FS_EXCL_OP, &fs_info->flags))
 		return BTRFS_ERROR_DEV_EXCL_RUN_IN_PROGRESS;
 
-	mutex_lock(&fs_info->volume_mutex);
 	vol_args = memdup_user(arg, sizeof(*vol_args));
 	if (IS_ERR(vol_args)) {
 		ret = PTR_ERR(vol_args);
@@ -2474,7 +2471,6 @@ static long btrfs_ioctl_add_dev(struct btrfs_fs_info *fs_info, void __user *arg)
 
 	kfree(vol_args);
 out:
-	mutex_unlock(&fs_info->volume_mutex);
 	clear_bit(BTRFS_FS_EXCL_OP, &fs_info->flags);
 	return ret;
 }
@@ -4336,14 +4332,14 @@ out_loi:
 	return ret;
 }
 
-void update_ioctl_balance_args(struct btrfs_fs_info *fs_info, int lock,
+void btrfs_update_ioctl_balance_args(struct btrfs_fs_info *fs_info,
 			       struct btrfs_ioctl_balance_args *bargs)
 {
 	struct btrfs_balance_control *bctl = fs_info->balance_ctl;
 
 	bargs->flags = bctl->flags;
 
-	if (atomic_read(&fs_info->balance_running))
+	if (test_bit(BTRFS_FS_BALANCE_RUNNING, &fs_info->flags))
 		bargs->state |= BTRFS_BALANCE_STATE_RUNNING;
 	if (atomic_read(&fs_info->balance_pause_req))
 		bargs->state |= BTRFS_BALANCE_STATE_PAUSE_REQ;
@@ -4354,13 +4350,9 @@ void update_ioctl_balance_args(struct btrfs_fs_info *fs_info, int lock,
 	memcpy(&bargs->meta, &bctl->meta, sizeof(bargs->meta));
 	memcpy(&bargs->sys, &bctl->sys, sizeof(bargs->sys));
 
-	if (lock) {
-		spin_lock(&fs_info->balance_lock);
-		memcpy(&bargs->stat, &bctl->stat, sizeof(bargs->stat));
-		spin_unlock(&fs_info->balance_lock);
-	} else {
-		memcpy(&bargs->stat, &bctl->stat, sizeof(bargs->stat));
-	}
+	spin_lock(&fs_info->balance_lock);
+	memcpy(&bargs->stat, &bctl->stat, sizeof(bargs->stat));
+	spin_unlock(&fs_info->balance_lock);
 }
 
 static long btrfs_ioctl_balance(struct file *file, void __user *arg)
@@ -4381,7 +4373,6 @@ static long btrfs_ioctl_balance(struct file *file, void __user *arg)
 
 again:
 	if (!test_and_set_bit(BTRFS_FS_EXCL_OP, &fs_info->flags)) {
-		mutex_lock(&fs_info->volume_mutex);
 		mutex_lock(&fs_info->balance_mutex);
 		need_unlock = true;
 		goto locked;
@@ -4396,21 +4387,22 @@ again:
 	mutex_lock(&fs_info->balance_mutex);
 	if (fs_info->balance_ctl) {
 		/* this is either (2) or (3) */
-		if (!atomic_read(&fs_info->balance_running)) {
+		if (!test_bit(BTRFS_FS_BALANCE_RUNNING, &fs_info->flags)) {
 			mutex_unlock(&fs_info->balance_mutex);
-			if (!mutex_trylock(&fs_info->volume_mutex))
-				goto again;
+			/*
+			 * Lock released to allow other waiters to continue,
+			 * we'll reexamine the status again.
+			 */
 			mutex_lock(&fs_info->balance_mutex);
 
 			if (fs_info->balance_ctl &&
-			    !atomic_read(&fs_info->balance_running)) {
+			    !test_bit(BTRFS_FS_BALANCE_RUNNING, &fs_info->flags)) {
 				/* this is (3) */
 				need_unlock = false;
 				goto locked;
 			}
 
 			mutex_unlock(&fs_info->balance_mutex);
-			mutex_unlock(&fs_info->volume_mutex);
 			goto again;
 		} else {
 			/* this is (2) */
@@ -4482,10 +4474,10 @@ locked:
 
 do_balance:
 	/*
-	 * Ownership of bctl and filesystem flag BTRFS_FS_EXCL_OP
-	 * goes to to btrfs_balance.  bctl is freed in __cancel_balance,
-	 * or, if restriper was paused all the way until unmount, in
-	 * free_fs_info.  The flag is cleared in __cancel_balance.
+	 * Ownership of bctl and filesystem flag BTRFS_FS_EXCL_OP goes to
+	 * btrfs_balance.  bctl is freed in reset_balance_state, or, if
+	 * restriper was paused all the way until unmount, in free_fs_info.
+	 * The flag should be cleared after reset_balance_state.
 	 */
 	need_unlock = false;
 
@@ -4503,7 +4495,6 @@ out_bargs:
 	kfree(bargs);
 out_unlock:
 	mutex_unlock(&fs_info->balance_mutex);
-	mutex_unlock(&fs_info->volume_mutex);
 	if (need_unlock)
 		clear_bit(BTRFS_FS_EXCL_OP, &fs_info->flags);
 out:
@@ -4547,7 +4538,7 @@ static long btrfs_ioctl_balance_progress(struct btrfs_fs_info *fs_info,
 		goto out;
 	}
 
-	update_ioctl_balance_args(fs_info, 1, bargs);
+	btrfs_update_ioctl_balance_args(fs_info, bargs);
 
 	if (copy_to_user(arg, bargs, sizeof(*bargs)))
 		ret = -EFAULT;
