@@ -3166,17 +3166,6 @@ void btrfs_extent_item_to_extent_map(struct btrfs_inode *inode,
 				     struct extent_map *em);
 
 /* inode.c */
-struct btrfs_delalloc_work {
-	struct inode *inode;
-	int delay_iput;
-	struct completion completion;
-	struct list_head list;
-	struct btrfs_work work;
-};
-
-struct btrfs_delalloc_work *btrfs_alloc_delalloc_work(struct inode *inode,
-						    int delay_iput);
-
 struct extent_map *btrfs_get_extent_fiemap(struct btrfs_inode *inode,
 		struct page *page, size_t pg_offset, u64 start,
 		u64 len, int create);
@@ -3201,9 +3190,8 @@ int btrfs_truncate_inode_items(struct btrfs_trans_handle *trans,
 			       struct inode *inode, u64 new_size,
 			       u32 min_type);
 
-int btrfs_start_delalloc_inodes(struct btrfs_root *root, int delay_iput);
-int btrfs_start_delalloc_roots(struct btrfs_fs_info *fs_info, int delay_iput,
-			       int nr);
+int btrfs_start_delalloc_inodes(struct btrfs_root *root);
+int btrfs_start_delalloc_roots(struct btrfs_fs_info *fs_info, int nr);
 int btrfs_set_extent_delalloc(struct inode *inode, u64 start, u64 end,
 			      unsigned int extra_bits,
 			      struct extent_state **cached_state, int dedupe);
