@@ -15,23 +15,12 @@
 
 #include "himax_ic.h"
 
-static unsigned char i_TP_CRC_FW_128K[]=
-{
-	#include "HX_CRC_128.i"
-};
-static unsigned char i_TP_CRC_FW_64K[]=
-{
-	#include "HX_CRC_64.i"
-};
-static unsigned char i_TP_CRC_FW_124K[]=
-{
-	#include "HX_CRC_124.i"
-};
-static unsigned char i_TP_CRC_FW_60K[]=
-{
-	#include "HX_CRC_60.i"
-};
+const struct firmware *i_TP_CRC_FW_128K = NULL;
+const struct firmware *i_TP_CRC_FW_64K = NULL;
+const struct firmware *i_TP_CRC_FW_124K = NULL;
+const struct firmware *i_TP_CRC_FW_60K = NULL;
 
+extern struct himax_ts_data *private_ts;
 
 unsigned long	FW_VER_MAJ_FLASH_ADDR;
 unsigned long 	FW_VER_MAJ_FLASH_LENG;
@@ -1198,28 +1187,48 @@ int himax_check_CRC(struct i2c_client *client, int mode)
 	int CRC_value = 0;
 
 	memset(tmp_data, 0x00, sizeof(tmp_data));
+	if(i_TP_CRC_FW_60K == NULL)
+		{
+			I("%s: i_TP_CRC_FW_60K = NULL\n", __func__);
+			return 0;
+		}
+	else if(i_TP_CRC_FW_64K == NULL)
+		{
+			I("%s: i_TP_CRC_FW_64K = NULL\n", __func__);
+			return 0;
+		}
+	else if(i_TP_CRC_FW_124K == NULL)
+		{
+			I("%s: i_TP_CRC_FW_124K = NULL\n", __func__);
+			return 0;
+		}
+	else if(i_TP_CRC_FW_128K == NULL)
+		{
+			I("%s: i_TP_CRC_FW_128K = NULL\n", __func__);
+			return 0;
+		}
 
 	if (1)
 	{
 		if(mode == fw_image_60k)
 		{
-			himax_sram_write(client, (i_TP_CRC_FW_60K));
-			burnFW_success = himax_sram_verify(client, i_TP_CRC_FW_60K, 0x4000);
+			himax_sram_write(client, (unsigned char *)i_TP_CRC_FW_60K->data);
+			burnFW_success = himax_sram_verify(client, (unsigned char *)i_TP_CRC_FW_60K->data, 0x4000);
 		}
 		else if(mode == fw_image_64k)
 		{
-			himax_sram_write(client, (i_TP_CRC_FW_64K));
-			burnFW_success = himax_sram_verify(client, i_TP_CRC_FW_64K, 0x4000);
+			himax_sram_write(client, (unsigned char *)i_TP_CRC_FW_64K->data);
+			burnFW_success = himax_sram_verify(client, (unsigned char *)i_TP_CRC_FW_64K->data, 0x4000);
 		}
 		else if(mode == fw_image_124k)
 		{
-			himax_sram_write(client, (i_TP_CRC_FW_124K));
-			burnFW_success = himax_sram_verify(client, i_TP_CRC_FW_124K, 0x4000);
+			himax_sram_write(client, (unsigned char *)i_TP_CRC_FW_124K->data);
+			burnFW_success = himax_sram_verify(client, (unsigned char *)i_TP_CRC_FW_124K->data, 0x4000);
 		}
 		else if(mode == fw_image_128k)
 		{
-			himax_sram_write(client, (i_TP_CRC_FW_128K));
-			burnFW_success = himax_sram_verify(client, i_TP_CRC_FW_128K, 0x4000);
+			himax_sram_write(client, (unsigned char *)i_TP_CRC_FW_128K->data);
+			burnFW_success = himax_sram_verify(client, (unsigned char *)i_TP_CRC_FW_128K->data, 0x4000);
 		}
 		if (burnFW_success)
 		{
@@ -1345,6 +1354,74 @@ bool Calculate_CRC_with_AP(unsigned char *FW_content , int CRC_from_FW, int mode
 }
 #endif
 
+int himax_load_CRC_bin_file(struct i2c_client *client)
+{
+	int err = 0;
+	char *CRC_60_firmware_name = "HX_CRC_60.bin";
+	char *CRC_64_firmware_name = "HX_CRC_64.bin";
+	char *CRC_124_firmware_name = "HX_CRC_124.bin";
+	char *CRC_128_firmware_name = "HX_CRC_128.bin";
+
+	I("%s,Entering \n",__func__);
+	if(i_TP_CRC_FW_60K == NULL)	{
+			I("load file name = %s\n",CRC_60_firmware_name);
+			err = request_firmware(&i_TP_CRC_FW_60K, CRC_60_firmware_name, private_ts->dev);
+			if (err < 0) {
+				E("%s,fail in line%d error code=%d\n",__func__,__LINE__,err);
+				err = -1;
+				goto request_60k_fw_fail;
+			}
+		}
+	else
+		I("%s already load i_TP_CRC_FW_60K\n",__func__);
+
+	if(i_TP_CRC_FW_64K == NULL)	{
+			I("load file name = %s\n",CRC_64_firmware_name);
+			err = request_firmware(&i_TP_CRC_FW_64K, CRC_64_firmware_name, private_ts->dev);
+			if (err < 0) {
+				E("%s,fail in line%d error code=%d\n",__func__,__LINE__,err);
+				err = -2;
+				goto request_64k_fw_fail;
+			}
+		}
+	else
+		I("%s already load i_TP_CRC_FW_64K\n",__func__);
+
+	if(i_TP_CRC_FW_124K == NULL) {
+			I("load file name = %s\n",CRC_124_firmware_name);
+			err = request_firmware(&i_TP_CRC_FW_124K, CRC_124_firmware_name, private_ts->dev);
+			if (err < 0) {
+				E("%s,fail in line%d error code=%d\n",__func__,__LINE__,err);
+				err = -3;
+				goto request_124k_fw_fail;
+			}
+		}
+	else
+		I("%s already load i_TP_CRC_FW_124K\n",__func__);
+
+	if(i_TP_CRC_FW_128K == NULL) {
+			I("load file name = %s\n",CRC_128_firmware_name);
+			err = request_firmware(&i_TP_CRC_FW_128K, CRC_128_firmware_name, private_ts->dev);
+			if (err < 0) {
+				E("%s,fail in line%d error code=%d\n",__func__,__LINE__,err);
+				err = -4;
+				goto request_128k_fw_fail;
+			}
+		}
+	else
+		I("%s already load  i_TP_CRC_FW_128K\n",__func__);
+
+	return err;
+
+request_128k_fw_fail:
+	release_firmware(i_TP_CRC_FW_124K);
+request_124k_fw_fail:
+	release_firmware(i_TP_CRC_FW_64K);
+request_64k_fw_fail:
+	release_firmware(i_TP_CRC_FW_60K);
+request_60k_fw_fail:
+	return err;
+}
 int fts_ctpm_fw_upgrade_with_sys_fs_60k(struct i2c_client *client, unsigned char *fw, int len, bool change_iref)
 {
 	int CRC_from_FW = 0;

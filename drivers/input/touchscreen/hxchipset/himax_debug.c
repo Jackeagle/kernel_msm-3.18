@@ -23,6 +23,8 @@ extern struct himax_ts_data *private_ts;
 extern unsigned char	IC_TYPE;
 extern unsigned char	IC_CHECKSUM;
 extern int himax_input_register(struct himax_ts_data *ts);
+extern int himax_load_CRC_bin_file(struct i2c_client *client);
+
 #ifdef QCT
 extern irqreturn_t himax_ts_thread(int irq, void *ptr);
 #endif
@@ -1129,11 +1131,10 @@ static ssize_t himax_debug_read(struct file *file, char *buf,
 static ssize_t himax_debug_write(struct file *file, const char *buff,
 	size_t len, loff_t *pos)
 {
-	struct file* filp = NULL;
-	mm_segment_t oldfs;
 	int result = 0;
 	char fileName[128];
 	char buf[80] = {0};
+	const struct firmware *fw = NULL;
 
 	if (len >= 80)
 	{
@@ -1194,43 +1195,30 @@ static ssize_t himax_debug_write(struct file *file, const char *buff,
 		debug_level_cmd 		= buf[0];
 		fw_update_complete		= false;
 
+		result = himax_load_CRC_bin_file(private_ts->client);
+		if (result < 0) {
+			E("%s: himax_load_CRC_bin_file fail Error Code=%d.\n", __func__, result);
+			return result;
+		}
+
 		memset(fileName, 0, 128);
-		// parse the file name
+// parse the file name
 		snprintf(fileName, len-4, "%s", &buf[4]);
 		I("%s: upgrade from file(%s) start!\n", __func__, fileName);
-		// open file
-		filp = filp_open(fileName, O_RDONLY, 0);
-		if (IS_ERR(filp))
-		{
-			E("%s: open firmware file failed\n", __func__);
-			goto firmware_upgrade_done;
-			//return len;
+		result = request_firmware(&fw, fileName, private_ts->dev);
+		if (result < 0) {
+			I("fail to request_firmware fwpath: %s (ret:%d)\n", fileName, result);
+			return result;
 		}
-		oldfs = get_fs();
-		set_fs(get_ds());
-
-		// read the latest firmware binary file
-		result=filp->f_op->read(filp,upgrade_fw,sizeof(upgrade_fw), &filp->f_pos);
-		if (result < 0)
-		{
-			E("%s: read firmware file failed\n", __func__);
-			goto firmware_upgrade_done;
-			//return len;
-		}
-
-		set_fs(oldfs);
-		filp_close(filp, NULL);
-
-		I("%s: FW image,len %d: %02X, %02X, %02X, %02X\n", __func__, result, upgrade_fw[0], upgrade_fw[1], upgrade_fw[2], upgrade_fw[3]);
-
-		if (result > 0)
+		I("%s: FW image: %02X, %02X, %02X, %02X ret=%d\n", __func__, fw->data[0], fw->data[1], fw->data[2], fw->data[3], result);
+		if (result >= 0)
 		{
 			// start to upgrade
 			himax_int_enable(private_ts->client->irq,0);
 
 			if ((buf[1] == '6') && (buf[2] == '0'))
 			{
-				if (fts_ctpm_fw_upgrade_with_sys_fs_60k(private_ts->client,upgrade_fw, result, false) == 0)
+				if (fts_ctpm_fw_upgrade_with_sys_fs_60k(private_ts->client,(unsigned char *)fw->data, fw->size, false) == 0)
 				{
 					E("%s: TP upgrade error, line: %d\n", __func__, __LINE__);
 					fw_update_complete = false;
@@ -1243,7 +1231,7 @@ static ssize_t himax_debug_write(struct file *file, const char *buff,
 			}
 			else if ((buf[1] == '6') && (buf[2] == '4'))
 			{
-				if (fts_ctpm_fw_upgrade_with_sys_fs_64k(private_ts->client,upgrade_fw, result, false) == 0)
+				if (fts_ctpm_fw_upgrade_with_sys_fs_64k(private_ts->client,(unsigned char *)fw->data, fw->size, false) == 0)
 				{
 					E("%s: TP upgrade error, line: %d\n", __func__, __LINE__);
 					fw_update_complete = false;
@@ -1256,7 +1244,7 @@ static ssize_t himax_debug_write(struct file *file, const char *buff,
 			}
 			else if ((buf[1] == '2') && (buf[2] == '4'))
 			{
-				if (fts_ctpm_fw_upgrade_with_sys_fs_124k(private_ts->client,upgrade_fw, result, false) == 0)
+				if (fts_ctpm_fw_upgrade_with_sys_fs_124k(private_ts->client,(unsigned char *)fw->data, fw->size, false) == 0)
 				{
 					E("%s: TP upgrade error, line: %d\n", __func__, __LINE__);
 					fw_update_complete = false;
@@ -1269,7 +1257,7 @@ static ssize_t himax_debug_write(struct file *file, const char *buff,
 			}
 			else if ((buf[1] == '2') && (buf[2] == '8'))
 			{
-				if (fts_ctpm_fw_upgrade_with_sys_fs_128k(private_ts->client,upgrade_fw, result, false) == 0)
+				if (fts_ctpm_fw_upgrade_with_sys_fs_128k(private_ts->client,(unsigned char *)fw->data, fw->size, false) == 0)
 				{
 					E("%s: TP upgrade error, line: %d\n", __func__, __LINE__);
 					fw_update_complete = false;
@@ -1285,6 +1273,7 @@ static ssize_t himax_debug_write(struct file *file, const char *buff,
 				E("%s: Flash command fail: %d\n", __func__, __LINE__);
 				fw_update_complete = false;
 			}
+			release_firmware(fw);
 			goto firmware_upgrade_done;
 			//return count;
 		}

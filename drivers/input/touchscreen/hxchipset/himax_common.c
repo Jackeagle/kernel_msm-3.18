@@ -21,10 +21,8 @@
 #define FRAME_COUNT 5
 
 #if defined(HX_AUTO_UPDATE_FW)
-	static unsigned char i_CTPM_FW[]=
-	{
-		#include "HX83100_Amber_0B01_030E.i"
-	};
+	char *i_CTPM_firmware_name = "HX83100_Amber_0B01_030E.bin";
+	const struct firmware *i_CTPM_FW = NULL;
 #endif
 
 #ifdef HX_ESD_WORKAROUND
@@ -103,6 +101,7 @@ extern bool hitouch_is_connect;
 extern int himax_parse_dt(struct himax_ts_data *ts,
 				struct himax_i2c_platform_data *pdata);
 extern int himax_ts_pinctrl_init(struct himax_ts_data *ts);
+extern int himax_load_CRC_bin_file(struct i2c_client *client);
 
 static uint8_t 	vk_press = 0x00;
 static uint8_t 	AA_press = 0x00;
@@ -300,17 +299,37 @@ static void himax_power_on_initCMD(struct i2c_client *client)
 static int i_update_FW(void)
 {
 	int upgrade_times = 0;
-	unsigned char* ImageBuffer = i_CTPM_FW;
-	int fullFileLength = sizeof(i_CTPM_FW);
+	int fullFileLength = 0;
 	int i_FW_VER = 0, i_CFG_VER = 0;
-	uint8_t ret = -1, result = 0;
+	int ret = -1, result = 0;
 //	uint8_t tmp_addr[4];
 //	uint8_t tmp_data[4];
 	int CRC_from_FW = 0;
 	int CRC_Check_result = 0;
 
-	i_FW_VER = i_CTPM_FW[FW_VER_MAJ_FLASH_ADDR]<<8 |i_CTPM_FW[FW_VER_MIN_FLASH_ADDR];
-	i_CFG_VER = i_CTPM_FW[CFG_VER_MAJ_FLASH_ADDR]<<8 |i_CTPM_FW[CFG_VER_MIN_FLASH_ADDR];
+	ret = himax_load_CRC_bin_file(private_ts->client);
+	if (ret < 0) {
+		E("%s: himax_load_CRC_bin_file fail Error Code=%d.\n", __func__, ret);
+		ret = -1;
+		return ret;
+	}
+	I("file name = %s\n",i_CTPM_firmware_name);
+	ret = request_firmware(&i_CTPM_FW, i_CTPM_firmware_name, private_ts->dev);
+	if (ret < 0) {
+		E("%s,fail in line%d error code=%d\n",__func__,__LINE__,ret);
+		ret = -2;
+		return ret;
+	}
+
+	if(i_CTPM_FW == NULL) {
+		I("%s: i_CTPM_FW = NULL\n", __func__);
+		ret = -3;
+		return ret;
+	}
+	fullFileLength = i_CTPM_FW->size;
+
+	i_FW_VER = i_CTPM_FW->data[FW_VER_MAJ_FLASH_ADDR]<<8 |i_CTPM_FW->data[FW_VER_MIN_FLASH_ADDR];
+	i_CFG_VER = i_CTPM_FW->data[CFG_VER_MAJ_FLASH_ADDR]<<8 |i_CTPM_FW->data[CFG_VER_MIN_FLASH_ADDR];
 
 	I("%s: i_fullFileLength = %d\n", __func__,fullFileLength);
 
@@ -318,7 +337,7 @@ static int i_update_FW(void)
 	msleep(500);
 
 	CRC_from_FW = himax_check_CRC(private_ts->client,fw_image_64k);
-	CRC_Check_result = Calculate_CRC_with_AP(ImageBuffer, CRC_from_FW,fw_image_64k);
+	CRC_Check_result = Calculate_CRC_with_AP((unsigned char *)i_CTPM_FW->data, CRC_from_FW,fw_image_64k);
 	I("%s: Check sum result = %d\n", __func__,CRC_Check_result);
 	//I("%s: ic_data->vendor_fw_ver = %X, i_FW_VER = %X,\n", __func__,ic_data->vendor_fw_ver, i_FW_VER);
 	//I("%s: ic_data->vendor_config_ver = %X, i_CFG_VER = %X,\n", __func__,ic_data->vendor_config_ver, i_CFG_VER);
@@ -328,13 +347,13 @@ static int i_update_FW(void)
 			himax_int_enable(private_ts->client->irq,0);
 update_retry:
 			if(fullFileLength == FW_SIZE_60k){
-				ret = fts_ctpm_fw_upgrade_with_sys_fs_60k(private_ts->client,ImageBuffer,fullFileLength,false);
+				ret = fts_ctpm_fw_upgrade_with_sys_fs_60k(private_ts->client,(unsigned char *)i_CTPM_FW->data,fullFileLength,false);
 			}else if (fullFileLength == FW_SIZE_64k){
-				ret = fts_ctpm_fw_upgrade_with_sys_fs_64k(private_ts->client,ImageBuffer,fullFileLength,false);
+				ret = fts_ctpm_fw_upgrade_with_sys_fs_64k(private_ts->client,(unsigned char *)i_CTPM_FW->data,fullFileLength,false);
 			}else if (fullFileLength == FW_SIZE_124k){
-				ret = fts_ctpm_fw_upgrade_with_sys_fs_124k(private_ts->client,ImageBuffer,fullFileLength,false);
+				ret = fts_ctpm_fw_upgrade_with_sys_fs_124k(private_ts->client,(unsigned char *)i_CTPM_FW->data,fullFileLength,false);
 			}else if (fullFileLength == FW_SIZE_128k){
-				ret = fts_ctpm_fw_upgrade_with_sys_fs_128k(private_ts->client,ImageBuffer,fullFileLength,false);
+				ret = fts_ctpm_fw_upgrade_with_sys_fs_128k(private_ts->client,(unsigned char *)i_CTPM_FW->data,fullFileLength,false);
 			}
 			if(ret == 0){
 				upgrade_times++;
@@ -1541,8 +1560,8 @@ himax_read_FW_ver(client);
 
 #ifdef HX_AUTO_UPDATE_FW
 	I(" %s in", __func__);
-	if(i_update_FW() == false)
-		I("NOT Have new FW=NOT UPDATE=\n");
+	if(i_update_FW() <= 0)
+		I("FW NOT UPDATE=\n");
 	else
 		I("Have new FW=UPDATE=\n");
 #endif
