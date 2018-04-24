@@ -208,6 +208,7 @@ BTRFS_DEVICE_GETSET_FUNCS(bytes_used);
 
 struct btrfs_fs_devices {
 	u8 fsid[BTRFS_FSID_SIZE]; /* FS specific uuid */
+	struct list_head fs_list;
 
 	u64 num_devices;
 	u64 open_devices;
@@ -229,7 +230,6 @@ struct btrfs_fs_devices {
 	struct list_head resized_devices;
 	/* devices not currently being allocated */
 	struct list_head alloc_list;
-	struct list_head list;
 
 	struct btrfs_fs_devices *seed;
 	int seeding;
@@ -421,6 +421,7 @@ int btrfs_find_device_by_devspec(struct btrfs_fs_info *fs_info, u64 devid,
 struct btrfs_device *btrfs_alloc_device(struct btrfs_fs_info *fs_info,
 					const u64 *devid,
 					const u8 *uuid);
+void btrfs_free_device(struct btrfs_device *device);
 int btrfs_rm_device(struct btrfs_fs_info *fs_info,
 		    const char *device_path, u64 devid);
 void __exit btrfs_cleanup_fs_uuids(void);
@@ -431,10 +432,6 @@ struct btrfs_device *btrfs_find_device(struct btrfs_fs_info *fs_info, u64 devid,
 				       u8 *uuid, u8 *fsid);
 int btrfs_shrink_device(struct btrfs_device *device, u64 new_size);
 int btrfs_init_new_device(struct btrfs_fs_info *fs_info, const char *path);
-int btrfs_init_dev_replace_tgtdev(struct btrfs_fs_info *fs_info,
-				  const char *device_path,
-				  struct btrfs_device *srcdev,
-				  struct btrfs_device **device_out);
 int btrfs_balance(struct btrfs_balance_control *bctl,
 		  struct btrfs_ioctl_balance_args *bargs);
 int btrfs_resume_balance_async(struct btrfs_fs_info *fs_info);
