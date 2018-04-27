@@ -32,6 +32,7 @@ int irq_enable_count = 0;
 #define PINCTRL_STATE_SUSPEND	"pmx_ts_suspend"
 #define PINCTRL_STATE_RELEASE	"pmx_ts_release"
 
+extern struct himax_ts_data *private_ts;
 extern struct himax_ic_data* ic_data;
 extern void himax_ts_work(struct himax_ts_data *ts);
 extern enum hrtimer_restart himax_ts_timer_func(struct hrtimer *timer);
@@ -162,7 +163,7 @@ int i2c_himax_read(struct i2c_client *client, uint8_t command, uint8_t *data, ui
 			.buf = data,
 		}
 	};
-
+	mutex_lock(&private_ts->rw_lock);
 	for (retry = 0; retry < toRetry; retry++) {
 		if (i2c_transfer(client->adapter, msg, 2) == 2)
 			break;
@@ -171,8 +172,10 @@ int i2c_himax_read(struct i2c_client *client, uint8_t command, uint8_t *data, ui
 	if (retry == toRetry) {
 		E("%s: i2c_read_block retry over %d\n",
 			__func__, toRetry);
+		mutex_unlock(&private_ts->rw_lock);
 		return -EIO;
 	}
+	mutex_unlock(&private_ts->rw_lock);
 	return 0;
 
 }
@@ -193,7 +196,7 @@ int i2c_himax_write(struct i2c_client *client, uint8_t command, uint8_t *data, u
 
 	buf[0] = command;
 	memcpy(buf+1, data, length);
-	
+	mutex_lock(&private_ts->rw_lock);
 	for (retry = 0; retry < toRetry; retry++) {
 		if (i2c_transfer(client->adapter, msg, 1) == 1)
 			break;
@@ -203,8 +206,10 @@ int i2c_himax_write(struct i2c_client *client, uint8_t command, uint8_t *data, u
 	if (retry == toRetry) {
 		E("%s: i2c_write_block retry over %d\n",
 			__func__, toRetry);
+		mutex_unlock(&private_ts->rw_lock);
 		return -EIO;
 	}
+	mutex_unlock(&private_ts->rw_lock);
 	return 0;
 
 }
@@ -220,7 +225,7 @@ int i2c_himax_read_command(struct i2c_client *client, uint8_t length, uint8_t *d
 		.buf = data,
 		}
 	};
-
+	mutex_lock(&private_ts->rw_lock);
 	for (retry = 0; retry < toRetry; retry++) {
 		if (i2c_transfer(client->adapter, msg, 1) == 1)
 			break;
@@ -229,8 +234,10 @@ int i2c_himax_read_command(struct i2c_client *client, uint8_t length, uint8_t *d
 	if (retry == toRetry) {
 		E("%s: i2c_read_block retry over %d\n",
 		       __func__, toRetry);
+		mutex_unlock(&private_ts->rw_lock);
 		return -EIO;
 	}
+	mutex_unlock(&private_ts->rw_lock);
 	return 0;
 }
 
@@ -254,7 +261,7 @@ int i2c_himax_master_write(struct i2c_client *client, uint8_t *data, uint8_t len
 	};
 
 	memcpy(buf, data, length);
-	
+	mutex_lock(&private_ts->rw_lock);
 	for (retry = 0; retry < toRetry; retry++) {
 		if (i2c_transfer(client->adapter, msg, 1) == 1)
 			break;
@@ -264,8 +271,10 @@ int i2c_himax_master_write(struct i2c_client *client, uint8_t *data, uint8_t len
 	if (retry == toRetry) {
 		E("%s: i2c_write_block retry over %d\n",
 		       __func__, toRetry);
+		mutex_unlock(&private_ts->rw_lock);
 		return -EIO;
 	}
+	mutex_unlock(&private_ts->rw_lock);
 	return 0;
 }
 
@@ -775,16 +784,10 @@ static struct i2c_driver himax_common_driver = {
 	},
 };
 
-static void __init himax_common_init_async(void *unused, async_cookie_t cookie)
-{
-	I("%s:Enter \n", __func__);
-	i2c_add_driver(&himax_common_driver);
-}
-
 static int __init himax_common_init(void)
 {
 	I("Himax common touch panel driver init\n");
-	async_schedule(himax_common_init_async, NULL);
+	i2c_add_driver(&himax_common_driver);
 	return 0;
 }
 

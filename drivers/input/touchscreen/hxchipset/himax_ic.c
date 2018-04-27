@@ -907,12 +907,12 @@ void himax_sram_write(struct i2c_client *client, uint8_t *FW_content)
 {
 	int i = 0;
 	uint8_t tmp_addr[4];
-	uint8_t tmp_data[128];
+	uint8_t tmp_data[64];
 	int FW_length = 0x4000; // 0x4000 = 16K bin file
 	
 	//himax_sense_off(client);
 
-	for (i = 0; i < FW_length; i = i + 128) 
+	for (i = 0; i < FW_length; i = i + 64)
 	{
 		himax_burst_enable(client, 1);
 
@@ -931,8 +931,8 @@ void himax_sram_write(struct i2c_client *client, uint8_t *FW_content)
 			tmp_addr[0] = i;
 		}
 
-		memcpy(&tmp_data[0], &FW_content[i], 128);
-		himax_flash_write_burst_lenth(client, tmp_addr, tmp_data, 128);
+		memcpy(&tmp_data[0], &FW_content[i], 64);
+		himax_flash_write_burst_lenth(client, tmp_addr, tmp_data, 64);
 
 	}
 

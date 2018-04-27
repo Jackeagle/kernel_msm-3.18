@@ -1711,6 +1711,7 @@ int himax_chip_common_probe(struct i2c_client *client, const struct i2c_device_i
 	i2c_set_clientdata(client, ts);
 	ts->client = client;
 	ts->dev = &client->dev;
+	mutex_init(&ts->rw_lock);
 
 	pdata = kzalloc(sizeof(*pdata), GFP_KERNEL);
 	if (pdata == NULL) { /*Allocate Platform data space*/

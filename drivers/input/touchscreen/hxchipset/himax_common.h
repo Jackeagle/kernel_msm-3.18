@@ -49,7 +49,7 @@
 #ifdef CONFIG_OF
 #include <linux/of_gpio.h>
 #endif
-#define HIMAX_DRIVER_VER "0.2.6.0"
+#define HIMAX_DRIVER_VER "0.2.7.0"
 
 #define FLASH_DUMP_FILE "/data/user/Flash_Dump.bin"
 #define DIAG_COORDINATE_FILE "/sdcard/Coordinate_Dump.csv"
@@ -184,6 +184,7 @@ struct himax_ts_data {
 	bool suspended;
 	bool probe_done;
 	struct mutex fb_mutex;
+	struct mutex rw_lock;
 	atomic_t suspend_mode;
 	uint8_t x_channel;
 	uint8_t y_channel;
