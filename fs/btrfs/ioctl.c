@@ -640,7 +640,7 @@ static int create_snapshot(struct btrfs_root *root, struct inode *dir,
 	wait_event(root->subv_writers->wait,
 		   percpu_counter_sum(&root->subv_writers->counter) == 0);
 
-	ret = btrfs_start_delalloc_inodes(root, 0);
+	ret = btrfs_start_delalloc_inodes(root);
 	if (ret)
 		goto dec_and_free;
 
@@ -5334,7 +5334,7 @@ long btrfs_ioctl(struct file *file, unsigned int
 	case BTRFS_IOC_SYNC: {
 		int ret;
 
-		ret = btrfs_start_delalloc_roots(fs_info, 0, -1);
+		ret = btrfs_start_delalloc_roots(fs_info, -1);
 		if (ret)
 			return ret;
 		ret = btrfs_sync_fs(inode->i_sb, 1);
