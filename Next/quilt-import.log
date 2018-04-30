@@ -1,0 +1,11 @@
+Importing dmi based on 4.17-rc2
+$ git clone -s -l -n -q . ../quilt-tmp
+$ cd ../quilt-tmp
+$ git reset --hard 6d08b06e67cd117f6992c46611dfb4ce267cd71e
+HEAD is now at 6d08b06e67cd Linux 4.17-rc2
+$ git am -s --patch-format=mbox ../quilt/dmi/firmware-dmi-add-access-to-the-sku-id-string.patch
+Applying: firmware: dmi: Add access to the SKU ID string
+$ cd /home/sfr/kernels/next/next
+$ git fetch -f ../quilt-tmp master:dmi/master
+From ../quilt-tmp
+ + 0a5f08c2f0c7...5cb06cfce4a8 master     -> dmi/master  (forced update)
