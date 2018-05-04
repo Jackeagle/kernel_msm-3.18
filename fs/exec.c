@@ -1040,7 +1040,6 @@ static int exec_mmap(struct mm_struct *mm)
 		up_read(&old_mm->mmap_sem);
 		BUG_ON(active_mm != old_mm);
 		setmax_mm_hiwater_rss(&tsk->signal->maxrss, old_mm);
-		mm_update_next_owner(old_mm);
 		mmput(old_mm);
 		return 0;
 	}
@@ -1338,6 +1337,7 @@ void setup_new_exec(struct linux_binprm * bprm)
 	if (bprm->secureexec) {
 		/* Make sure parent cannot signal privileged process. */
 		current->pdeath_signal = 0;
+		current->signal->pdeath_signal_proc = 0;
 
 		/*
 		 * For secureexec, reset the stack limit to sane default to
