@@ -175,9 +175,8 @@ void aer_print_error(struct pci_dev *dev, struct aer_err_info *info)
 		aer_error_severity_string[info->severity],
 		aer_error_layer[layer], aer_agent_string[agent]);
 
-	pci_err(dev, "  device [%04x:%04x] error status/mask=%08x/%08x\n",
-		dev->vendor, dev->device,
-		info->status, info->mask);
+	pci_err(dev, "  error status/mask=%08x/%08x\n", info->status,
+		info->mask);
 
 	__aer_print_error(dev, info);
 
