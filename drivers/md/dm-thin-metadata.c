@@ -813,6 +813,15 @@ static int __commit_transaction(struct dm_pool_metadata *pmd)
 	if (r)
 		return r;
 
+	/* Must fully commit metadata before superblock */
+	r = dm_tm_commit(pmd->tm, sblock);
+	if (r)
+		return r;
+
+	r = superblock_lock(pmd, &sblock);
+	if (r)
+		return r;
+
 	disk_super = dm_block_data(sblock);
 	disk_super->time = cpu_to_le32(pmd->time);
 	disk_super->data_mapping_root = cpu_to_le64(pmd->root);
