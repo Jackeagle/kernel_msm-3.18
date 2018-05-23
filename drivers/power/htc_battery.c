@@ -1017,9 +1017,24 @@ static int htc_battery_fb_register(void)
 	return 0;
 }
 
+#ifndef MODULE
+static bool is_walleye;
+static int __init get_hardware(char *cmdline)
+{
+	is_walleye = strstr(cmdline, "walleye");
+	return 0;
+}
+__setup("androidboot.hardware=", get_hardware);
+#endif
+
 static int htc_battery_probe(struct platform_device *pdev)
 {
 	int rc = 0;
+
+#ifndef MODULE
+	if (!is_walleye)
+		return -ENODEV;
+#endif
 
 	mutex_lock(&htc_battery_lock);
 
