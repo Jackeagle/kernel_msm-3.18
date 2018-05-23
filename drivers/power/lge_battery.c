@@ -756,10 +756,25 @@ static int bm_init(struct battery_manager *bm)
 	return 0;
 }
 
+#ifndef MODULE
+static bool is_taimen;
+static int __init get_hardware(char *cmdline)
+{
+	is_taimen = strstr(cmdline, "taimen");
+	return 0;
+}
+__setup("androidboot.hardware=", get_hardware);
+#endif
+
 static int lge_battery_probe(struct platform_device *pdev)
 {
 	struct battery_manager *bm;
 	int rc = 0;
+
+#ifndef MODULE
+	if (!is_taimen)
+		return -ENODEV;
+#endif
 
 	bm = devm_kzalloc(&pdev->dev, sizeof(struct battery_manager),
 			  GFP_KERNEL);
