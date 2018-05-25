@@ -24,12 +24,12 @@
 	#define HIMAX_PROC_INT_EN_FILE		"int_en"
 	#define HIMAX_PROC_LAYOUT_FILE		"layout"
 
-	static struct proc_dir_entry *himax_touch_proc_dir 			= NULL;
-	static struct proc_dir_entry *himax_proc_debug_level_file 	= NULL;
-	static struct proc_dir_entry *himax_proc_vendor_file 		= NULL;
-	static struct proc_dir_entry *himax_proc_attn_file 			= NULL;
-	static struct proc_dir_entry *himax_proc_int_en_file 		= NULL;
-	static struct proc_dir_entry *himax_proc_layout_file 		= NULL;
+	static struct proc_dir_entry *himax_touch_proc_dir;
+	static struct proc_dir_entry *himax_proc_debug_level_file;
+	static struct proc_dir_entry *himax_proc_vendor_file;
+	static struct proc_dir_entry *himax_proc_attn_file;
+	static struct proc_dir_entry *himax_proc_int_en_file;
+	static struct proc_dir_entry *himax_proc_layout_file;
 
 	uint8_t HX_PROC_SEND_FLAG;
 
@@ -50,15 +50,15 @@ bool getFlashDumpGoing(void);
 	struct proc_dir_entry *himax_proc_diag_arrange_file = NULL;
 
 #ifdef HX_TP_PROC_2T2R
-	static bool Is_2T2R = false;
-	static uint8_t x_channel_2 = 0;
-	static uint8_t y_channel_2 = 0;
-	static uint8_t *diag_mutual_2 = NULL;
-	
+	static bool Is_2T2R;
+	static uint8_t x_channel_2;
+	static uint8_t y_channel_2;
+	static uint8_t *diag_mutual_2;
+
 	int16_t *getMutualBuffer_2(void);
 	uint8_t 	getXChannel_2(void);
 	uint8_t 	getYChannel_2(void);
-	
+
 	void 	setMutualBuffer_2(void);
 	void 	setXChannel_2(uint8_t x);
 	void 	setYChannel_2(uint8_t y);
@@ -71,7 +71,7 @@ bool getFlashDumpGoing(void);
 	uint8_t diag_max_cnt = 0;
 
 	int diag_command = 0;
-	uint8_t diag_coor[128];// = {0xFF};
+	uint8_t diag_coor[128];/* = {0xFF};*/
 	int16_t diag_self[100] = {0};
 
 	int16_t *getMutualBuffer(void);
@@ -81,7 +81,7 @@ bool getFlashDumpGoing(void);
 	uint8_t 	getDiagCommand(void);
 	uint8_t 	getXChannel(void);
 	uint8_t 	getYChannel(void);
-	
+
 	void 	setMutualBuffer(void);
 	void 	setMutualNewBuffer(void);
 	void 	setMutualOldBuffer(void);
@@ -106,24 +106,24 @@ bool getFlashDumpGoing(void);
 	struct proc_dir_entry *himax_proc_flash_dump_file = NULL;
 
 	static int Flash_Size = 131072;
-	static uint8_t *flash_buffer 				= NULL;
-	static uint8_t flash_command 				= 0;
-	static uint8_t flash_read_step 			= 0;
-	static uint8_t flash_progress 			= 0;
-	static uint8_t flash_dump_complete	= 0;
-	static uint8_t flash_dump_fail 			= 0;
-	static uint8_t sys_operation				= 0;
-	static uint8_t flash_dump_sector	 	= 0;
-	static uint8_t flash_dump_page 			= 0;
-	static bool    flash_dump_going			= false;
+	static uint8_t *flash_buffer;
+	static uint8_t flash_command;
+	static uint8_t flash_read_step;
+	static uint8_t flash_progress;
+	static uint8_t flash_dump_complete;
+	static uint8_t flash_dump_fail;
+	static uint8_t sys_operation;
+	static uint8_t flash_dump_sector;
+	static uint8_t flash_dump_page;
+	static bool    flash_dump_going;
 
 	static uint8_t getFlashCommand(void);
 	static uint8_t getFlashDumpComplete(void);
 	static uint8_t getFlashDumpFail(void);
 	static uint8_t getFlashDumpProgress(void);
 	static uint8_t getFlashReadStep(void);
-	//static uint8_t getFlashDumpSector(void);
-	//static uint8_t getFlashDumpPage(void);
+	/*static uint8_t getFlashDumpSector(void);*/
+	/*static uint8_t getFlashDumpPage(void);*/
 
 	void setFlashBuffer(void);
 	uint8_t getSysOperation(void);
@@ -150,7 +150,7 @@ bool getFlashDumpGoing(void);
 
 #ifdef HX_TP_PROC_RESET
 #define HIMAX_PROC_RESET_FILE		"reset"
-extern void himax_HW_reset(uint8_t loadconfig,uint8_t int_off);
+extern void himax_HW_reset(uint8_t loadconfig, uint8_t int_off);
 struct proc_dir_entry *himax_proc_reset_file 		= NULL;
 #endif
 
@@ -165,7 +165,7 @@ struct proc_dir_entry *himax_proc_reset_file 		= NULL;
 #endif
 
 #ifdef HX_RST_PIN_FUNC
-	void himax_HW_reset(uint8_t loadconfig,uint8_t int_off);
+	void himax_HW_reset(uint8_t loadconfig, uint8_t int_off);
 #endif
 
 #ifdef HX_SMART_WAKEUP
@@ -174,7 +174,7 @@ struct proc_dir_entry *himax_proc_SMWP_file = NULL;
 #define HIMAX_PROC_GESTURE_FILE "GESTURE"
 struct proc_dir_entry *himax_proc_GESTURE_file = NULL;
 uint8_t HX_SMWP_EN = 0;
-//extern bool FAKE_POWER_KEY_SEND;
+/*extern bool FAKE_POWER_KEY_SEND;*/
 #endif
 
 #endif

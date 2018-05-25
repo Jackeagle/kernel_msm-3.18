@@ -35,10 +35,7 @@
 #define I(x...) printk("[HXTP] " x)
 #define W(x...) printk("[HXTP][WARNING] " x)
 #define E(x...) printk("[HXTP][ERROR] " x)
-#define DIF(x...) \
-	if (debug_flag) \
-	printk("[HXTP][DEBUG] " x) \
-} while(0)
+#define DIF(x...) do { if (debug_flag) printk("[HXTP][DEBUG] " x) } while (0)
 #else
 #define D(x...)
 #define I(x...)
@@ -69,7 +66,7 @@
 #define HIMAX_I2C_ADDR					0x48
 #define INPUT_DEV_NAME					"himax-touchscreen"
 
-struct himax_i2c_platform_data {	
+struct himax_i2c_platform_data {
 	int abs_x_min;
 	int abs_x_max;
 	int abs_x_fuzz;
@@ -107,10 +104,10 @@ struct himax_i2c_platform_data {
 	int irq_gpio;
 	u32 irq_gpio_flags;
 
-	struct regulator *vcc_ana; //For Dragon Board
-	struct regulator *vcc_dig; //For Dragon Board
-	struct regulator *vcc_i2c; //For Dragon Board
-#endif	
+	struct regulator *vcc_ana; /*For Dragon Board*/
+	struct regulator *vcc_dig; /*For Dragon Board*/
+	struct regulator *vcc_i2c; /*For Dragon Board*/
+#endif
 };
 
 
@@ -125,7 +122,7 @@ extern int himax_ts_register_interrupt(struct i2c_client *client);
 extern void himax_rst_gpio_set(int pinnum, uint8_t value);
 extern uint8_t himax_int_gpio_read(int pinnum);
 
-extern int himax_gpio_power_config(struct i2c_client *client,struct himax_i2c_platform_data *pdata);
+extern int himax_gpio_power_config(struct i2c_client *client, struct himax_i2c_platform_data *pdata);
 
 #if defined(CONFIG_FB)
 extern int fb_notifier_callback(struct notifier_block *self, unsigned long event, void *data);
