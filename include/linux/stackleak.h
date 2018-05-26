@@ -18,6 +18,9 @@ static inline void stackleak_task_init(struct task_struct *task)
 #ifdef CONFIG_GCC_PLUGIN_STACKLEAK
 	task->lowest_stack = (unsigned long)end_of_stack(task) +
 						sizeof(unsigned long);
+# ifdef CONFIG_STACKLEAK_METRICS
+	task->prev_lowest_stack = task->lowest_stack;
+# endif
 #endif
 }
 
