@@ -2085,6 +2085,7 @@ invalid_optional:
 		if (n_bitmap_bits > 1U << 31) {
 			r = -EFBIG;
 			ti->error = "Invalid device size";
+			goto bad;
 		}
 
 		wc->memory_map = vmalloc(n_metadata_blocks << wc->block_size_bits);
