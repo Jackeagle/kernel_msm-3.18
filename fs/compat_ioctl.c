@@ -1347,8 +1347,6 @@ static long do_ioctl_trans(unsigned int cmd,
 		return do_video_get_event(file, cmd, argp);
 	case VIDEO_STILLPICTURE:
 		return do_video_stillpicture(file, cmd, argp);
-	case VIDEO_SET_SPU_PALETTE:
-		return do_video_set_spu_palette(file, cmd, argp);
 	}
 
 	/*
