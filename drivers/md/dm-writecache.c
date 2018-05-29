@@ -253,6 +253,7 @@ static void wc_unlock(struct dm_writecache *wc)
 	mutex_unlock(&wc->lock);
 }
 
+#if IS_ENABLED(CONFIG_DAX_DRIVER)
 static int persistent_memory_claim(struct dm_writecache *wc)
 {
 	int r;
@@ -337,6 +338,12 @@ err2:
 err1:
 	return r;
 }
+#else
+static int persistent_memory_claim(struct dm_writecache *wc)
+{
+	BUG();
+}
+#endif
 
 static void persistent_memory_release(struct dm_writecache *wc)
 {
@@ -1901,16 +1908,17 @@ static int writecache_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	if (!strcasecmp(string, "s")) {
 		wc->pmem_mode = false;
 	} else if (!strcasecmp(string, "p")) {
-#ifdef CONFIG_ARCH_HAS_PMEM_API
+#if defined(CONFIG_ARCH_HAS_PMEM_API) && IS_ENABLED(CONFIG_DAX_DRIVER)
 		wc->pmem_mode = true;
 		wc->writeback_fua = true;
 #else
 		/*
-		 * If the architecture doesn't support persistent memory, this
-		 * driver can only be used in SSD-only mode.
+		 * If the architecture doesn't support persistent memory or
+		 * the kernel doesn't support any DAX drivers, this driver can
+		 * only be used in SSD-only mode.
 		 */
 		r = -EOPNOTSUPP;
-		ti->error = "Persistent memory not supported on this architecture";
+		ti->error = "Persistent memory or DAX not supported on this system";
 		goto bad;
 #endif
 	} else {
