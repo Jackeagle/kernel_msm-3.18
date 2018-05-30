@@ -42,7 +42,6 @@
 #include <linux/module.h>
 #include <linux/errno.h>
 #include <linux/kernel.h>
-#include <linux/major.h>
 #include <linux/sched.h>
 #include <linux/lp.h>
 #include <linux/slab.h>
@@ -61,7 +60,6 @@
 #include <linux/seq_file.h>
 #include <linux/kobject.h>
 
-#include <linux/libcfs/libcfs.h>
 #include <uapi/linux/lnet/lnetctl.h>
 #include <obd_support.h>
 #include <obd_class.h>
@@ -271,7 +269,7 @@ static const struct file_operations obd_psdev_fops = {
 
 /* modules setup */
 struct miscdevice obd_psdev = {
-	.minor = OBD_DEV_MINOR,
+	.minor = MISC_DYNAMIC_MINOR,
 	.name  = OBD_DEV_NAME,
 	.fops  = &obd_psdev_fops,
 };

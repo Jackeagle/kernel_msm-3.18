@@ -39,7 +39,6 @@
 
 #define DEBUG_SUBSYSTEM S_FID
 
-#include <linux/libcfs/libcfs.h>
 #include <linux/module.h>
 
 #include <obd.h>
@@ -419,6 +418,12 @@ EXPORT_SYMBOL(client_fid_fini);
 
 static int __init fid_init(void)
 {
+	int rc;
+
+	rc = libcfs_setup();
+	if (rc)
+		return rc;
+
 	seq_debugfs_dir = ldebugfs_register(LUSTRE_SEQ_NAME,
 					    debugfs_lustre_root,
 					    NULL, NULL);
