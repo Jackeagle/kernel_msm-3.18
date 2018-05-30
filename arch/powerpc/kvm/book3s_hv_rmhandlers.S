@@ -639,6 +639,10 @@ kvmppc_hv_entry:
 	/* Primary thread switches to guest partition. */
 	cmpwi	r6,0
 	bne	10f
+
+	/* Radix has already switched LPID and flushed core TLB */
+	bne	cr7, 22f
+
 	lwz	r7,KVM_LPID(r9)
 BEGIN_FTR_SECTION
 	ld	r6,KVM_SDR1(r9)
@@ -650,7 +654,7 @@ END_FTR_SECTION_IFCLR(CPU_FTR_ARCH_300)
 	mtspr	SPRN_LPID,r7
 	isync
 
-	/* See if we need to flush the TLB */
+	/* See if we need to flush the TLB. Hash has to be done in RM */
 	lhz	r6,PACAPACAINDEX(r13)	/* test_bit(cpu, need_tlb_flush) */
 BEGIN_FTR_SECTION
 	/*
@@ -677,15 +681,10 @@ END_FTR_SECTION_IFSET(CPU_FTR_ARCH_300)
 	li	r7,0x800		/* IS field = 0b10 */
 	ptesync
 	li	r0,0			/* RS for P9 version of tlbiel */
-	bne	cr7, 29f
 28:	tlbiel	r7			/* On P9, rs=0, RIC=0, PRS=0, R=0 */
 	addi	r7,r7,0x1000
 	bdnz	28b
-	b	30f
-29:	PPC_TLBIEL(7,0,2,1,1)		/* for radix, RIC=2, PRS=1, R=1 */
-	addi	r7,r7,0x1000
-	bdnz	29b
-30:	ptesync
+	ptesync
 23:	ldarx	r7,0,r6			/* clear the bit after TLB flushed */
 	andc	r7,r7,r8
 	stdcx.	r7,0,r6
@@ -3572,6 +3571,8 @@ END_MMU_FTR_SECTION_IFSET(MMU_FTR_TYPE_RADIX)
 	bcl	20, 31, .+4
 5:	mflr	r3
 	addi	r3, r3, 9f - 5b
+	li	r4, -1
+	rldimi	r3, r4, 62, 0	/* ensure 0xc000000000000000 bits are set */
 	ld	r4, PACAKMSR(r13)
 	mtspr	SPRN_SRR0, r3
 	mtspr	SPRN_SRR1, r4
