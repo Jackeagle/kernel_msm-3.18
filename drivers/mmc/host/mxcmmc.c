@@ -21,6 +21,7 @@
 #include <linux/init.h>
 #include <linux/ioport.h>
 #include <linux/platform_device.h>
+#include <linux/highmem.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/blkdev.h>
@@ -291,8 +292,10 @@ static void mxcmci_swap_buffers(struct mmc_data *data)
 	struct scatterlist *sg;
 	int i;
 
-	for_each_sg(data->sg, sg, data->sg_len, i)
-		buffer_swap32(sg_virt(sg), sg->length);
+	for_each_sg(data->sg, sg, data->sg_len, i) {
+		void *buf = kmap_atomic(sg_page(sg) + sg->offset;
+		buffer_swap32(buf, sg->length);
+		kunmap_atomic(buf);
 }
 #else
 static inline void mxcmci_swap_buffers(struct mmc_data *data) {}
@@ -609,6 +612,7 @@ static int mxcmci_transfer_data(struct mxcmci_host *host)
 {
 	struct mmc_data *data = host->req->data;
 	struct scatterlist *sg;
+	void *buf;
 	int stat, i;
 
 	host->data = data;
@@ -616,14 +620,18 @@ static int mxcmci_transfer_data(struct mxcmci_host *host)
 
 	if (data->flags & MMC_DATA_READ) {
 		for_each_sg(data->sg, sg, data->sg_len, i) {
-			stat = mxcmci_pull(host, sg_virt(sg), sg->length);
+			buf = kmap_atomic(sg_page(sg) + sg->offset);
+			stat = mxcmci_pull(host, buf, sg->length);
+			kunmap(buf);
 			if (stat)
 				return stat;
 			host->datasize += sg->length;
 		}
 	} else {
 		for_each_sg(data->sg, sg, data->sg_len, i) {
-			stat = mxcmci_push(host, sg_virt(sg), sg->length);
+			buf = kmap_atomic(sg_page(sg) + sg->offset);
+			stat = mxcmci_push(host, buf, sg->length);
+			kunmap(buf);
 			if (stat)
 				return stat;
 			host->datasize += sg->length;
