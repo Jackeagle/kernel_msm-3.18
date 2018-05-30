@@ -25,6 +25,7 @@
 #include <linux/uaccess.h>
 #include <net/sock.h>
 #include <linux/init.h>
+#include <linux/sched/signal.h>
 
 #include <net/netlink.h>
 #include <linux/netfilter/nfnetlink.h>
@@ -330,6 +331,13 @@ replay:
 	while (skb->len >= nlmsg_total_size(0)) {
 		int msglen, type;
 
+		if (fatal_signal_pending(current)) {
+			nfnl_err_reset(&err_list);
+			err = -EINTR;
+			status = NFNL_BATCH_FAILURE;
+			goto done;
+		}
+
 		memset(&extack, 0, sizeof(extack));
 		nlh = nlmsg_hdr(skb);
 		err = 0;
@@ -441,7 +449,14 @@ done:
 		kfree_skb(skb);
 		goto replay;
 	} else if (status == NFNL_BATCH_DONE) {
-		ss->commit(net, oskb);
+		err = ss->commit(net, oskb);
+		if (err == -EAGAIN) {
+			status |= NFNL_BATCH_REPLAY;
+			goto done;
+		} else if (err) {
+			ss->abort(net, oskb);
+			netlink_ack(oskb, nlmsg_hdr(oskb), err, NULL);
+		}
 	} else {
 		ss->abort(net, oskb);
 	}
