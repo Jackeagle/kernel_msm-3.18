@@ -160,6 +160,8 @@ enum bpf_attach_type {
 	BPF_CGROUP_INET6_CONNECT,
 	BPF_CGROUP_INET4_POST_BIND,
 	BPF_CGROUP_INET6_POST_BIND,
+	BPF_CGROUP_UDP4_SENDMSG,
+	BPF_CGROUP_UDP6_SENDMSG,
 	__MAX_BPF_ATTACH_TYPE
 };
 
@@ -1008,7 +1010,6 @@ union bpf_attr {
  * 		::
  *
  * 			# sysctl kernel.perf_event_max_stack=<new value>
- *
  * 	Return
  * 		The positive or null stack id on success, or a negative error
  * 		in case of failure.
@@ -1819,10 +1820,9 @@ union bpf_attr {
  * 		::
  *
  * 			# sysctl kernel.perf_event_max_stack=<new value>
- *
  * 	Return
- * 		a non-negative value equal to or less than size on success, or
- * 		a negative error in case of failure.
+ * 		A non-negative value equal to or less than *size* on success,
+ * 		or a negative error in case of failure.
  *
  * int skb_load_bytes_relative(const struct sk_buff *skb, u32 offset, void *to, u32 len, u32 start_header)
  * 	Description
@@ -1843,7 +1843,6 @@ union bpf_attr {
  * 		in socket filters where *skb*\ **->data** does not always point
  * 		to the start of the mac header and where "direct packet access"
  * 		is not available.
- *
  * 	Return
  * 		0 on success, or a negative error in case of failure.
  *
@@ -1853,22 +1852,24 @@ union bpf_attr {
  *		If lookup is successful and result shows packet is to be
  *		forwarded, the neighbor tables are searched for the nexthop.
  *		If successful (ie., FIB lookup shows forwarding and nexthop
- *		is resolved), the nexthop address is returned in ipv4_dst,
- *		ipv6_dst or mpls_out based on family, smac is set to mac
- *		address of egress device, dmac is set to nexthop mac address,
- *		rt_metric is set to metric from route.
+ *		is resolved), the nexthop address is returned in ipv4_dst
+ *		or ipv6_dst based on family, smac is set to mac address of
+ *		egress device, dmac is set to nexthop mac address, rt_metric
+ *		is set to metric from route (IPv4/IPv6 only).
  *
  *             *plen* argument is the size of the passed in struct.
- *             *flags* argument can be one or more BPF_FIB_LOOKUP_ flags:
+ *             *flags* argument can be a combination of one or more of the
+ *             following values:
  *
- *             **BPF_FIB_LOOKUP_DIRECT** means do a direct table lookup vs
- *             full lookup using FIB rules
- *             **BPF_FIB_LOOKUP_OUTPUT** means do lookup from an egress
- *             perspective (default is ingress)
+ *		**BPF_FIB_LOOKUP_DIRECT**
+ *			Do a direct table lookup vs full lookup using FIB
+ *			rules.
+ *		**BPF_FIB_LOOKUP_OUTPUT**
+ *			Perform lookup from an egress perspective (default is
+ *			ingress).
  *
  *             *ctx* is either **struct xdp_md** for XDP programs or
  *             **struct sk_buff** tc cls_act programs.
- *
  *     Return
  *             Egress device index on success, 0 if packet needs to continue
  *             up the stack for further processing or a negative error in case
@@ -2363,6 +2364,12 @@ struct bpf_sock_addr {
 	__u32 family;		/* Allows 4-byte read, but no write */
 	__u32 type;		/* Allows 4-byte read, but no write */
 	__u32 protocol;		/* Allows 4-byte read, but no write */
+	__u32 msg_src_ip4;	/* Allows 1,2,4-byte read an 4-byte write.
+				 * Stored in network byte order.
+				 */
+	__u32 msg_src_ip6[4];	/* Allows 1,2,4-byte read an 4-byte write.
+				 * Stored in network byte order.
+				 */
 };
 
 /* User bpf_sock_ops struct to access socket values and specify request ops
@@ -2530,8 +2537,10 @@ struct bpf_raw_tracepoint_args {
 #define BPF_FIB_LOOKUP_OUTPUT  BIT(1)
 
 struct bpf_fib_lookup {
-	/* input */
-	__u8	family;   /* network family, AF_INET, AF_INET6, AF_MPLS */
+	/* input:  network family for lookup (AF_INET, AF_INET6)
+	 * output: network family of egress nexthop
+	 */
+	__u8	family;
 
 	/* set if lookup is to consider L4 data - e.g., FIB rules */
 	__u8	l4_protocol;
@@ -2547,22 +2556,20 @@ struct bpf_fib_lookup {
 		__u8	tos;		/* AF_INET  */
 		__be32	flowlabel;	/* AF_INET6 */
 
-		/* output: metric of fib result */
-		__u32 rt_metric;
+		/* output: metric of fib result (IPv4/IPv6 only) */
+		__u32	rt_metric;
 	};
 
 	union {
-		__be32		mpls_in;
 		__be32		ipv4_src;
 		__u32		ipv6_src[4];  /* in6_addr; network order */
 	};
 
-	/* input to bpf_fib_lookup, *dst is destination address.
-	 * output: bpf_fib_lookup sets to gateway address
+	/* input to bpf_fib_lookup, ipv{4,6}_dst is destination address in
+	 * network header. output: bpf_fib_lookup sets to gateway address
+	 * if FIB lookup returns gateway route
 	 */
 	union {
-		/* return for MPLS lookups */
-		__be32		mpls_out[4];  /* support up to 4 labels */
 		__be32		ipv4_dst;
 		__u32		ipv6_dst[4];  /* in6_addr; network order */
 	};
