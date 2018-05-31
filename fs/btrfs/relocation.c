@@ -4299,7 +4299,7 @@ out:
 	return inode;
 }
 
-static struct reloc_control *alloc_reloc_control(struct btrfs_fs_info *fs_info)
+static struct reloc_control *alloc_reloc_control(void)
 {
 	struct reloc_control *rc;
 
@@ -4320,37 +4320,13 @@ static struct reloc_control *alloc_reloc_control(struct btrfs_fs_info *fs_info)
 static void describe_relocation(struct btrfs_fs_info *fs_info,
 				struct btrfs_block_group_cache *block_group)
 {
-	char buf[128];		/* prefixed by a '|' that'll be dropped */
-	u64 flags = block_group->flags;
+	char buf[128];
 
-	/* Shouldn't happen */
-	if (!flags) {
-		strcpy(buf, "|NONE");
-	} else {
-		char *bp = buf;
-
-#define DESCRIBE_FLAG(f, d) \
-		if (flags & BTRFS_BLOCK_GROUP_##f) { \
-			bp += snprintf(bp, buf - bp + sizeof(buf), "|%s", d); \
-			flags &= ~BTRFS_BLOCK_GROUP_##f; \
-		}
-		DESCRIBE_FLAG(DATA,     "data");
-		DESCRIBE_FLAG(SYSTEM,   "system");
-		DESCRIBE_FLAG(METADATA, "metadata");
-		DESCRIBE_FLAG(RAID0,    "raid0");
-		DESCRIBE_FLAG(RAID1,    "raid1");
-		DESCRIBE_FLAG(DUP,      "dup");
-		DESCRIBE_FLAG(RAID10,   "raid10");
-		DESCRIBE_FLAG(RAID5,    "raid5");
-		DESCRIBE_FLAG(RAID6,    "raid6");
-		if (flags)
-			snprintf(buf, buf - bp + sizeof(buf), "|0x%llx", flags);
-#undef DESCRIBE_FLAG
-	}
+	btrfs_describe_block_groups(block_group->flags, buf, sizeof(buf));
 
 	btrfs_info(fs_info,
 		   "relocating block group %llu flags %s",
-		   block_group->key.objectid, buf + 1);
+		   block_group->key.objectid, buf);
 }
 
 /*
@@ -4366,7 +4342,7 @@ int btrfs_relocate_block_group(struct btrfs_fs_info *fs_info, u64 group_start)
 	int rw = 0;
 	int err = 0;
 
-	rc = alloc_reloc_control(fs_info);
+	rc = alloc_reloc_control();
 	if (!rc)
 		return -ENOMEM;
 
@@ -4562,7 +4538,7 @@ int btrfs_recover_relocation(struct btrfs_root *root)
 	if (list_empty(&reloc_roots))
 		goto out;
 
-	rc = alloc_reloc_control(fs_info);
+	rc = alloc_reloc_control();
 	if (!rc) {
 		err = -ENOMEM;
 		goto out;
