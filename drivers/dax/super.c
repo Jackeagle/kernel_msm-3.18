@@ -86,6 +86,7 @@ int __bdev_dax_supported(struct super_block *sb, int blocksize)
 {
 	struct block_device *bdev = sb->s_bdev;
 	struct dax_device *dax_dev;
+	bool dax_enabled = false;
 	pgoff_t pgoff;
 	int err, id;
 	void *kaddr;
@@ -134,14 +135,21 @@ int __bdev_dax_supported(struct super_block *sb, int blocksize)
 		 * on being able to do (page_address(pfn_to_page())).
 		 */
 		WARN_ON(IS_ENABLED(CONFIG_ARCH_HAS_PMEM_API));
+		dax_enabled = true;
 	} else if (pfn_t_devmap(pfn)) {
-		/* pass */;
-	} else {
+		struct dev_pagemap *pgmap;
+
+		pgmap = get_dev_pagemap(pfn_t_to_pfn(pfn), NULL);
+		if (pgmap && pgmap->type == MEMORY_DEVICE_FS_DAX)
+			dax_enabled = true;
+		put_dev_pagemap(pgmap);
+	}
+
+	if (!dax_enabled) {
 		pr_debug("VFS (%s): error: dax support not enabled\n",
 				sb->s_id);
 		return -EOPNOTSUPP;
 	}
-
 	return 0;
 }
 EXPORT_SYMBOL_GPL(__bdev_dax_supported);
@@ -281,6 +289,16 @@ size_t dax_copy_from_iter(struct dax_device *dax_dev, pgoff_t pgoff, void *addr,
 	return dax_dev->ops->copy_from_iter(dax_dev, pgoff, addr, bytes, i);
 }
 EXPORT_SYMBOL_GPL(dax_copy_from_iter);
+
+size_t dax_copy_to_iter(struct dax_device *dax_dev, pgoff_t pgoff, void *addr,
+		size_t bytes, struct iov_iter *i)
+{
+	if (!dax_alive(dax_dev))
+		return 0;
+
+	return dax_dev->ops->copy_to_iter(dax_dev, pgoff, addr, bytes, i);
+}
+EXPORT_SYMBOL_GPL(dax_copy_to_iter);
 
 #ifdef CONFIG_ARCH_HAS_PMEM_API
 void arch_wb_cache_pmem(void *addr, size_t size);
