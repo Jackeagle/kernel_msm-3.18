@@ -94,7 +94,8 @@ static const __le16 smb2_rsp_struct_sizes[NUMBER_OF_SMB2_COMMANDS] = {
 };
 
 #ifdef CONFIG_CIFS_SMB311
-static __u32 get_neg_ctxt_len(struct smb2_hdr *hdr, __u32 len, __u32 non_ctxlen,
+static __u32 get_neg_ctxt_len(struct smb2_sync_hdr *hdr, __u32 len,
+			      __u32 non_ctxlen,
 				size_t hdr_preamble_size)
 {
 	__u16 neg_count;
@@ -131,25 +132,20 @@ static __u32 get_neg_ctxt_len(struct smb2_hdr *hdr, __u32 len, __u32 non_ctxlen,
 #endif /* CIFS_SMB311 */
 
 int
-smb2_check_message(char *buf, unsigned int length, struct TCP_Server_Info *srvr)
+smb2_check_message(char *buf, unsigned int len, struct TCP_Server_Info *srvr)
 {
-	struct smb2_pdu *pdu = (struct smb2_pdu *)buf;
-	struct smb2_hdr *hdr = &pdu->hdr;
-	struct smb2_sync_hdr *shdr = get_sync_hdr(buf);
+	struct smb2_sync_hdr *shdr = (struct smb2_sync_hdr *)(buf + srvr->vals->header_preamble_size);
+	struct smb2_sync_pdu *pdu = (struct smb2_sync_pdu *)shdr;
 	__u64 mid;
-	__u32 len = get_rfc1002_length(buf);
 	__u32 clc_len;  /* calculated length */
 	int command;
-
-	/* BB disable following printk later */
-	cifs_dbg(FYI, "%s length: 0x%x, smb_buf_length: 0x%x\n",
-		 __func__, length, len);
+	int pdu_size = sizeof(struct smb2_sync_pdu);
+	int hdr_size = sizeof(struct smb2_sync_hdr);
 
 	/*
 	 * Add function to do table lookup of StructureSize by command
 	 * ie Validate the wct via smb2_struct_sizes table above
 	 */
-
 	if (shdr->ProtocolId == SMB2_TRANSFORM_PROTO_NUM) {
 		struct smb2_transform_hdr *thdr =
 			(struct smb2_transform_hdr *)buf;
@@ -173,8 +169,8 @@ smb2_check_message(char *buf, unsigned int length, struct TCP_Server_Info *srvr)
 	}
 
 	mid = le64_to_cpu(shdr->MessageId);
-	if (length < sizeof(struct smb2_pdu)) {
-		if ((length >= sizeof(struct smb2_hdr))
+	if (len < pdu_size) {
+		if ((len >= hdr_size)
 		    && (shdr->Status != 0)) {
 			pdu->StructureSize2 = 0;
 			/*
@@ -227,31 +223,25 @@ smb2_check_message(char *buf, unsigned int length, struct TCP_Server_Info *srvr)
 		}
 	}
 
-	if (srvr->vals->header_preamble_size + len != length) {
-		cifs_dbg(VFS, "Total length %u RFC1002 length %zu mismatch mid %llu\n",
-			 length, srvr->vals->header_preamble_size + len, mid);
-		return 1;
-	}
-
-	clc_len = smb2_calc_size(hdr);
+	clc_len = smb2_calc_size(buf, srvr);
 
 #ifdef CONFIG_CIFS_SMB311
 	if (shdr->Command == SMB2_NEGOTIATE)
-		clc_len += get_neg_ctxt_len(hdr, len, clc_len,
-					srvr->vals->header_preamble_size);
+		clc_len += get_neg_ctxt_len(shdr, len, clc_len,
+					    srvr->vals->header_preamble_size);
 #endif /* SMB311 */
-	if (srvr->vals->header_preamble_size + len != clc_len) {
-		cifs_dbg(FYI, "Calculated size %u length %zu mismatch mid %llu\n",
-			 clc_len, srvr->vals->header_preamble_size + len, mid);
+	if (len != clc_len) {
+		cifs_dbg(FYI, "Calculated size %u length %u mismatch mid %llu\n",
+			 clc_len, len, mid);
 		/* create failed on symlink */
 		if (command == SMB2_CREATE_HE &&
 		    shdr->Status == STATUS_STOPPED_ON_SYMLINK)
 			return 0;
 		/* Windows 7 server returns 24 bytes more */
-		if (clc_len + 24 - srvr->vals->header_preamble_size == len && command == SMB2_OPLOCK_BREAK_HE)
+		if (clc_len + 24 == len && command == SMB2_OPLOCK_BREAK_HE)
 			return 0;
 		/* server can return one byte more due to implied bcc[0] */
-		if (clc_len == srvr->vals->header_preamble_size + len + 1)
+		if (clc_len == len + 1)
 			return 0;
 
 		/*
@@ -261,10 +251,10 @@ smb2_check_message(char *buf, unsigned int length, struct TCP_Server_Info *srvr)
 		 * Log the server error (once), but allow it and continue
 		 * since the frame is parseable.
 		 */
-		if (clc_len < srvr->vals->header_preamble_size /* RFC1001 header size */ + len) {
+		if (clc_len < len) {
 			printk_once(KERN_WARNING
-				"SMB2 server sent bad RFC1001 len %d not %zu\n",
-				len, clc_len - srvr->vals->header_preamble_size);
+				"SMB2 server sent bad RFC1001 len %d not %u\n",
+				len, clc_len);
 			return 0;
 		}
 
@@ -403,7 +393,7 @@ smb2_get_data_area_len(int *off, int *len, struct smb2_hdr *hdr)
  * portion, the number of word parameters and the data portion of the message.
  */
 unsigned int
-smb2_calc_size(void *buf)
+smb2_calc_size(void *buf, struct TCP_Server_Info *srvr)
 {
 	struct smb2_pdu *pdu = (struct smb2_pdu *)buf;
 	struct smb2_hdr *hdr = &pdu->hdr;
@@ -411,7 +401,7 @@ smb2_calc_size(void *buf)
 	int offset; /* the offset from the beginning of SMB to data area */
 	int data_length; /* the length of the variable length data area */
 	/* Structure Size has already been checked to make sure it is 64 */
-	int len = 4 + le16_to_cpu(shdr->StructureSize);
+	int len = srvr->vals->header_preamble_size + le16_to_cpu(shdr->StructureSize);
 
 	/*
 	 * StructureSize2, ie length of fixed parameter area has already
@@ -433,12 +423,12 @@ smb2_calc_size(void *buf)
 		 * so we must add one to the calculation (and 4 to account for
 		 * the size of the RFC1001 hdr.
 		 */
-		if (offset + 4 + 1 < len) {
-			cifs_dbg(VFS, "data area offset %d overlaps SMB2 header %d\n",
-				 offset + 4 + 1, len);
+		if (offset + srvr->vals->header_preamble_size + 1 < len) {
+			cifs_dbg(VFS, "data area offset %zu overlaps SMB2 header %d\n",
+				 offset + srvr->vals->header_preamble_size + 1, len);
 			data_length = 0;
 		} else {
-			len = 4 + offset + data_length;
+			len = srvr->vals->header_preamble_size + offset + data_length;
 		}
 	}
 calc_size_exit:
