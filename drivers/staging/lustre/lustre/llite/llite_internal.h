@@ -1110,7 +1110,7 @@ static inline int ll_glimpse_size(struct inode *inode)
 
 	down_read(&lli->lli_glimpse_sem);
 	rc = cl_glimpse_size(inode);
-	lli->lli_glimpse_time = cfs_time_current();
+	lli->lli_glimpse_time = jiffies;
 	up_read(&lli->lli_glimpse_sem);
 	return rc;
 }
@@ -1140,7 +1140,7 @@ dentry_may_statahead(struct inode *dir, struct dentry *dentry)
 		return false;
 
 	/* not the same process, don't statahead */
-	if (lli->lli_opendir_pid != current_pid())
+	if (lli->lli_opendir_pid != current->pid)
 		return false;
 
 	/*

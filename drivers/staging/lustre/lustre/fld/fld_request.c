@@ -39,7 +39,6 @@
 
 #define DEBUG_SUBSYSTEM S_FLD
 
-#include <linux/libcfs/libcfs.h>
 #include <linux/module.h>
 #include <asm/div64.h>
 
@@ -450,6 +449,12 @@ void fld_client_flush(struct lu_client_fld *fld)
 
 static int __init fld_init(void)
 {
+	int rc;
+
+	rc = libcfs_setup();
+	if (rc)
+		return rc;
+
 	fld_debugfs_dir = ldebugfs_register(LUSTRE_FLD_NAME,
 					    debugfs_lustre_root,
 					    NULL, NULL);

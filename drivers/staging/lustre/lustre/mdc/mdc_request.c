@@ -38,6 +38,9 @@
 # include <linux/miscdevice.h>
 # include <linux/init.h>
 # include <linux/utsname.h>
+# include <linux/file.h>
+# include <linux/kthread.h>
+#include <linux/prefetch.h>
 
 #include <lustre_errno.h>
 #include <cl_object.h>
@@ -303,7 +306,7 @@ static int mdc_xattr_common(struct obd_export *exp,
 		rec->sx_opcode = REINT_SETXATTR;
 		rec->sx_fsuid  = from_kuid(&init_user_ns, current_fsuid());
 		rec->sx_fsgid  = from_kgid(&init_user_ns, current_fsgid());
-		rec->sx_cap    = cfs_curproc_cap_pack();
+		rec->sx_cap    = current_cap().cap[0];
 		rec->sx_suppgid1 = suppgid;
 		rec->sx_suppgid2 = -1;
 		rec->sx_fid    = *fid;
@@ -2104,7 +2107,7 @@ static int mdc_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 		}
 
 		rc = mdc_statfs(NULL, obd->obd_self_export, &stat_buf,
-				cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
+				get_jiffies_64() - OBD_STATFS_CACHE_SECONDS * HZ,
 				0);
 		if (rc != 0)
 			goto out;
@@ -2733,6 +2736,11 @@ static struct md_ops mdc_md_ops = {
 static int __init mdc_init(void)
 {
 	struct lprocfs_static_vars lvars = { NULL };
+	int rc;
+
+	rc = libcfs_setup();
+	if (rc)
+		return rc;
 
 	lprocfs_mdc_init_vars(&lvars);
 
