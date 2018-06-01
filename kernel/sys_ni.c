@@ -158,6 +158,9 @@ COND_SYSCALL_COMPAT(kexec_load);
 COND_SYSCALL(init_module);
 COND_SYSCALL(delete_module);
 
+/* kernel/pid_namespace.c */
+COND_SYSCALL(translate_pid);
+
 /* kernel/posix-timers.c */
 
 /* kernel/printk.c */

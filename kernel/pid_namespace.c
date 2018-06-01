@@ -13,6 +13,7 @@
 #include <linux/user_namespace.h>
 #include <linux/syscalls.h>
 #include <linux/cred.h>
+#include <linux/file.h>
 #include <linux/err.h>
 #include <linux/acct.h>
 #include <linux/slab.h>
@@ -378,6 +379,71 @@ static struct ns_common *pidns_for_children_get(struct task_struct *task)
 static void pidns_put(struct ns_common *ns)
 {
 	put_pid_ns(to_pid_ns(ns));
+}
+
+static struct pid_namespace *get_pid_ns_by_fd(int fd)
+{
+	struct pid_namespace *pidns;
+	struct ns_common *ns;
+	struct file *file;
+
+	file = proc_ns_fget(fd);
+	if (IS_ERR(file))
+		return ERR_CAST(file);
+
+	ns = get_proc_ns(file_inode(file));
+	if (ns->ops->type == CLONE_NEWPID)
+		pidns = get_pid_ns(to_pid_ns(ns));
+	else
+		pidns = ERR_PTR(-EINVAL);
+
+	fput(file);
+	return pidns;
+}
+
+/*
+ * translate_pid - convert pid in source pid-ns into target pid-ns.
+ * @pid:    pid for translation
+ * @source: pid-ns file descriptor or -1 for active namespace
+ * @target: pid-ns file descriptor or -1 for active namesapce
+ *
+ * Returns pid in @target pid-ns, zero if task have no pid there,
+ * or -ESRCH if task with @pid does not found in @source pid-ns.
+ */
+SYSCALL_DEFINE3(translate_pid, pid_t, pid, int, source, int, target)
+{
+	struct pid_namespace *source_ns, *target_ns;
+	struct pid *struct_pid;
+	pid_t result;
+
+	if (source >= 0) {
+		source_ns = get_pid_ns_by_fd(source);
+		result = PTR_ERR(source_ns);
+		if (IS_ERR(source_ns))
+			goto err_source;
+	} else
+		source_ns = task_active_pid_ns(current);
+
+	if (target >= 0) {
+		target_ns = get_pid_ns_by_fd(target);
+		result = PTR_ERR(target_ns);
+		if (IS_ERR(target_ns))
+			goto err_target;
+	} else
+		target_ns = task_active_pid_ns(current);
+
+	rcu_read_lock();
+	struct_pid = find_pid_ns(pid, source_ns);
+	result = struct_pid ? pid_nr_ns(struct_pid, target_ns) : -ESRCH;
+	rcu_read_unlock();
+
+	if (target >= 0)
+		put_pid_ns(target_ns);
+err_target:
+	if (source >= 0)
+		put_pid_ns(source_ns);
+err_source:
+	return result;
 }
 
 static int pidns_install(struct nsproxy *nsproxy, struct ns_common *ns)
