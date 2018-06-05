@@ -645,6 +645,12 @@ struct mdss_dsi_ctrl_pdata {
 	/* rgb calibration */
 	struct dsi_cmd_pos rgb_gain_pos;
 	struct rgb_gain rgb_gain;
+
+	struct notifier_block wake_notif;
+	struct task_struct *wake_thread;
+	struct mutex wake_lock;
+	wait_queue_head_t wake_waitq;
+	atomic_t needs_wake;
 };
 
 struct te_data {
