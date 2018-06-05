@@ -45,6 +45,8 @@ static struct mdss_dsi_data *mdss_dsi_res;
 
 static struct pm_qos_request mdss_dsi_pm_qos_request;
 
+static void mdss_dsi_start_wake_thread(struct mdss_dsi_ctrl_pdata *ctrl_pdata);
+
 void mdss_dump_dsi_debug_bus(u32 bus_dump_flag,
 	u32 **dump_mem)
 {
@@ -1845,6 +1847,8 @@ static int mdss_dsi_blank(struct mdss_panel_data *pdata, int power_state)
 			CTRL_STATE_PANEL_LP);
 	}
 
+	mdss_dsi_start_wake_thread(ctrl_pdata);
+
 error:
 	mdss_dsi_clk_ctrl(ctrl_pdata, ctrl_pdata->dsi_clk_handle,
 			  MDSS_DSI_ALL_CLKS, MDSS_DSI_CLK_OFF);
@@ -1878,6 +1882,76 @@ static int mdss_dsi_post_panel_on(struct mdss_panel_data *pdata)
 	pr_debug("%s-:\n", __func__);
 
 	return 0;
+}
+
+static int mdss_dsi_disp_wake_thread(void *data)
+{
+	struct mdss_panel_data *pdata = data;
+	struct mdss_dsi_ctrl_pdata *ctrl_pdata =
+		container_of(pdata, typeof(*ctrl_pdata), panel_data);
+	struct sched_param param = { .sched_priority = MAX_RT_PRIO - 1 };
+
+	sched_setscheduler(current, SCHED_FIFO, &param);
+
+	wait_event(ctrl_pdata->wake_waitq,
+		atomic_read(&ctrl_pdata->needs_wake));
+	atomic_set(&ctrl_pdata->needs_wake, 0);
+
+	/* MDSS_EVENT_LINK_READY */
+	if (ctrl_pdata->refresh_clk_rate)
+		mdss_dsi_clk_refresh(pdata, ctrl_pdata->update_phy_timing);
+	mdss_dsi_on(pdata);
+
+	/* MDSS_EVENT_UNBLANK */
+	mdss_dsi_unblank(pdata);
+
+	/* MDSS_EVENT_PANEL_ON */
+	ctrl_pdata->ctrl_state |= CTRL_STATE_MDP_ACTIVE;
+	pdata->panel_info.esd_rdy = true;
+
+	/* MDSS_EVENT_POST_PANEL_ON */
+	mdss_dsi_post_panel_on(pdata);
+
+	return 0;
+}
+
+static int mdss_dsi_fb_unblank_cb(struct notifier_block *nb,
+		unsigned long action, void *data)
+{
+	struct mdss_dsi_ctrl_pdata *ctrl_pdata =
+		container_of(nb, typeof(*ctrl_pdata), wake_notif);
+	struct fb_event *evdata = data;
+	int *blank = evdata->data;
+
+	/* Parse framebuffer events as soon as they occur */
+	if (action != FB_EARLY_EVENT_BLANK)
+		return NOTIFY_OK;
+
+	if (*blank == FB_BLANK_UNBLANK) {
+		/* Ensure wake thread is running when unblanking on boot */
+		mdss_dsi_start_wake_thread(ctrl_pdata);
+
+		atomic_set(&ctrl_pdata->needs_wake, 1);
+		wake_up(&ctrl_pdata->wake_waitq);
+		ctrl_pdata->wake_thread = NULL;
+	} else {
+		mdss_dsi_start_wake_thread(ctrl_pdata);
+	}
+
+	return NOTIFY_OK;
+}
+
+static void mdss_dsi_start_wake_thread(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
+{
+	if (ctrl_pdata->wake_thread)
+		return;
+
+	ctrl_pdata->wake_thread = kthread_run(mdss_dsi_disp_wake_thread,
+						&ctrl_pdata->panel_data,
+						"mdss_disp_wake");
+	if (IS_ERR(ctrl_pdata->wake_thread))
+		pr_err("%s: Failed to start disp-wake thread, rc=%ld\n",
+				__func__, PTR_ERR(ctrl_pdata->wake_thread));
 }
 
 int mdss_dsi_cont_splash_on(struct mdss_panel_data *pdata)
@@ -2758,24 +2832,10 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 		ctrl_pdata->refresh_clk_rate = true;
 		break;
 	case MDSS_EVENT_LINK_READY:
-		if (ctrl_pdata->refresh_clk_rate)
-			rc = mdss_dsi_clk_refresh(pdata,
-				ctrl_pdata->update_phy_timing);
-
-		rc = mdss_dsi_on(pdata);
-		break;
 	case MDSS_EVENT_UNBLANK:
-		if (ctrl_pdata->on_cmds.link_state == DSI_LP_MODE)
-			rc = mdss_dsi_unblank(pdata);
-		break;
 	case MDSS_EVENT_POST_PANEL_ON:
-		rc = mdss_dsi_post_panel_on(pdata);
-		break;
 	case MDSS_EVENT_PANEL_ON:
-		ctrl_pdata->ctrl_state |= CTRL_STATE_MDP_ACTIVE;
-		if (ctrl_pdata->on_cmds.link_state == DSI_HS_MODE)
-			rc = mdss_dsi_unblank(pdata);
-		pdata->panel_info.esd_rdy = true;
+		/* Handled by disp-wake kthread */
 		break;
 	case MDSS_EVENT_BLANK:
 		power_state = (int) (unsigned long) arg;
@@ -3388,6 +3448,16 @@ static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 	if (!ctrl_pdata) {
 		pr_err("%s: Unable to get the ctrl_pdata\n", __func__);
 		return -EINVAL;
+	}
+
+	init_waitqueue_head(&ctrl_pdata->wake_waitq);
+	ctrl_pdata->wake_notif.notifier_call = mdss_dsi_fb_unblank_cb;
+	ctrl_pdata->wake_notif.priority = INT_MAX - 1;
+	rc = fb_register_client(&ctrl_pdata->wake_notif);
+	if (rc) {
+		pr_err("%s: Failed to register unblank notifier, rc=%d\n",
+								__func__, rc);
+		return rc;
 	}
 
 	platform_set_drvdata(pdev, ctrl_pdata);
