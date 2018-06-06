@@ -46,6 +46,30 @@
       "revId": "39260179abae07e47267f681247c6577a6a34fae",
       "serverId": "85c56323-6fa9-3386-8a01-6480fb634889",
       "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "3c2194a6_685384de",
+        "filename": "net/ipv4/ip_tunnel.c",
+        "patchSetId": 4
+      },
+      "lineNbr": 319,
+      "author": {
+        "id": 1327778
+      },
+      "writtenOn": "2018-06-06T22:40:53Z",
+      "side": 1,
+      "message": "The warning was that the n parameter to strncat was shorter than the literal string passed to strncat. The boundary is checked on line 314, so any further bounds checks are redundant.",
+      "parentUuid": "c4c535e4_3e8d9b96",
+      "range": {
+        "startLine": 318,
+        "startChar": 0,
+        "endLine": 319,
+        "endChar": 21
+      },
+      "revId": "39260179abae07e47267f681247c6577a6a34fae",
+      "serverId": "85c56323-6fa9-3386-8a01-6480fb634889",
+      "unresolved": true
     }
   ]
 }
