@@ -17,7 +17,7 @@
 #include "himax_common.h"
 
 #if defined(CONFIG_TOUCHSCREEN_HIMAX_DEBUG)
-	#define HIMAX_PROC_TOUCH_FOLDER 	"android_touch"
+	#define HIMAX_PROC_TOUCH_FOLDER	"android_touch"
 	#define HIMAX_PROC_DEBUG_LEVEL_FILE	"debug_level"
 	#define HIMAX_PROC_VENDOR_FILE		"vendor"
 	#define HIMAX_PROC_ATTN_FILE		"attn"
@@ -33,9 +33,25 @@
 
 	uint8_t HX_PROC_SEND_FLAG;
 
-extern int himax_touch_proc_init(void);
-extern void himax_touch_proc_deinit(void);
-bool getFlashDumpGoing(void);
+	extern int himax_touch_proc_init(void);
+	extern void himax_touch_proc_deinit(void);
+	bool getFlashDumpGoing(void);
+
+	extern struct himax_ic_data *ic_data;
+	extern struct himax_ts_data *private_ts;
+	extern unsigned char	IC_TYPE;
+	extern unsigned char	IC_CHECKSUM;
+
+#ifdef QCT
+	extern irqreturn_t himax_ts_thread(int irq, void *ptr);
+#endif
+#ifdef MTK
+#ifdef CONFIG_OF_TOUCH
+	extern irqreturn_t tpd_eint_interrupt_handler(int irq, void *desc);
+#else
+	extern void tpd_eint_interrupt_handler(void);
+#endif
+#endif
 
 #ifdef HX_TP_PROC_REGISTER
 	#define HIMAX_PROC_REGISTER_FILE	"register"
@@ -56,15 +72,15 @@ bool getFlashDumpGoing(void);
 	static uint8_t *diag_mutual_2;
 
 	int16_t *getMutualBuffer_2(void);
-	uint8_t 	getXChannel_2(void);
-	uint8_t 	getYChannel_2(void);
+	uint8_t	getXChannel_2(void);
+	uint8_t	getYChannel_2(void);
 
-	void 	setMutualBuffer_2(void);
-	void 	setXChannel_2(uint8_t x);
-	void 	setYChannel_2(uint8_t y);
+	void	setMutualBuffer_2(void);
+	void	setXChannel_2(uint8_t x);
+	void	setYChannel_2(uint8_t y);
 #endif
-	uint8_t x_channel 		= 0;
-	uint8_t y_channel 		= 0;
+	uint8_t x_channel	= 0;
+	uint8_t y_channel	= 0;
 	int16_t *diag_mutual = NULL;
 	int16_t *diag_mutual_new = NULL;
 	int16_t *diag_mutual_old = NULL;
@@ -78,15 +94,15 @@ bool getFlashDumpGoing(void);
 	int16_t *getMutualNewBuffer(void);
 	int16_t *getMutualOldBuffer(void);
 	int16_t *getSelfBuffer(void);
-	uint8_t 	getDiagCommand(void);
-	uint8_t 	getXChannel(void);
-	uint8_t 	getYChannel(void);
+	uint8_t	getDiagCommand(void);
+	uint8_t	getXChannel(void);
+	uint8_t	getYChannel(void);
 
-	void 	setMutualBuffer(void);
-	void 	setMutualNewBuffer(void);
-	void 	setMutualOldBuffer(void);
-	void 	setXChannel(uint8_t x);
-	void 	setYChannel(uint8_t y);
+	void	setMutualBuffer(void);
+	void	setMutualNewBuffer(void);
+	void	setMutualOldBuffer(void);
+	void	setXChannel(uint8_t x);
+	void	setYChannel(uint8_t y);
 	uint8_t	coordinate_dump_enable = 0;
 	struct file	*coordinate_fn;
 #endif
@@ -151,7 +167,7 @@ bool getFlashDumpGoing(void);
 #ifdef HX_TP_PROC_RESET
 #define HIMAX_PROC_RESET_FILE		"reset"
 extern void himax_HW_reset(uint8_t loadconfig, uint8_t int_off);
-struct proc_dir_entry *himax_proc_reset_file 		= NULL;
+struct proc_dir_entry *himax_proc_reset_file;
 #endif
 
 #ifdef HX_HIGH_SENSE
@@ -170,10 +186,10 @@ struct proc_dir_entry *himax_proc_reset_file 		= NULL;
 
 #ifdef HX_SMART_WAKEUP
 #define HIMAX_PROC_SMWP_FILE "SMWP"
-struct proc_dir_entry *himax_proc_SMWP_file = NULL;
+struct proc_dir_entry *himax_proc_SMWP_file;
 #define HIMAX_PROC_GESTURE_FILE "GESTURE"
-struct proc_dir_entry *himax_proc_GESTURE_file = NULL;
-uint8_t HX_SMWP_EN = 0;
+struct proc_dir_entry *himax_proc_GESTURE_file;
+uint8_t HX_SMWP_EN;
 /*extern bool FAKE_POWER_KEY_SEND;*/
 #endif
 
