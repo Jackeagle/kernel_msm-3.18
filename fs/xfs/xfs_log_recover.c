@@ -2702,7 +2702,7 @@ xlog_recover_do_reg_buffer(
 				goto next;
 			}
 			fa = xfs_dquot_verify(mp, item->ri_buf[i].i_addr,
-					       -1, 0, 0);
+					       -1, 0);
 			if (fa) {
 				xfs_alert(mp,
 	"dquot corrupt at %pS trying to replay into block 0x%llx",
@@ -3115,7 +3115,8 @@ xlog_recover_inode_pass2(
 		if ((ldip->di_format != XFS_DINODE_FMT_EXTENTS) &&
 		    (ldip->di_format != XFS_DINODE_FMT_BTREE)) {
 			XFS_CORRUPTION_ERROR("xlog_recover_inode_pass2(3)",
-					 XFS_ERRLEVEL_LOW, mp, ldip);
+					 XFS_ERRLEVEL_LOW, mp, ldip,
+					 sizeof(*ldip));
 			xfs_alert(mp,
 		"%s: Bad regular inode log record, rec ptr "PTR_FMT", "
 		"ino ptr = "PTR_FMT", ino bp = "PTR_FMT", ino %Ld",
@@ -3128,7 +3129,8 @@ xlog_recover_inode_pass2(
 		    (ldip->di_format != XFS_DINODE_FMT_BTREE) &&
 		    (ldip->di_format != XFS_DINODE_FMT_LOCAL)) {
 			XFS_CORRUPTION_ERROR("xlog_recover_inode_pass2(4)",
-					     XFS_ERRLEVEL_LOW, mp, ldip);
+					     XFS_ERRLEVEL_LOW, mp, ldip,
+					     sizeof(*ldip));
 			xfs_alert(mp,
 		"%s: Bad dir inode log record, rec ptr "PTR_FMT", "
 		"ino ptr = "PTR_FMT", ino bp = "PTR_FMT", ino %Ld",
@@ -3139,7 +3141,8 @@ xlog_recover_inode_pass2(
 	}
 	if (unlikely(ldip->di_nextents + ldip->di_anextents > ldip->di_nblocks)){
 		XFS_CORRUPTION_ERROR("xlog_recover_inode_pass2(5)",
-				     XFS_ERRLEVEL_LOW, mp, ldip);
+				     XFS_ERRLEVEL_LOW, mp, ldip,
+				     sizeof(*ldip));
 		xfs_alert(mp,
 	"%s: Bad inode log record, rec ptr "PTR_FMT", dino ptr "PTR_FMT", "
 	"dino bp "PTR_FMT", ino %Ld, total extents = %d, nblocks = %Ld",
@@ -3151,7 +3154,8 @@ xlog_recover_inode_pass2(
 	}
 	if (unlikely(ldip->di_forkoff > mp->m_sb.sb_inodesize)) {
 		XFS_CORRUPTION_ERROR("xlog_recover_inode_pass2(6)",
-				     XFS_ERRLEVEL_LOW, mp, ldip);
+				     XFS_ERRLEVEL_LOW, mp, ldip,
+				     sizeof(*ldip));
 		xfs_alert(mp,
 	"%s: Bad inode log record, rec ptr "PTR_FMT", dino ptr "PTR_FMT", "
 	"dino bp "PTR_FMT", ino %Ld, forkoff 0x%x", __func__,
@@ -3162,7 +3166,8 @@ xlog_recover_inode_pass2(
 	isize = xfs_log_dinode_size(ldip->di_version);
 	if (unlikely(item->ri_buf[1].i_len > isize)) {
 		XFS_CORRUPTION_ERROR("xlog_recover_inode_pass2(7)",
-				     XFS_ERRLEVEL_LOW, mp, ldip);
+				     XFS_ERRLEVEL_LOW, mp, ldip,
+				     sizeof(*ldip));
 		xfs_alert(mp,
 			"%s: Bad inode log record length %d, rec ptr "PTR_FMT,
 			__func__, item->ri_buf[1].i_len, item);
@@ -3348,7 +3353,7 @@ xlog_recover_dquot_pass2(
 	 */
 	dq_f = item->ri_buf[0].i_addr;
 	ASSERT(dq_f);
-	fa = xfs_dquot_verify(mp, recddq, dq_f->qlf_id, 0, 0);
+	fa = xfs_dquot_verify(mp, recddq, dq_f->qlf_id, 0);
 	if (fa) {
 		xfs_alert(mp, "corrupt dquot ID 0x%x in log at %pS",
 				dq_f->qlf_id, fa);

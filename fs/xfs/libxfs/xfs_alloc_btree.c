@@ -242,7 +242,6 @@ xfs_allocbt_init_ptr_from_cur(
 	struct xfs_agf		*agf = XFS_BUF_TO_AGF(cur->bc_private.a.agbp);
 
 	ASSERT(cur->bc_private.a.agno == be32_to_cpu(agf->agf_seqno));
-	ASSERT(agf->agf_roots[cur->bc_btnum] != 0);
 
 	ptr->s = agf->agf_roots[cur->bc_btnum];
 }
@@ -546,4 +545,13 @@ xfs_allocbt_maxrecs(
 	if (leaf)
 		return blocklen / sizeof(xfs_alloc_rec_t);
 	return blocklen / (sizeof(xfs_alloc_key_t) + sizeof(xfs_alloc_ptr_t));
+}
+
+/* Calculate the freespace btree size for some records. */
+xfs_extlen_t
+xfs_allocbt_calc_size(
+	struct xfs_mount	*mp,
+	unsigned long long	len)
+{
+	return xfs_btree_calc_size(mp->m_alloc_mnr, len);
 }
