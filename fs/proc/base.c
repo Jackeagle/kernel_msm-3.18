@@ -2452,7 +2452,7 @@ static struct dentry *proc_pident_lookup(struct inode *dir,
 		if (p->len != dentry->d_name.len)
 			continue;
 		if (!memcmp(dentry->d_name.name, p->name, p->len)) {
-			res = proc_pident_instantiate(dir, dentry, task, p);
+			res = proc_pident_instantiate(dentry, task, p);
 			break;
 		}
 	}
