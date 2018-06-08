@@ -259,8 +259,10 @@ struct device_link *device_link_add(struct device *consumer,
 				 * runtime PM usage counter after consumer probe
 				 * in driver_probe_device().
 				 */
-				if (flags & DL_FLAG_PM_RUNTIME)
+				if (flags & DL_FLAG_PM_RUNTIME) {
 					pm_runtime_get_sync(supplier);
+					link->rpm_active = true;
+				}
 
 				link->status = DL_STATE_CONSUMER_PROBE;
 				break;
