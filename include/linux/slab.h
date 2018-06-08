@@ -600,6 +600,7 @@ struct memcg_cache_params {
 			struct memcg_cache_array __rcu *memcg_caches;
 			struct list_head __root_caches_node;
 			struct list_head children;
+			bool dying;
 		};
 		struct {
 			struct mem_cgroup *memcg;
@@ -616,8 +617,6 @@ struct memcg_cache_params {
 };
 
 int memcg_update_all_caches(int num_memcgs);
-bool kmem_cache_tryget(struct kmem_cache *s);
-void kmem_cache_put(struct kmem_cache *s);
 
 /**
  * kmalloc_array - allocate memory for an array.
