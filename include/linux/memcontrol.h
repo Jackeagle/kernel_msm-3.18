@@ -762,7 +762,7 @@ static inline void memcg_memory_event_mm(struct mm_struct *mm,
 		return;
 
 	rcu_read_lock();
-	memcg = rcu_dereference(mm->memcg);
+	memcg = mem_cgroup_from_task(rcu_dereference(mm->owner));
 	if (likely(memcg))
 		memcg_memory_event(memcg, event);
 	rcu_read_unlock();
