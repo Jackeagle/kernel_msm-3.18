@@ -94,6 +94,30 @@
       "revId": "400eb1b75b35cc8c65c639e142f200c0cc1fd9bc",
       "serverId": "85c56323-6fa9-3386-8a01-6480fb634889",
       "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "3feaae19_fe656031",
+        "filename": "kernel/fork.c",
+        "patchSetId": 2
+      },
+      "lineNbr": 230,
+      "author": {
+        "id": 1327778
+      },
+      "writtenOn": "2018-06-11T21:36:32Z",
+      "side": 1,
+      "message": "Please see https://android-review.googlesource.com/c/kernel/msm/+/703706 for the android-msm-wahoo-4.4-p-preview-2 version.",
+      "parentUuid": "675d0b57_8d04b08e",
+      "range": {
+        "startLine": 230,
+        "startChar": 1,
+        "endLine": 230,
+        "endChar": 24
+      },
+      "revId": "400eb1b75b35cc8c65c639e142f200c0cc1fd9bc",
+      "serverId": "85c56323-6fa9-3386-8a01-6480fb634889",
+      "unresolved": true
     }
   ]
 }
