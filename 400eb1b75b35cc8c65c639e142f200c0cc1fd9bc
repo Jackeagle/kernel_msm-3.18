@@ -46,6 +46,30 @@
       "revId": "400eb1b75b35cc8c65c639e142f200c0cc1fd9bc",
       "serverId": "85c56323-6fa9-3386-8a01-6480fb634889",
       "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "05a45b7a_6718fa74",
+        "filename": "kernel/fork.c",
+        "patchSetId": 2
+      },
+      "lineNbr": 230,
+      "author": {
+        "id": 1327778
+      },
+      "writtenOn": "2018-06-11T21:27:05Z",
+      "side": 1,
+      "message": "Are you applying this patch to an internal tree that\u0027s ahead of android-msm-wahoo-4.4-oreo-m4?",
+      "parentUuid": "295e9bc9_ed794d42",
+      "range": {
+        "startLine": 230,
+        "startChar": 1,
+        "endLine": 230,
+        "endChar": 24
+      },
+      "revId": "400eb1b75b35cc8c65c639e142f200c0cc1fd9bc",
+      "serverId": "85c56323-6fa9-3386-8a01-6480fb634889",
+      "unresolved": true
     }
   ]
 }
