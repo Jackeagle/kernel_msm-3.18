@@ -65,8 +65,8 @@ void himax_flash_read(struct i2c_client *client,
 void himax_flash_write_burst(struct i2c_client *client,
 	uint8_t *reg_byte, uint8_t *write_data);
 
-/*himax_83100_Flash_Write_Burst_lenth*/
-int himax_flash_write_burst_lenth(struct i2c_client *client,
+/*himax_83100_Flash_Write_Burst_length*/
+int himax_flash_write_burst_length(struct i2c_client *client,
 	uint8_t *reg_byte, uint8_t *write_data, int length);
 
 /*RegisterWrite83100*/

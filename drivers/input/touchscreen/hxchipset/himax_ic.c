@@ -258,7 +258,7 @@ int himax_chip_self_test(struct i2c_client *client)
 	tmp_data[7] = 0x13; tmp_data[6] = 0x60;
 	tmp_data[5] = 0x0A; tmp_data[4] = 0x99;
 
-	himax_flash_write_burst_lenth(client, tmp_addr, tmp_data, 8);
+	himax_flash_write_burst_length(client, tmp_addr, tmp_data, 8);
 
 	/*start selftest*/
 	/* 0x9008_805C ==> 0x0000_0001*/
@@ -536,7 +536,7 @@ uint8_t *reg_byte, uint8_t *write_data)
 
 }
 
-int himax_flash_write_burst_lenth(struct i2c_client *client,
+int himax_flash_write_burst_length(struct i2c_client *client,
 uint8_t *reg_byte, uint8_t *write_data, int length)
 {
 	uint8_t data_byte[256];
@@ -578,7 +578,7 @@ uint8_t *write_addr, int write_length, uint8_t *write_data)
 			if (ret)
 				return err;
 		}
-	ret = himax_flash_write_burst_lenth(client,
+	ret = himax_flash_write_burst_length(client,
 		write_addr, write_data, write_length * 4);
 	if (ret < 0)
 		return err;
@@ -802,7 +802,7 @@ void himax_sense_on(struct i2c_client *client, uint8_t FlashMode)
 		tmp_addr[1] = 0x00; tmp_addr[0] = 0x00;
 		tmp_data[3] = 0x00; tmp_data[2] = 0x00;
 		tmp_data[1] = 0x00; tmp_data[0] = 0xF1;
-		himax_flash_write_burst_lenth(client, tmp_addr, tmp_data, 4);
+		himax_flash_write_burst_length(client, tmp_addr, tmp_data, 4);
 		I("%s:83100_Chip_Re-map ON\n", __func__);
 	} else {
 		/*=====================================
@@ -812,7 +812,7 @@ void himax_sense_on(struct i2c_client *client, uint8_t FlashMode)
 		tmp_addr[1] = 0x00; tmp_addr[0] = 0x00;
 		tmp_data[3] = 0x00; tmp_data[2] = 0x00;
 		tmp_data[1] = 0x00; tmp_data[0] = 0x00;
-		himax_flash_write_burst_lenth(client, tmp_addr, tmp_data, 4);
+		himax_flash_write_burst_length(client, tmp_addr, tmp_data, 4);
 		I("%s:83100_Chip_Re-map OFF\n", __func__);
 	}
 	/*=====================================
@@ -822,7 +822,7 @@ void himax_sense_on(struct i2c_client *client, uint8_t FlashMode)
 	tmp_addr[1] = 0x00; tmp_addr[0] = 0x10;
 	tmp_data[3] = 0x00; tmp_data[2] = 0x00;
 	tmp_data[1] = 0x00; tmp_data[0] = 0x00;
-	himax_flash_write_burst_lenth(client, tmp_addr, tmp_data, 4);
+	himax_flash_write_burst_length(client, tmp_addr, tmp_data, 4);
 
 }
 
@@ -1058,7 +1058,7 @@ void himax_sram_write(struct i2c_client *client, uint8_t *FW_content)
 		}
 
 		memcpy(&tmp_data[0], &FW_content[i], 64);
-		himax_flash_write_burst_lenth(client, tmp_addr, tmp_data, 64);
+		himax_flash_write_burst_length(client, tmp_addr, tmp_data, 64);
 
 	}
 
@@ -1426,7 +1426,7 @@ int himax_check_CRC(struct i2c_client *client, int mode)
 			tmp_addr[1] = 0x00; tmp_addr[0] = 0x00;
 			tmp_data[3] = 0x00; tmp_data[2] = 0x00;
 			tmp_data[1] = 0x00; tmp_data[0] = 0x00;
-			himax_flash_write_burst_lenth(client,
+			himax_flash_write_burst_length(client,
 			tmp_addr, tmp_data, 4);
 			return CRC_value;
 

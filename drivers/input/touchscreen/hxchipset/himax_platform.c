@@ -410,7 +410,7 @@ struct himax_i2c_platform_data *pdata)
 
 	error = himax_regulator_configure(client, pdata);
 	if (error) {
-		E("Failed to intialize hardware\n");
+		E("Failed to initialize hardware\n");
 		goto err_regulator_not_on;
 	}
 
