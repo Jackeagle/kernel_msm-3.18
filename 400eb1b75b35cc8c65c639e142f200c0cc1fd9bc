@@ -22,6 +22,30 @@
       "revId": "400eb1b75b35cc8c65c639e142f200c0cc1fd9bc",
       "serverId": "85c56323-6fa9-3386-8a01-6480fb634889",
       "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "295e9bc9_ed794d42",
+        "filename": "kernel/fork.c",
+        "patchSetId": 2
+      },
+      "lineNbr": 230,
+      "author": {
+        "id": 1327778
+      },
+      "writtenOn": "2018-06-11T21:21:05Z",
+      "side": 1,
+      "message": "What global task stats? This is freeing a pointer inside of the task struct, so therefore it is freeing per-task stats. Look at the definition for this function: https://android.googlesource.com/kernel/msm/+/android-msm-wahoo-4.4-oreo-m4/drivers/cpufreq/cpufreq_stats.c#237\n\nNo global pointer is being freed.\n\nAlso, this patch compiles on android-msm-wahoo-4.4-oreo-m4.",
+      "parentUuid": "8b1367f9_77b0711d",
+      "range": {
+        "startLine": 230,
+        "startChar": 1,
+        "endLine": 230,
+        "endChar": 24
+      },
+      "revId": "400eb1b75b35cc8c65c639e142f200c0cc1fd9bc",
+      "serverId": "85c56323-6fa9-3386-8a01-6480fb634889",
+      "unresolved": true
     }
   ]
 }
