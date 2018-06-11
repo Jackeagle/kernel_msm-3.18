@@ -1,0 +1,27 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "8b1367f9_77b0711d",
+        "filename": "kernel/fork.c",
+        "patchSetId": 2
+      },
+      "lineNbr": 230,
+      "author": {
+        "id": 1105075
+      },
+      "writtenOn": "2018-06-11T21:15:28Z",
+      "side": 1,
+      "message": "I think this is not free the per task stats but global one.\nBTW, this deosn\u0027t build either",
+      "range": {
+        "startLine": 230,
+        "startChar": 1,
+        "endLine": 230,
+        "endChar": 24
+      },
+      "revId": "400eb1b75b35cc8c65c639e142f200c0cc1fd9bc",
+      "serverId": "85c56323-6fa9-3386-8a01-6480fb634889",
+      "unresolved": true
+    }
+  ]
+}
