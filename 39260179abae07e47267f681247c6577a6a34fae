@@ -94,6 +94,30 @@
       "revId": "39260179abae07e47267f681247c6577a6a34fae",
       "serverId": "85c56323-6fa9-3386-8a01-6480fb634889",
       "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "86f2da15_8e71a9ce",
+        "filename": "net/ipv4/ip_tunnel.c",
+        "patchSetId": 4
+      },
+      "lineNbr": 319,
+      "author": {
+        "id": 1015340
+      },
+      "writtenOn": "2018-06-11T17:55:13Z",
+      "side": 1,
+      "message": "Thanks for getting this fixed upstream.  When someone reports an issue in upstream code, we try to work with upstream first, and get any relevant backports distributed to people through the linux-stable tree.  This way the change benefits the whole Linux ecosystem.\n\nLikewise the strncpy() -\u003e memcpy() changes in these files look you\u0027re patching upstream code:\n\ndrivers/scsi/scsi_devinfo.c\nfs/configfs/symlink.c\nfs/kernfs/symlink.c\nnet/socket.c\n\nPlease try reproducing these warnings on the tip-of-tree mainline kernel, and sending fixes to LKML if they\u0027re still needed.",
+      "parentUuid": "17558d44_0d2c31ab",
+      "range": {
+        "startLine": 318,
+        "startChar": 0,
+        "endLine": 319,
+        "endChar": 21
+      },
+      "revId": "39260179abae07e47267f681247c6577a6a34fae",
+      "serverId": "85c56323-6fa9-3386-8a01-6480fb634889",
+      "unresolved": true
     }
   ]
 }
