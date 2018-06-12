@@ -466,6 +466,11 @@ struct fuse_req {
 
 	/** Request is stolen from fuse_file->reserved_req */
 	struct file *stolen_file;
+
+#if IS_ENABLED(CONFIG_VIRTIO_FS)
+	/** virtio-fs's physically contiguous buffer for in and out args */
+	void *argbuf;
+#endif
 };
 
 struct fuse_iqueue;
