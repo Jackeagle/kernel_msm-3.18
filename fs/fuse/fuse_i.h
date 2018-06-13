@@ -60,6 +60,25 @@ extern struct mutex fuse_mutex;
 extern unsigned max_user_bgreq;
 extern unsigned max_user_congthresh;
 
+/** Mount options */
+struct fuse_mount_data {
+	int fd;
+	unsigned int rootmode;
+	kuid_t user_id;
+	kgid_t group_id;
+	unsigned int fd_present:1;
+	unsigned int rootmode_present:1;
+	unsigned int user_id_present:1;
+	unsigned int group_id_present:1;
+	unsigned int default_permissions:1;
+	unsigned int allow_other:1;
+	unsigned int max_read;
+	unsigned int blksize;
+
+	/* fuse_dev pointer to fill in, should contain NULL on entry */
+	void **fudptr;
+};
+
 /* One forget request */
 struct fuse_forget_link {
 	struct fuse_forget_one forget_one;
@@ -999,6 +1018,14 @@ void fuse_conn_put(struct fuse_conn *fc);
 struct fuse_dev *fuse_dev_alloc(struct fuse_conn *fc);
 void fuse_dev_free(struct fuse_dev *fud);
 void fuse_send_init(struct fuse_conn *fc, struct fuse_req *req);
+
+/**
+ * Fill in superblock and initialize fuse connection
+ * @sb: partially-initialized superblock to fill in
+ * @mount_data: mount parameters
+ */
+int fuse_fill_super_common(struct super_block *sb,
+			   struct fuse_mount_data *mount_data);
 
 /**
  * Add connection to control filesystem
