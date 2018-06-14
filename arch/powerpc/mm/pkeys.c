@@ -25,6 +25,7 @@ u64  pkey_uamor_mask;		/* Bits in UMOR not to be touched */
 #define IAMR_EX_BIT 0x1UL
 #define PKEY_REG_BITS (sizeof(u64)*8)
 #define pkeyshift(pkey) (PKEY_REG_BITS - ((pkey+1) * AMR_BITS_PER_PKEY))
+#define EXECUTE_ONLY_KEY 2
 
 static void scan_pkey_feature(void)
 {
@@ -120,7 +121,8 @@ int pkey_initialize(void)
 #else
 	os_reserved = 0;
 #endif
-	initial_allocation_mask  = (0x1 << 0) | (0x1 << 1);
+	initial_allocation_mask  = (0x1 << 0) | (0x1 << 1) |
+					(0x1 << EXECUTE_ONLY_KEY);
 
 	/* register mask is in BE format */
 	pkey_amr_mask = ~0x0ul;
@@ -130,9 +132,12 @@ int pkey_initialize(void)
 		pkey_amr_mask &= ~(0x3ul << pkeyshift(i));
 		pkey_iamr_mask &= ~(0x1ul << pkeyshift(i));
 	}
+	pkey_amr_mask |= (AMR_RD_BIT|AMR_WR_BIT) << pkeyshift(EXECUTE_ONLY_KEY);
 
 	pkey_uamor_mask = ~0x0ul;
 	pkey_uamor_mask &= ~(0x3ul << pkeyshift(0));
+	pkey_uamor_mask &= ~(0x3ul << pkeyshift(EXECUTE_ONLY_KEY));
+
 	for (i = (pkeys_total - os_reserved); i < pkeys_total; i++)
 		pkey_uamor_mask &= ~(0x3ul << pkeyshift(i));
 
@@ -146,8 +151,7 @@ void pkey_mm_init(struct mm_struct *mm)
 	if (static_branch_likely(&pkey_disabled))
 		return;
 	mm_pkey_allocation_map(mm) = initial_allocation_mask;
-	/* -1 means unallocated or invalid */
-	mm->context.execute_only_pkey = -1;
+	mm->context.execute_only_pkey = EXECUTE_ONLY_KEY;
 }
 
 static inline u64 read_amr(void)
@@ -326,48 +330,7 @@ static inline bool pkey_allows_readwrite(int pkey)
 
 int __execute_only_pkey(struct mm_struct *mm)
 {
-	bool need_to_set_mm_pkey = false;
-	int execute_only_pkey = mm->context.execute_only_pkey;
-	int ret;
-
-	/* Do we need to assign a pkey for mm's execute-only maps? */
-	if (execute_only_pkey == -1) {
-		/* Go allocate one to use, which might fail */
-		execute_only_pkey = mm_pkey_alloc(mm);
-		if (execute_only_pkey < 0)
-			return -1;
-		need_to_set_mm_pkey = true;
-	}
-
-	/*
-	 * We do not want to go through the relatively costly dance to set AMR
-	 * if we do not need to. Check it first and assume that if the
-	 * execute-only pkey is readwrite-disabled than we do not have to set it
-	 * ourselves.
-	 */
-	if (!need_to_set_mm_pkey && !pkey_allows_readwrite(execute_only_pkey))
-		return execute_only_pkey;
-
-	/*
-	 * Set up AMR so that it denies access for everything other than
-	 * execution.
-	 */
-	ret = __arch_set_user_pkey_access(current, execute_only_pkey,
-					  PKEY_DISABLE_ACCESS |
-					  PKEY_DISABLE_WRITE);
-	/*
-	 * If the AMR-set operation failed somehow, just return 0 and
-	 * effectively disable execute-only support.
-	 */
-	if (ret) {
-		mm_pkey_free(mm, execute_only_pkey);
-		return -1;
-	}
-
-	/* We got one, store it and use it from here on out */
-	if (need_to_set_mm_pkey)
-		mm->context.execute_only_pkey = execute_only_pkey;
-	return execute_only_pkey;
+	return mm->context.execute_only_pkey;
 }
 
 static inline bool vma_is_pkey_exec_only(struct vm_area_struct *vma)
