@@ -1943,13 +1943,17 @@ int smb311_posix_mkdir(const unsigned int xid, struct inode *inode,
 
 	if (ses && (ses->server))
 		server = ses->server;
-	else
+	else {
+		kfree(path);
 		return -EIO;
+	}
 
 	rc = smb2_plain_req_init(SMB2_CREATE, tcon, (void **) &req, &total_len);
 
-	if (rc)
+	if (rc) {
+		kfree(path);
 		return rc;
+	}
 
 	if (smb3_encryption_required(tcon))
 		flags |= CIFS_TRANSFORM_REQ;
@@ -1986,6 +1990,7 @@ int smb311_posix_mkdir(const unsigned int xid, struct inode *inode,
 						 tcon->treeName, path);
 		if (rc) {
 			cifs_small_buf_release(req);
+			kfree(path);
 			return rc;
 		}
 		req->NameLength = cpu_to_le16(name_len * 2);
@@ -2000,6 +2005,7 @@ int smb311_posix_mkdir(const unsigned int xid, struct inode *inode,
 			copy_path = kzalloc(copy_size, GFP_KERNEL);
 			if (!copy_path) {
 				cifs_small_buf_release(req);
+				kfree(path);
 				return -ENOMEM;
 			}
 			memcpy((char *)copy_path, (const char *)path,
@@ -2014,17 +2020,11 @@ int smb311_posix_mkdir(const unsigned int xid, struct inode *inode,
 	req->RequestedOplockLevel = SMB2_OPLOCK_LEVEL_NONE;
 
 	if (tcon->posix_extensions) {
-		if (n_iov > 2) {
-			struct create_context *ccontext =
-			    (struct create_context *)iov[n_iov-1].iov_base;
-			ccontext->Next =
-				cpu_to_le32(iov[n_iov-1].iov_len);
-		}
-
 		rc = add_posix_context(iov, &n_iov, mode);
 		if (rc) {
 			cifs_small_buf_release(req);
 			kfree(copy_path);
+			kfree(path);
 			return rc;
 		}
 		pc_buf = iov[n_iov-1].iov_base;
@@ -2057,6 +2057,7 @@ int smb311_posix_mkdir(const unsigned int xid, struct inode *inode,
 
 smb311_mkdir_exit:
 	kfree(copy_path);
+	kfree(path);
 	kfree(pc_buf);
 	free_rsp_buf(resp_buftype, rsp);
 	return rc;
