@@ -22,6 +22,7 @@
 #include <linux/blkdev.h>
 #include <linux/writeback.h>
 #include <linux/list_sort.h>
+#include <linux/fs.h>
 
 #include "gfs2.h"
 #include "incore.h"
@@ -546,22 +547,32 @@ static void gfs2_ordered_write(struct gfs2_sbd *sdp)
 {
 	struct gfs2_inode *ip;
 	LIST_HEAD(written);
+	struct writeback_control wbc = {
+		.sync_mode = WB_SYNC_NONE,
+		.nr_to_write = LONG_MAX,
+		.range_start = 0,
+		.range_end = LLONG_MAX,
+	};
 
 	spin_lock(&sdp->sd_ordered_lock);
-	list_sort(NULL, &sdp->sd_log_le_ordered, &ip_cmp);
 	while (!list_empty(&sdp->sd_log_le_ordered)) {
 		ip = list_entry(sdp->sd_log_le_ordered.next, struct gfs2_inode, i_ordered);
-		if (ip->i_inode.i_mapping->nrpages == 0) {
+		if (ip->i_inode.i_mapping->nrpages)
+			list_move(&ip->i_ordered, &written);
+		else {
 			test_and_clear_bit(GIF_ORDERED, &ip->i_flags);
 			list_del(&ip->i_ordered);
-			continue;
 		}
-		list_move(&ip->i_ordered, &written);
-		spin_unlock(&sdp->sd_ordered_lock);
-		filemap_fdatawrite(ip->i_inode.i_mapping);
-		spin_lock(&sdp->sd_ordered_lock);
 	}
-	list_splice(&written, &sdp->sd_log_le_ordered);
+	spin_unlock(&sdp->sd_ordered_lock);
+	list_sort(NULL, &written, &ip_cmp);
+	list_for_each_entry(ip, &written, i_ordered)
+		ip->i_inode.i_mapping->a_ops->writepages(ip->i_inode.i_mapping,
+							 &wbc);
+	list_for_each_entry(ip, &written, i_ordered)
+		filemap_fdatawait(ip->i_inode.i_mapping);
+	spin_lock(&sdp->sd_ordered_lock);
+	list_splice_tail(&written, &sdp->sd_log_le_ordered);
 	spin_unlock(&sdp->sd_ordered_lock);
 }
 
