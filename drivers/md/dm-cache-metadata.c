@@ -683,6 +683,15 @@ static int __commit_transaction(struct dm_cache_metadata *cmd,
 	if (r)
 		return r;
 
+	/* Must fully commit metadata before superblock */
+	r = dm_tm_commit(cmd->tm, sblock);
+	if (r)
+		return r;
+
+	r = superblock_lock(cmd, &sblock);
+	if (r)
+		return r;
+
 	disk_super = dm_block_data(sblock);
 
 	disk_super->flags = cpu_to_le32(cmd->flags);
