@@ -406,6 +406,15 @@ cont:
 			ret = -EIO;
 			break;
 		}
+		/*
+		 * Decompressed data length check.
+		 * The uncompressed data should not exceed uncompressed extent
+		 * size.
+		 */
+		if (tot_out + out_len > cb->len) {
+			ret = -EUCLEAN;
+			break;
+		}
 
 		buf_start = tot_out;
 		tot_out += out_len;
