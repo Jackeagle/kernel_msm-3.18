@@ -791,12 +791,11 @@ static noinline struct btrfs_device *device_list_add(const char *path,
 		rcu_assign_pointer(device->name, name);
 
 		mutex_lock(&fs_devices->device_list_mutex);
+		device->fs_devices = fs_devices;
 		list_add_rcu(&device->dev_list, &fs_devices->devices);
 		fs_devices->num_devices++;
-		mutex_unlock(&fs_devices->device_list_mutex);
-
-		device->fs_devices = fs_devices;
 		btrfs_free_stale_devices(path, device);
+		mutex_unlock(&fs_devices->device_list_mutex);
 
 		if (disk_super->label[0])
 			pr_info("BTRFS: device label %s devid %llu transid %llu %s\n",
