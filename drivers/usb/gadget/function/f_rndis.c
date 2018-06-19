@@ -374,6 +374,9 @@ static struct sk_buff *rndis_add_header(struct gether *port,
 		return NULL;
 
 	skb2 = skb_realloc_headroom(skb, sizeof(struct rndis_packet_msg_type));
+	if (!skb2)
+		return NULL;
+
 	rndis_add_hdr(skb2);
 
 	dev_kfree_skb(skb);
