@@ -776,7 +776,6 @@ static int __write_changed_details(struct dm_pool_metadata *pmd)
 static int __commit_transaction(struct dm_pool_metadata *pmd)
 {
 	int r;
-	size_t metadata_len, data_len;
 	struct thin_disk_superblock *disk_super;
 	struct dm_block *sblock;
 
@@ -797,16 +796,17 @@ static int __commit_transaction(struct dm_pool_metadata *pmd)
 	if (r < 0)
 		return r;
 
-	r = dm_sm_root_size(pmd->metadata_sm, &metadata_len);
-	if (r < 0)
-		return r;
-
-	r = dm_sm_root_size(pmd->data_sm, &data_len);
-	if (r < 0)
-		return r;
-
 	r = save_sm_roots(pmd);
 	if (r < 0)
+		return r;
+
+	r = superblock_lock(pmd, &sblock);
+	if (r)
+		return r;
+
+	/* Must fully commit metadata before superblock */
+	r = dm_tm_commit(pmd->tm, sblock);
+	if (r)
 		return r;
 
 	r = superblock_lock(pmd, &sblock);
