@@ -1800,6 +1800,10 @@ static int __write_data_page(struct page *page, bool *submitted,
 	/* we should bypass data pages to proceed the kworkder jobs */
 	if (unlikely(f2fs_cp_error(sbi))) {
 		mapping_set_error(page->mapping, -EIO);
+
+		if (is_sbi_flag_set(sbi, SBI_IS_SHUTDOWN))
+			goto out;
+
 		/*
 		 * don't drop any dirty dentry pages for keeping lastest
 		 * directory structure.
