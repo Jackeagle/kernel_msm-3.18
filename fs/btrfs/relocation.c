@@ -4169,8 +4169,7 @@ restart:
 		}
 	}
 	if (trans && progress && err == -ENOSPC) {
-		ret = btrfs_force_chunk_alloc(trans, fs_info,
-					      rc->block_group->flags);
+		ret = btrfs_force_chunk_alloc(trans, rc->block_group->flags);
 		if (ret == 1) {
 			err = 0;
 			progress = 0;
@@ -4375,7 +4374,7 @@ int btrfs_relocate_block_group(struct btrfs_fs_info *fs_info, u64 group_start)
 	rc->block_group = btrfs_lookup_block_group(fs_info, group_start);
 	BUG_ON(!rc->block_group);
 
-	ret = btrfs_inc_block_group_ro(fs_info, rc->block_group);
+	ret = btrfs_inc_block_group_ro(rc->block_group);
 	if (ret) {
 		err = ret;
 		goto out;
