@@ -791,12 +791,11 @@ static noinline struct btrfs_device *device_list_add(const char *path,
 		rcu_assign_pointer(device->name, name);
 
 		mutex_lock(&fs_devices->device_list_mutex);
+		device->fs_devices = fs_devices;
 		list_add_rcu(&device->dev_list, &fs_devices->devices);
 		fs_devices->num_devices++;
-		mutex_unlock(&fs_devices->device_list_mutex);
-
-		device->fs_devices = fs_devices;
 		btrfs_free_stale_devices(path, device);
+		mutex_unlock(&fs_devices->device_list_mutex);
 
 		if (disk_super->label[0])
 			pr_info("BTRFS: device label %s devid %llu transid %llu %s\n",
@@ -1146,6 +1145,8 @@ int btrfs_open_devices(struct btrfs_fs_devices *fs_devices,
 {
 	int ret;
 
+	lockdep_assert_held(&uuid_mutex);
+
 	mutex_lock(&fs_devices->device_list_mutex);
 	if (fs_devices->opened) {
 		fs_devices->opened++;
@@ -1225,6 +1226,8 @@ int btrfs_scan_one_device(const char *path, fmode_t flags, void *holder,
 	int ret = 0;
 	u64 bytenr;
 
+	lockdep_assert_held(&uuid_mutex);
+
 	/*
 	 * we would like to check all the supers, but that would make
 	 * a btrfs mount succeed after a mkfs from a different FS.
@@ -1243,13 +1246,11 @@ int btrfs_scan_one_device(const char *path, fmode_t flags, void *holder,
 		goto error_bdev_put;
 	}
 
-	mutex_lock(&uuid_mutex);
 	device = device_list_add(path, disk_super);
 	if (IS_ERR(device))
 		ret = PTR_ERR(device);
 	else
 		*fs_devices_ret = device->fs_devices;
-	mutex_unlock(&uuid_mutex);
 
 	btrfs_release_disk_super(page);
 
@@ -2827,7 +2828,7 @@ int btrfs_remove_chunk(struct btrfs_trans_handle *trans,
 	}
 	map = em->map_lookup;
 	mutex_lock(&fs_info->chunk_mutex);
-	check_system_chunk(trans, fs_info, map->type);
+	check_system_chunk(trans, map->type);
 	mutex_unlock(&fs_info->chunk_mutex);
 
 	/*
@@ -2883,7 +2884,7 @@ int btrfs_remove_chunk(struct btrfs_trans_handle *trans,
 		}
 	}
 
-	ret = btrfs_remove_block_group(trans, fs_info, chunk_offset, em);
+	ret = btrfs_remove_block_group(trans, chunk_offset, em);
 	if (ret) {
 		btrfs_abort_transaction(trans, ret);
 		goto out;
@@ -3057,7 +3058,7 @@ static int btrfs_may_alloc_data_chunk(struct btrfs_fs_info *fs_info,
 			if (IS_ERR(trans))
 				return PTR_ERR(trans);
 
-			ret = btrfs_force_chunk_alloc(trans, fs_info,
+			ret = btrfs_force_chunk_alloc(trans,
 						      BTRFS_BLOCK_GROUP_DATA);
 			btrfs_end_transaction(trans);
 			if (ret < 0)
@@ -4898,7 +4899,7 @@ static int __btrfs_alloc_chunk(struct btrfs_trans_handle *trans,
 	refcount_inc(&em->refs);
 	write_unlock(&em_tree->lock);
 
-	ret = btrfs_make_block_group(trans, info, 0, type, start, num_bytes);
+	ret = btrfs_make_block_group(trans, 0, type, start, num_bytes);
 	if (ret)
 		goto error_del_extent;
 
@@ -5036,13 +5037,12 @@ out:
  * require modifying the chunk tree. This division is important for the
  * bootstrap process of adding storage to a seed btrfs.
  */
-int btrfs_alloc_chunk(struct btrfs_trans_handle *trans,
-		      struct btrfs_fs_info *fs_info, u64 type)
+int btrfs_alloc_chunk(struct btrfs_trans_handle *trans, u64 type)
 {
 	u64 chunk_offset;
 
-	lockdep_assert_held(&fs_info->chunk_mutex);
-	chunk_offset = find_next_chunk(fs_info);
+	lockdep_assert_held(&trans->fs_info->chunk_mutex);
+	chunk_offset = find_next_chunk(trans->fs_info);
 	return __btrfs_alloc_chunk(trans, chunk_offset, type);
 }
 
@@ -5173,7 +5173,7 @@ int btrfs_num_copies(struct btrfs_fs_info *fs_info, u64 logical, u64 len)
 		/*
 		 * There could be two corrupted data stripes, we need
 		 * to loop retry in order to rebuild the correct data.
-		 * 
+		 *
 		 * Fail a stripe at a time on every retry except the
 		 * stripe under reconstruction.
 		 */
