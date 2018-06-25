@@ -472,6 +472,7 @@ retry_ipi:
 static void sync_rcu_exp_select_cpus(struct rcu_state *rsp,
 				     smp_call_func_t func)
 {
+	int cpu;
 	struct rcu_node *rnp;
 
 	trace_rcu_exp_grace_period(rsp->name, rcu_exp_gp_seq_endval(rsp), TPS("reset"));
@@ -486,14 +487,26 @@ static void sync_rcu_exp_select_cpus(struct rcu_state *rsp,
 		rnp->rew.rew_func = func;
 		rnp->rew.rew_rsp = rsp;
 		if (!READ_ONCE(rcu_par_gp_wq) ||
-		    rcu_scheduler_active != RCU_SCHEDULER_RUNNING) {
-			/* No workqueues yet. */
+		    rcu_scheduler_active != RCU_SCHEDULER_RUNNING ||
+		    rcu_is_last_leaf_node(rsp, rnp)) {
+			/* No workqueues yet or last leaf, do direct call. */
 			sync_rcu_exp_select_node_cpus(&rnp->rew.rew_work);
 			continue;
 		}
 		INIT_WORK(&rnp->rew.rew_work, sync_rcu_exp_select_node_cpus);
-		queue_work_on(rnp->grplo, rcu_par_gp_wq, &rnp->rew.rew_work);
-		rnp->exp_need_flush = true;
+		preempt_disable();
+		for_each_leaf_node_possible_cpu(rnp, cpu) {
+			if (cpu_is_offline(cpu)) /* Preemption disabled. */
+				continue;
+			queue_work_on(cpu, rcu_par_gp_wq, &rnp->rew.rew_work);
+			rnp->exp_need_flush = true;
+			break;
+		}
+		preempt_enable();
+		if (!rnp->exp_need_flush) { /* All offline, report QSes. */
+			queue_work(rcu_par_gp_wq, &rnp->rew.rew_work);
+			rnp->exp_need_flush = true;
+		}
 	}
 
 	/* Wait for workqueue jobs (if any) to complete. */
