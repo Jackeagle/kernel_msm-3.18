@@ -18,10 +18,30 @@
 #include <linux/mtd/rawnand.h>
 
 /*
- * Special Micron status bit that indicates when the block has been
- * corrected by on-die ECC and should be rewritten
+ * Special Micron status bit 3 indicates that the block has been
+ * corrected by on-die ECC and should be rewritten.
  */
-#define NAND_STATUS_WRITE_RECOMMENDED	BIT(3)
+#define NAND_ECC_STATUS_WRITE_RECOMMENDED	BIT(3)
+
+/*
+ * On chips with 8-bit ECC and additional bit can be used to distinguish
+ * cases where a errors were corrected without needing a rewrite
+ *
+ * Bit 4 Bit 3 Bit 0 Description
+ * ----- ----- ----- -----------
+ * 0     0     0     No Errors
+ * 0     0     1     Multiple uncorrected errors
+ * 0     1     0     4 - 6 errors corrected, recommend rewrite
+ * 0     1     1     Reserved
+ * 1     0     0     1 - 3 errors corrected
+ * 1     0     1     Reserved
+ * 1     1     0     7 - 8 errors corrected, recommend rewrite
+ */
+#define NAND_ECC_STATUS_MASK		(BIT(4) | BIT(3) | BIT(0))
+#define NAND_ECC_STATUS_UNCORRECTABLE	BIT(0)
+#define NAND_ECC_STATUS_4_6_CORRECTED	BIT(3)
+#define NAND_ECC_STATUS_1_3_CORRECTED	BIT(4)
+#define NAND_ECC_STATUS_7_8_CORRECTED	(BIT(4) | BIT(3))
 
 struct nand_onfi_vendor_micron {
 	u8 two_plane_read;
@@ -113,6 +133,54 @@ static int micron_nand_on_die_ecc_setup(struct nand_chip *chip, bool enable)
 	return nand_set_features(chip, ONFI_FEATURE_ON_DIE_ECC, feature);
 }
 
+
+static int micron_nand_on_die_ecc_status_4(struct mtd_info *mtd,
+					   struct nand_chip *chip, u8 status)
+{
+	/*
+	 * The internal ECC doesn't tell us the number of bitflips
+	 * that have been corrected, but tells us if it recommends to
+	 * rewrite the block. If it's the case, then we pretend we had
+	 * a number of bitflips equal to the ECC strength, which will
+	 * hint the NAND core to rewrite the block.
+	 */
+	if (status & NAND_STATUS_FAIL) {
+		mtd->ecc_stats.failed++;
+	} else if (status & NAND_ECC_STATUS_WRITE_RECOMMENDED) {
+		mtd->ecc_stats.corrected += chip->ecc.strength;
+		return chip->ecc.strength;
+	}
+
+	return 0;
+}
+
+static int micron_nand_on_die_ecc_status_8(struct mtd_info *mtd,
+					   struct nand_chip *chip, u8 status)
+{
+	/*
+	 * With 8/512 we have more information but still don't know precisely
+	 * how many bit-flips were seen.
+	 */
+	switch (status & NAND_ECC_STATUS_MASK) {
+	case NAND_ECC_STATUS_UNCORRECTABLE:
+		mtd->ecc_stats.failed++;
+		return 0;
+	case NAND_ECC_STATUS_1_3_CORRECTED:
+		mtd->ecc_stats.corrected += 3;
+		return 3;
+	case NAND_ECC_STATUS_4_6_CORRECTED:
+		mtd->ecc_stats.corrected += 6;
+		/* rewrite recommended */
+		return 6;
+	case NAND_ECC_STATUS_7_8_CORRECTED:
+		mtd->ecc_stats.corrected += 8;
+		/* rewrite recommended */
+		return 8;
+	default:
+		return 0;
+	}
+}
+
 static int
 micron_nand_read_page_on_die_ecc(struct mtd_info *mtd, struct nand_chip *chip,
 				 uint8_t *buf, int oob_required,
@@ -137,18 +205,10 @@ micron_nand_read_page_on_die_ecc(struct mtd_info *mtd, struct nand_chip *chip,
 	if (ret)
 		goto out;
 
-	if (status & NAND_STATUS_FAIL)
-		mtd->ecc_stats.failed++;
-
-	/*
-	 * The internal ECC doesn't tell us the number of bitflips
-	 * that have been corrected, but tells us if it recommends to
-	 * rewrite the block. If it's the case, then we pretend we had
-	 * a number of bitflips equal to the ECC strength, which will
-	 * hint the NAND core to rewrite the block.
-	 */
-	else if (status & NAND_STATUS_WRITE_RECOMMENDED)
-		max_bitflips = chip->ecc.strength;
+	if (chip->ecc.strength == 4)
+		max_bitflips = micron_nand_on_die_ecc_status_4(mtd, chip, status);
+	else
+		max_bitflips = micron_nand_on_die_ecc_status_8(mtd, chip, status);
 
 	ret = nand_read_data_op(chip, buf, mtd->writesize, false);
 	if (!ret && oob_required)
@@ -196,6 +256,14 @@ enum {
 };
 
 /*
+ * These parts are known to have on-die ECC forceably enabled
+ */
+static u8 micron_on_die_ecc[] = {
+	0xd1, /* MT29F1G08ABAFA */
+	0xa1, /* MT29F1G08ABBFA */
+};
+
+/*
  * Try to detect if the NAND support on-die ECC. To do this, we enable
  * the feature, and read back if it has been enabled as expected. We
  * also check if it can be disabled, because some Micron NANDs do not
@@ -209,6 +277,11 @@ static int micron_supports_on_die_ecc(struct nand_chip *chip)
 {
 	u8 feature[ONFI_SUBFEATURE_PARAM_LEN] = { 0, };
 	int ret;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(micron_on_die_ecc); i++)
+		if (chip->id.data[1] == micron_on_die_ecc[i])
+			return MICRON_ON_DIE_MANDATORY;
 
 	if (!chip->parameters.onfi.version)
 		return MICRON_ON_DIE_UNSUPPORTED;
@@ -239,10 +312,9 @@ static int micron_supports_on_die_ecc(struct nand_chip *chip)
 		return MICRON_ON_DIE_MANDATORY;
 
 	/*
-	 * Some Micron NANDs have an on-die ECC of 4/512, some other
-	 * 8/512. We only support the former.
+	 * We only support on-die ECC of 4/512 or 8/512
 	 */
-	if (chip->ecc_strength_ds != 4)
+	if  (chip->ecc_strength_ds != 4 && chip->ecc_strength_ds != 8)
 		return MICRON_ON_DIE_UNSUPPORTED;
 
 	return MICRON_ON_DIE_SUPPORTED;
@@ -263,7 +335,8 @@ static int micron_nand_init(struct nand_chip *chip)
 
 	ondie = micron_supports_on_die_ecc(chip);
 
-	if (ondie == MICRON_ON_DIE_MANDATORY) {
+	if (ondie == MICRON_ON_DIE_MANDATORY &&
+	    chip->ecc.mode != NAND_ECC_ON_DIE) {
 		pr_err("On-die ECC forcefully enabled, not supported\n");
 		return -EINVAL;
 	}
@@ -274,9 +347,9 @@ static int micron_nand_init(struct nand_chip *chip)
 			return -EINVAL;
 		}
 
-		chip->ecc.bytes = 8;
+		chip->ecc.bytes = chip->ecc_strength_ds * 2;
 		chip->ecc.size = 512;
-		chip->ecc.strength = 4;
+		chip->ecc.strength = chip->ecc_strength_ds;
 		chip->ecc.algo = NAND_ECC_BCH;
 		chip->ecc.read_page = micron_nand_read_page_on_die_ecc;
 		chip->ecc.write_page = micron_nand_write_page_on_die_ecc;
@@ -289,6 +362,19 @@ static int micron_nand_init(struct nand_chip *chip)
 	return 0;
 }
 
+static void micron_fixup_onfi_param_page(struct nand_chip *chip,
+					 struct nand_onfi_params *p)
+{
+	/*
+	 * MT29F1G08ABAFAWP-ITE:F and possibly others report 00 00 for the
+	 * revision number field of the ONFI parameter page. Assume ONFI
+	 * version 1.0 if the revision number is 00 00.
+	 */
+	if (le16_to_cpu(p->revision) == 0)
+		p->revision = cpu_to_le16(ONFI_VERSION_1_0);
+}
+
 const struct nand_manufacturer_ops micron_nand_manuf_ops = {
 	.init = micron_nand_init,
+	.fixup_onfi_param_page = micron_fixup_onfi_param_page,
 };
