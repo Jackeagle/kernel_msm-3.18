@@ -791,12 +791,11 @@ static noinline struct btrfs_device *device_list_add(const char *path,
 		rcu_assign_pointer(device->name, name);
 
 		mutex_lock(&fs_devices->device_list_mutex);
+		device->fs_devices = fs_devices;
 		list_add_rcu(&device->dev_list, &fs_devices->devices);
 		fs_devices->num_devices++;
-		mutex_unlock(&fs_devices->device_list_mutex);
-
-		device->fs_devices = fs_devices;
 		btrfs_free_stale_devices(path, device);
+		mutex_unlock(&fs_devices->device_list_mutex);
 
 		if (disk_super->label[0])
 			pr_info("BTRFS: device label %s devid %llu transid %llu %s\n",
@@ -1146,6 +1145,8 @@ int btrfs_open_devices(struct btrfs_fs_devices *fs_devices,
 {
 	int ret;
 
+	lockdep_assert_held(&uuid_mutex);
+
 	mutex_lock(&fs_devices->device_list_mutex);
 	if (fs_devices->opened) {
 		fs_devices->opened++;
@@ -1225,6 +1226,8 @@ int btrfs_scan_one_device(const char *path, fmode_t flags, void *holder,
 	int ret = 0;
 	u64 bytenr;
 
+	lockdep_assert_held(&uuid_mutex);
+
 	/*
 	 * we would like to check all the supers, but that would make
 	 * a btrfs mount succeed after a mkfs from a different FS.
@@ -1243,13 +1246,11 @@ int btrfs_scan_one_device(const char *path, fmode_t flags, void *holder,
 		goto error_bdev_put;
 	}
 
-	mutex_lock(&uuid_mutex);
 	device = device_list_add(path, disk_super);
 	if (IS_ERR(device))
 		ret = PTR_ERR(device);
 	else
 		*fs_devices_ret = device->fs_devices;
-	mutex_unlock(&uuid_mutex);
 
 	btrfs_release_disk_super(page);
 
