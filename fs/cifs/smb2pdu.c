@@ -1919,7 +1919,7 @@ int smb311_posix_mkdir(const unsigned int xid, struct inode *inode,
 {
 	struct smb_rqst rqst;
 	struct smb2_create_req *req;
-	struct smb2_create_rsp *rsp;
+	struct smb2_create_rsp *rsp = NULL;
 	struct TCP_Server_Info *server;
 	struct cifs_ses *ses = tcon->ses;
 	struct kvec iov[3]; /* make sure at least one for each open context */
@@ -1934,26 +1934,30 @@ int smb311_posix_mkdir(const unsigned int xid, struct inode *inode,
 	char *pc_buf = NULL;
 	int flags = 0;
 	unsigned int total_len;
-	__le16 *path = cifs_convert_path_to_utf16(full_path, cifs_sb);
-
-	if (!path)
-		return -ENOMEM;
+	__le16 *utf16_path = NULL;
 
 	cifs_dbg(FYI, "mkdir\n");
 
+	/* resource #1: path allocation */
+	utf16_path = cifs_convert_path_to_utf16(full_path, cifs_sb);
+	if (!utf16_path)
+		return -ENOMEM;
+
 	if (ses && (ses->server))
 		server = ses->server;
-	else
-		return -EIO;
+	else {
+		rc = -EIO;
+		goto err_free_path;
+	}
 
+	/* resource #2: request */
 	rc = smb2_plain_req_init(SMB2_CREATE, tcon, (void **) &req, &total_len);
-
 	if (rc)
-		return rc;
+		goto err_free_path;
+
 
 	if (smb3_encryption_required(tcon))
 		flags |= CIFS_TRANSFORM_REQ;
-
 
 	req->ImpersonationLevel = IL_IMPERSONATION;
 	req->DesiredAccess = cpu_to_le32(FILE_WRITE_ATTRIBUTES);
@@ -1983,50 +1987,44 @@ int smb311_posix_mkdir(const unsigned int xid, struct inode *inode,
 		req->sync_hdr.Flags |= SMB2_FLAGS_DFS_OPERATIONS;
 		rc = alloc_path_with_tree_prefix(&copy_path, &copy_size,
 						 &name_len,
-						 tcon->treeName, path);
-		if (rc) {
-			cifs_small_buf_release(req);
-			return rc;
-		}
+						 tcon->treeName, utf16_path);
+		if (rc)
+			goto err_free_req;
+
 		req->NameLength = cpu_to_le16(name_len * 2);
 		uni_path_len = copy_size;
-		path = copy_path;
+		/* free before overwriting resource */
+		kfree(utf16_path);
+		utf16_path = copy_path;
 	} else {
-		uni_path_len = (2 * UniStrnlen((wchar_t *)path, PATH_MAX)) + 2;
+		uni_path_len = (2 * UniStrnlen((wchar_t *)utf16_path, PATH_MAX)) + 2;
 		/* MUST set path len (NameLength) to 0 opening root of share */
 		req->NameLength = cpu_to_le16(uni_path_len - 2);
 		if (uni_path_len % 8 != 0) {
 			copy_size = roundup(uni_path_len, 8);
 			copy_path = kzalloc(copy_size, GFP_KERNEL);
 			if (!copy_path) {
-				cifs_small_buf_release(req);
-				return -ENOMEM;
+				rc = -ENOMEM;
+				goto err_free_req;
 			}
-			memcpy((char *)copy_path, (const char *)path,
+			memcpy((char *)copy_path, (const char *)utf16_path,
 			       uni_path_len);
 			uni_path_len = copy_size;
-			path = copy_path;
+			/* free before overwriting resource */
+			kfree(utf16_path);
+			utf16_path = copy_path;
 		}
 	}
 
 	iov[1].iov_len = uni_path_len;
-	iov[1].iov_base = path;
+	iov[1].iov_base = utf16_path;
 	req->RequestedOplockLevel = SMB2_OPLOCK_LEVEL_NONE;
 
 	if (tcon->posix_extensions) {
-		if (n_iov > 2) {
-			struct create_context *ccontext =
-			    (struct create_context *)iov[n_iov-1].iov_base;
-			ccontext->Next =
-				cpu_to_le32(iov[n_iov-1].iov_len);
-		}
-
+		/* resource #3: posix buf */
 		rc = add_posix_context(iov, &n_iov, mode);
-		if (rc) {
-			cifs_small_buf_release(req);
-			kfree(copy_path);
-			return rc;
-		}
+		if (rc)
+			goto err_free_req;
 		pc_buf = iov[n_iov-1].iov_base;
 	}
 
@@ -2035,32 +2033,33 @@ int smb311_posix_mkdir(const unsigned int xid, struct inode *inode,
 	rqst.rq_iov = iov;
 	rqst.rq_nvec = n_iov;
 
-	rc = cifs_send_recv(xid, ses, &rqst, &resp_buftype, flags,
-			    &rsp_iov);
-
-	cifs_small_buf_release(req);
-	rsp = (struct smb2_create_rsp *)rsp_iov.iov_base;
-
-	if (rc != 0) {
+	/* resource #4: response buffer */
+	rc = cifs_send_recv(xid, ses, &rqst, &resp_buftype, flags, &rsp_iov);
+	if (rc) {
 		cifs_stats_fail_inc(tcon, SMB2_CREATE_HE);
 		trace_smb3_posix_mkdir_err(xid, tcon->tid, ses->Suid,
-				    CREATE_NOT_FILE, FILE_WRITE_ATTRIBUTES, rc);
-		goto smb311_mkdir_exit;
-	} else
-		trace_smb3_posix_mkdir_done(xid, rsp->PersistentFileId, tcon->tid,
-				     ses->Suid, CREATE_NOT_FILE,
-				     FILE_WRITE_ATTRIBUTES);
+					   CREATE_NOT_FILE,
+					   FILE_WRITE_ATTRIBUTES, rc);
+		goto err_free_rsp_buf;
+	}
+
+	rsp = (struct smb2_create_rsp *)rsp_iov.iov_base;
+	trace_smb3_posix_mkdir_done(xid, rsp->PersistentFileId, tcon->tid,
+				    ses->Suid, CREATE_NOT_FILE,
+				    FILE_WRITE_ATTRIBUTES);
 
 	SMB2_close(xid, tcon, rsp->PersistentFileId, rsp->VolatileFileId);
 
 	/* Eventually save off posix specific response info and timestaps */
 
-smb311_mkdir_exit:
-	kfree(copy_path);
-	kfree(pc_buf);
+err_free_rsp_buf:
 	free_rsp_buf(resp_buftype, rsp);
+	kfree(pc_buf);
+err_free_req:
+	cifs_small_buf_release(req);
+err_free_path:
+	kfree(utf16_path);
 	return rc;
-
 }
 #endif /* SMB311 */
 
@@ -3929,6 +3928,27 @@ copy_fs_info_to_kstatfs(struct smb2_fs_full_size_info *pfs_inf,
 	return;
 }
 
+#ifdef CONFIG_CIFS_SMB311
+static void
+copy_posix_fs_info_to_kstatfs(FILE_SYSTEM_POSIX_INFO *response_data,
+			struct kstatfs *kst)
+{
+	kst->f_bsize = le32_to_cpu(response_data->BlockSize);
+	kst->f_blocks = le64_to_cpu(response_data->TotalBlocks);
+	kst->f_bfree =  le64_to_cpu(response_data->BlocksAvail);
+	if (response_data->UserBlocksAvail == cpu_to_le64(-1))
+		kst->f_bavail = kst->f_bfree;
+	else
+		kst->f_bavail = le64_to_cpu(response_data->UserBlocksAvail);
+	if (response_data->TotalFileNodes != cpu_to_le64(-1))
+		kst->f_files = le64_to_cpu(response_data->TotalFileNodes);
+	if (response_data->FreeFileNodes != cpu_to_le64(-1))
+		kst->f_ffree = le64_to_cpu(response_data->FreeFileNodes);
+
+	return;
+}
+#endif /* SMB311 */
+
 static int
 build_qfs_info_req(struct kvec *iov, struct cifs_tcon *tcon, int level,
 		   int outbuf_len, u64 persistent_fid, u64 volatile_fid)
@@ -3964,6 +3984,56 @@ build_qfs_info_req(struct kvec *iov, struct cifs_tcon *tcon, int level,
 	iov->iov_len = total_len;
 	return 0;
 }
+
+#ifdef CONFIG_CIFS_SMB311
+int
+SMB311_posix_qfs_info(const unsigned int xid, struct cifs_tcon *tcon,
+	      u64 persistent_fid, u64 volatile_fid, struct kstatfs *fsdata)
+{
+	struct smb_rqst rqst;
+	struct smb2_query_info_rsp *rsp = NULL;
+	struct kvec iov;
+	struct kvec rsp_iov;
+	int rc = 0;
+	int resp_buftype;
+	struct cifs_ses *ses = tcon->ses;
+	FILE_SYSTEM_POSIX_INFO *info = NULL;
+	int flags = 0;
+
+	rc = build_qfs_info_req(&iov, tcon, FS_POSIX_INFORMATION,
+				sizeof(FILE_SYSTEM_POSIX_INFO),
+				persistent_fid, volatile_fid);
+	if (rc)
+		return rc;
+
+	if (smb3_encryption_required(tcon))
+		flags |= CIFS_TRANSFORM_REQ;
+
+	memset(&rqst, 0, sizeof(struct smb_rqst));
+	rqst.rq_iov = &iov;
+	rqst.rq_nvec = 1;
+
+	rc = cifs_send_recv(xid, ses, &rqst, &resp_buftype, flags, &rsp_iov);
+	cifs_small_buf_release(iov.iov_base);
+	if (rc) {
+		cifs_stats_fail_inc(tcon, SMB2_QUERY_INFO_HE);
+		goto posix_qfsinf_exit;
+	}
+	rsp = (struct smb2_query_info_rsp *)rsp_iov.iov_base;
+
+	info = (FILE_SYSTEM_POSIX_INFO *)(
+		le16_to_cpu(rsp->OutputBufferOffset) + (char *)rsp);
+	rc = validate_iov(le16_to_cpu(rsp->OutputBufferOffset),
+			  le32_to_cpu(rsp->OutputBufferLength), &rsp_iov,
+			  sizeof(FILE_SYSTEM_POSIX_INFO));
+	if (!rc)
+		copy_posix_fs_info_to_kstatfs(info, fsdata);
+
+posix_qfsinf_exit:
+	free_rsp_buf(resp_buftype, rsp_iov.iov_base);
+	return rc;
+}
+#endif /* SMB311 */
 
 int
 SMB2_QFS_info(const unsigned int xid, struct cifs_tcon *tcon,
@@ -4036,6 +4106,9 @@ SMB2_QFS_attr(const unsigned int xid, struct cifs_tcon *tcon,
 	} else if (level == FS_SECTOR_SIZE_INFORMATION) {
 		max_len = sizeof(struct smb3_fs_ss_info);
 		min_len = sizeof(struct smb3_fs_ss_info);
+	} else if (level == FS_VOLUME_INFORMATION) {
+		max_len = sizeof(struct smb3_fs_vol_info) + MAX_VOL_LABEL_LEN;
+		min_len = sizeof(struct smb3_fs_vol_info);
 	} else {
 		cifs_dbg(FYI, "Invalid qfsinfo level %d\n", level);
 		return -EINVAL;
@@ -4080,6 +4153,11 @@ SMB2_QFS_attr(const unsigned int xid, struct cifs_tcon *tcon,
 		tcon->ss_flags = le32_to_cpu(ss_info->Flags);
 		tcon->perf_sector_size =
 			le32_to_cpu(ss_info->PhysicalBytesPerSectorForPerf);
+	} else if (level == FS_VOLUME_INFORMATION) {
+		struct smb3_fs_vol_info *vol_info = (struct smb3_fs_vol_info *)
+			(offset + (char *)rsp);
+		tcon->vol_serial_number = vol_info->VolumeSerialNumber;
+		tcon->vol_create_time = vol_info->VolumeCreationTime;
 	}
 
 qfsattr_exit:

@@ -113,8 +113,8 @@ extern int smb2_unlock_range(struct cifsFileInfo *cfile,
 extern int smb2_push_mandatory_locks(struct cifsFileInfo *cfile);
 extern void smb2_reconnect_server(struct work_struct *work);
 extern int smb3_crypto_aead_allocate(struct TCP_Server_Info *server);
-extern unsigned long
-smb2_rqst_len(struct smb_rqst *rqst, bool skip_rfc1002_marker);
+extern unsigned long smb_rqst_len(struct TCP_Server_Info *server,
+				  struct smb_rqst *rqst);
 
 /*
  * SMB2 Worker functions - most of protocol specific implementation details
@@ -195,6 +195,9 @@ extern int smb2_handle_cancelled_mid(char *buffer,
 					struct TCP_Server_Info *server);
 void smb2_cancelled_close_fid(struct work_struct *work);
 extern int SMB2_QFS_info(const unsigned int xid, struct cifs_tcon *tcon,
+			 u64 persistent_file_id, u64 volatile_file_id,
+			 struct kstatfs *FSData);
+extern int SMB311_posix_qfs_info(const unsigned int xid, struct cifs_tcon *tcon,
 			 u64 persistent_file_id, u64 volatile_file_id,
 			 struct kstatfs *FSData);
 extern int SMB2_QFS_attr(const unsigned int xid, struct cifs_tcon *tcon,
