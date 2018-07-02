@@ -287,7 +287,7 @@ struct safexcel_context_record {
 	u32 control0;
 	u32 control1;
 
-	__le32 data[24];
+	__le32 data[40];
 } __packed;
 
 /* control0 */
@@ -313,6 +313,8 @@ struct safexcel_context_record {
 #define CONTEXT_CONTROL_CRYPTO_ALG_SHA1		(0x2 << 23)
 #define CONTEXT_CONTROL_CRYPTO_ALG_SHA224	(0x4 << 23)
 #define CONTEXT_CONTROL_CRYPTO_ALG_SHA256	(0x3 << 23)
+#define CONTEXT_CONTROL_CRYPTO_ALG_SHA384	(0x6 << 23)
+#define CONTEXT_CONTROL_CRYPTO_ALG_SHA512	(0x5 << 23)
 #define CONTEXT_CONTROL_INV_FR			(0x5 << 24)
 #define CONTEXT_CONTROL_INV_TR			(0x6 << 24)
 
@@ -326,6 +328,11 @@ struct safexcel_context_record {
 #define CONTEXT_CONTROL_DIGEST_CNT		BIT(9)
 #define CONTEXT_CONTROL_COUNTER_MODE		BIT(10)
 #define CONTEXT_CONTROL_HASH_STORE		BIT(19)
+
+/* The hash counter given to the engine in the context has a granularity of
+ * 64 bits.
+ */
+#define EIP197_COUNTER_BLOCK_SIZE		64
 
 /* EIP197_CS_RAM_CTRL */
 #define EIP197_TRC_ENABLE_0			BIT(4)
@@ -600,13 +607,13 @@ struct safexcel_context {
 };
 
 struct safexcel_ahash_export_state {
-	u64 len;
-	u64 processed;
+	u64 len[2];
+	u64 processed[2];
 
 	u32 digest;
 
-	u32 state[SHA256_DIGEST_SIZE / sizeof(u32)];
-	u8 cache[SHA256_BLOCK_SIZE];
+	u32 state[SHA512_DIGEST_SIZE / sizeof(u32)];
+	u8 cache[SHA512_BLOCK_SIZE];
 };
 
 /*
@@ -665,11 +672,17 @@ extern struct safexcel_alg_template safexcel_alg_cbc_aes;
 extern struct safexcel_alg_template safexcel_alg_sha1;
 extern struct safexcel_alg_template safexcel_alg_sha224;
 extern struct safexcel_alg_template safexcel_alg_sha256;
+extern struct safexcel_alg_template safexcel_alg_sha384;
+extern struct safexcel_alg_template safexcel_alg_sha512;
 extern struct safexcel_alg_template safexcel_alg_hmac_sha1;
 extern struct safexcel_alg_template safexcel_alg_hmac_sha224;
 extern struct safexcel_alg_template safexcel_alg_hmac_sha256;
+extern struct safexcel_alg_template safexcel_alg_hmac_sha384;
+extern struct safexcel_alg_template safexcel_alg_hmac_sha512;
 extern struct safexcel_alg_template safexcel_alg_authenc_hmac_sha1_cbc_aes;
 extern struct safexcel_alg_template safexcel_alg_authenc_hmac_sha224_cbc_aes;
 extern struct safexcel_alg_template safexcel_alg_authenc_hmac_sha256_cbc_aes;
+extern struct safexcel_alg_template safexcel_alg_authenc_hmac_sha384_cbc_aes;
+extern struct safexcel_alg_template safexcel_alg_authenc_hmac_sha512_cbc_aes;
 
 #endif
