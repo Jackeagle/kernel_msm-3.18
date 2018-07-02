@@ -616,14 +616,6 @@ static noinline int create_subvol(struct inode *dir,
 		goto fail;
 	}
 
-	memzero_extent_buffer(leaf, 0, sizeof(struct btrfs_header));
-	btrfs_set_header_bytenr(leaf, leaf->start);
-	btrfs_set_header_generation(leaf, trans->transid);
-	btrfs_set_header_backref_rev(leaf, BTRFS_MIXED_BACKREF_REV);
-	btrfs_set_header_owner(leaf, objectid);
-
-	write_extent_buffer_fsid(leaf, fs_info->fsid);
-	write_extent_buffer_chunk_tree_uuid(leaf, fs_info->chunk_tree_uuid);
 	btrfs_mark_buffer_dirty(leaf);
 
 	inode_item = &root_item->inode;
@@ -2507,8 +2499,8 @@ out:
 static noinline int btrfs_ioctl_ino_lookup(struct file *file,
 					   void __user *argp)
 {
-	 struct btrfs_ioctl_ino_lookup_args *args;
-	 struct inode *inode;
+	struct btrfs_ioctl_ino_lookup_args *args;
+	struct inode *inode;
 	int ret = 0;
 
 	args = memdup_user(argp, sizeof(*args));
@@ -3577,7 +3569,7 @@ static int btrfs_extent_same(struct inode *src, u64 loff, u64 olen,
 		ret = btrfs_extent_same_range(src, loff, BTRFS_MAX_DEDUPE_LEN,
 					      dst, dst_loff, &cmp);
 		if (ret)
-			goto out_unlock;
+			goto out_free;
 
 		loff += BTRFS_MAX_DEDUPE_LEN;
 		dst_loff += BTRFS_MAX_DEDUPE_LEN;
@@ -3587,15 +3579,15 @@ static int btrfs_extent_same(struct inode *src, u64 loff, u64 olen,
 		ret = btrfs_extent_same_range(src, loff, tail_len, dst,
 					      dst_loff, &cmp);
 
+out_free:
+	kvfree(cmp.src_pages);
+	kvfree(cmp.dst_pages);
+
 out_unlock:
 	if (same_inode)
 		inode_unlock(src);
 	else
 		btrfs_double_inode_unlock(src, dst);
-
-out_free:
-	kvfree(cmp.src_pages);
-	kvfree(cmp.dst_pages);
 
 	return ret;
 }
