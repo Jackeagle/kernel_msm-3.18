@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * userspace interface for pi433 radio module
  *
@@ -78,7 +79,6 @@ struct pi433_device {
 	struct device		*dev;
 	struct cdev		*cdev;
 	struct spi_device	*spi;
-	unsigned int		users;
 
 	/* irq related values */
 	struct gpio_desc	*gpiod[NUM_DIO];
@@ -880,15 +880,13 @@ pi433_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	int			retval = 0;
 	struct pi433_instance	*instance;
 	struct pi433_device	*device;
+	struct pi433_tx_cfg	tx_cfg;
 	void __user *argp = (void __user *)arg;
 
 	/* Check type and command number */
 	if (_IOC_TYPE(cmd) != PI433_IOC_MAGIC)
 		return -ENOTTY;
 
-	/* TODO? guard against device removal before, or while,
-	 * we issue this ioctl. --> device_get()
-	 */
 	instance = filp->private_data;
 	device = instance->device;
 
@@ -902,9 +900,11 @@ pi433_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			return -EFAULT;
 		break;
 	case PI433_IOC_WR_TX_CFG:
-		if (copy_from_user(&instance->tx_cfg, argp,
-				   sizeof(struct pi433_tx_cfg)))
+		if (copy_from_user(&tx_cfg, argp, sizeof(struct pi433_tx_cfg)))
 			return -EFAULT;
+		mutex_lock(&device->tx_fifo_lock);
+		memcpy(&instance->tx_cfg, &tx_cfg, sizeof(struct pi433_tx_cfg));
+		mutex_unlock(&device->tx_fifo_lock);
 		break;
 	case PI433_IOC_RD_RX_CFG:
 		if (copy_to_user(argp, &device->rx_cfg,
@@ -960,19 +960,9 @@ static int pi433_open(struct inode *inode, struct file *filp)
 		return -ENODEV;
 	}
 
-	if (!device->rx_buffer) {
-		device->rx_buffer = kmalloc(MAX_MSG_SIZE, GFP_KERNEL);
-		if (!device->rx_buffer)
-			return -ENOMEM;
-	}
-
-	device->users++;
 	instance = kzalloc(sizeof(*instance), GFP_KERNEL);
-	if (!instance) {
-		kfree(device->rx_buffer);
-		device->rx_buffer = NULL;
+	if (!instance)
 		return -ENOMEM;
-	}
 
 	/* setup instance data*/
 	instance->device = device;
@@ -989,22 +979,10 @@ static int pi433_open(struct inode *inode, struct file *filp)
 static int pi433_release(struct inode *inode, struct file *filp)
 {
 	struct pi433_instance	*instance;
-	struct pi433_device	*device;
 
 	instance = filp->private_data;
-	device = instance->device;
 	kfree(instance);
 	filp->private_data = NULL;
-
-	/* last close? */
-	device->users--;
-
-	if (!device->users) {
-		kfree(device->rx_buffer);
-		device->rx_buffer = NULL;
-		if (!device->spi)
-			kfree(device);
-	}
 
 	return 0;
 }
@@ -1175,6 +1153,13 @@ static int pi433_probe(struct spi_device *spi)
 	device->tx_active = false;
 	device->interrupt_rx_allowed = false;
 
+	/* init rx buffer */
+	device->rx_buffer = kmalloc(MAX_MSG_SIZE, GFP_KERNEL);
+	if (!device->rx_buffer) {
+		retval = -ENOMEM;
+		goto RX_failed;
+	}
+
 	/* init wait queues */
 	init_waitqueue_head(&device->tx_wait_queue);
 	init_waitqueue_head(&device->rx_wait_queue);
@@ -1277,6 +1262,8 @@ device_create_failed:
 minor_failed:
 	free_gpio(device);
 GPIO_failed:
+	kfree(device->rx_buffer);
+RX_failed:
 	kfree(device);
 
 	return retval;
@@ -1300,8 +1287,8 @@ static int pi433_remove(struct spi_device *spi)
 
 	pi433_free_minor(device);
 
-	if (device->users == 0)
-		kfree(device);
+	kfree(device->rx_buffer);
+	kfree(device);
 
 	return 0;
 }

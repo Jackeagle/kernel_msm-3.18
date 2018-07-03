@@ -32,9 +32,6 @@
 #define WEXT_CSCAN_HOME_DWELL_SECTION	'H'
 #define WEXT_CSCAN_TYPE_SECTION		'T'
 
-
-extern u8 key_2char2num(u8 hch, u8 lch);
-
 static u32 rtw_rates[] = {1000000, 2000000, 5500000, 11000000,
 	6000000, 9000000, 12000000, 18000000, 24000000, 36000000, 48000000, 54000000};
 
@@ -313,7 +310,7 @@ static char *translate_scan(struct adapter *padapter,
 		RT_TRACE(_module_rtl871x_mlme_c_, _drv_info_, ("rtw_wx_get_scan: ssid =%s\n", pnetwork->network.Ssid.Ssid));
 		RT_TRACE(_module_rtl871x_mlme_c_, _drv_info_, ("rtw_wx_get_scan: wpa_len =%d rsn_len =%d\n", wpa_len, rsn_len));
 
-		buf = kzalloc(MAX_WPA_IE_LEN*2, GFP_KERNEL);
+		buf = kzalloc(MAX_WPA_IE_LEN*2, GFP_ATOMIC);
 		if (!buf)
 			return start;
 		if (wpa_len > 0) {
@@ -445,7 +442,7 @@ static char *translate_scan(struct adapter *padapter,
 		u8 *buf;
 		u8 *p, *pos;
 
-		buf = kzalloc(MAX_WPA_IE_LEN, GFP_KERNEL);
+		buf = kzalloc(MAX_WPA_IE_LEN, GFP_ATOMIC);
 		if (!buf)
 			goto exit;
 		p = buf;
