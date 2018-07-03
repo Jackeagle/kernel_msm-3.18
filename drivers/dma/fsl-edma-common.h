@@ -159,4 +159,3 @@ int fsl_edma_terminate_all(struct dma_chan *chan);
 void fsl_edma_issue_pending(struct dma_chan *chan);
 
 #endif /* _FSL_EDMA_COMMON_H_ */
-
