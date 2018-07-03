@@ -52,7 +52,7 @@
 #ifdef CONFIG_OF
 #include <linux/of_gpio.h>
 #endif
-#define HIMAX_DRIVER_VER "0.3.0.0"
+#define HIMAX_DRIVER_VER "0.3.1.0"
 
 #define FLASH_DUMP_FILE "/data/user/Flash_Dump.bin"
 #define DIAG_COORDINATE_FILE "/sdcard/Coordinate_Dump.csv"
@@ -252,7 +252,7 @@ struct himax_ts_data {
 #ifdef HX_SMART_WAKEUP
 	uint8_t SMWP_enable;
 	uint8_t gesture_cust_en[16];
-	struct wake_lock ts_SMWP_wake_lock;
+	struct wakeup_source ts_SMWP_wake_lock;
 	struct workqueue_struct *himax_smwp_wq;
 	struct delayed_work smwp_work;
 #endif
@@ -466,7 +466,7 @@ extern bool hitouch_is_connect;
 	unsigned char ESD_00_counter = 0;
 	unsigned char ESD_00_Flag = 0;
 #endif
-void himax_ts_init(struct himax_ts_data *ts);
+bool himax_ts_init(struct himax_ts_data *ts);
 
 #endif
 

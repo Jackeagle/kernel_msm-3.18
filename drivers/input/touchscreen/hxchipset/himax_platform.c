@@ -585,7 +585,7 @@ irqreturn_t himax_ts_thread(int irq, void *ptr)
 		&& (!FAKE_POWER_KEY_SEND)
 		&& (ts->SMWP_enable)
 		&& (!diag_cmd)) {
-		wake_lock_timeout(&ts->ts_SMWP_wake_lock, TS_WAKE_LOCK_TIMEOUT);
+		__pm_wakeup_event(&ts->ts_SMWP_wake_lock, TS_WAKE_LOCK_TIMEOUT);
 		msleep(200);
 		himax_wake_check_func();
 		return IRQ_HANDLED;
@@ -692,6 +692,7 @@ int fb_notifier_callback(struct notifier_block *self,
 	int *blank;
 	struct himax_ts_data *ts
 	= container_of(self, struct himax_ts_data, fb_notif);
+	int ERR = 1;
 
 	I(" %s\n", __func__);
 	if (evdata && evdata->data && event
@@ -702,11 +703,15 @@ int fb_notifier_callback(struct notifier_block *self,
 		switch (*blank) {
 		case FB_BLANK_UNBLANK:
 			if (!ts->probe_done) {
-				himax_ts_init(ts);
-				ts->probe_done = true;
-			} else {
+				if (himax_ts_init(ts) == true) {
+					I("himax_ts_init return OK\n");
+					ts->probe_done = true;
+				} else {
+					I("himax_ts_init return Fail\n");
+					return -ERR;
+				}
+			} else
 				himax_common_resume(&ts->client->dev);
-			}
 		break;
 
 		case FB_BLANK_POWERDOWN:
@@ -774,5 +779,5 @@ module_init(himax_common_init);
 module_exit(himax_common_exit);
 
 MODULE_DESCRIPTION("Himax_common driver");
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("GPL v2");
 

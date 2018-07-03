@@ -528,7 +528,8 @@ static void himax_HSEN_func(struct work_struct *work)
 #ifdef HX_GESTURE_TRACK
 static void gest_pt_log_coordinate(int rx, int tx)
 {
-	/*driver report x y with range 0 - 255 , we scale it up to x/y pixel*/
+	/*driver report x y with range 0 - 255*/
+	/* And we scale it up to x/y coordinates*/
 	gest_pt_x[gest_pt_cnt] = rx * (ic_data->HX_X_RES) / 255;
 	gest_pt_y[gest_pt_cnt] = tx * (ic_data->HX_Y_RES) / 255;
 }
@@ -1512,7 +1513,7 @@ static void himax_ts_diag_work_func(struct work_struct *work)
 }
 #endif
 
-void himax_ts_init(struct himax_ts_data *ts)
+bool himax_ts_init(struct himax_ts_data *ts)
 {
 	int ret = 0, err = 0;
 	struct himax_i2c_platform_data *pdata;
@@ -1596,7 +1597,7 @@ himax_read_FW_ver(client);
 	setMutualOldBuffer();
 	if (getMutualBuffer() == NULL) {
 		E("%s: mutual buffer allocate fail failed\n", __func__);
-		return;
+		return false;
 	}
 #ifdef HX_TP_PROC_2T2R
 	if (Is_2T2R) {
@@ -1608,7 +1609,7 @@ himax_read_FW_ver(client);
 		if (getMutualBuffer_2() == NULL) {
 			E("%s: mutual buffer 2 allocate fail failed\n",
 			__func__);
-			return;
+			return false;
 		}
 	}
 #endif
@@ -1648,7 +1649,7 @@ himax_read_FW_ver(client);
 	}
 #ifdef HX_SMART_WAKEUP
 	ts->SMWP_enable = 0;
-	wake_lock_init(&ts->ts_SMWP_wake_lock,
+	wakeup_source_init(&ts->ts_SMWP_wake_lock,
 	WAKE_LOCK_SUSPEND, HIMAX_common_NAME);
 
 	ts->himax_smwp_wq = create_singlethread_workqueue("HMX_SMWP_WORK");
@@ -1682,7 +1683,7 @@ himax_read_FW_ver(client);
 	err = himax_ts_register_interrupt(ts->client);
 	if (err)
 		goto err_register_interrupt_failed;
-	return;
+	return true;
 
 err_register_interrupt_failed:
 #ifdef HX_HIGH_SENSE
@@ -1690,7 +1691,7 @@ err_hsen_wq_failed:
 #endif
 #ifdef HX_SMART_WAKEUP
 err_smwp_wq_failed:
-	wake_lock_destroy(&ts->ts_SMWP_wake_lock);
+	wakeup_source_trash(&ts->ts_SMWP_wake_lock);
 #endif
 err_input_register_device_failed:
 	input_free_device(ts->input_dev);
@@ -1699,8 +1700,7 @@ err_detect_failed:
 err_create_wq_failed:
 #endif
 err_ic_package_failed:
-
-return;
+return false;
 }
 
 int himax_chip_common_probe(struct i2c_client *client,
@@ -1863,7 +1863,7 @@ int himax_chip_common_remove(struct i2c_client *client)
 		}
 	}
 #ifdef HX_SMART_WAKEUP
-		wake_lock_destroy(&ts->ts_SMWP_wake_lock);
+		wakeup_source_trash(&ts->ts_SMWP_wake_lock);
 #endif
 	kfree(ts);
 
