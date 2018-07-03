@@ -198,6 +198,14 @@ static u64 __init find_end_of_node(u64 start, u64 max_addr, u64 size)
 	return end;
 }
 
+static u64 uniform_size(u64 max_addr, u64 base, int nr_nodes)
+{
+	unsigned long max_pfn = PHYS_PFN(max_addr);
+	unsigned long base_pfn = PHYS_PFN(base);
+
+	return PFN_PHYS((max_pfn - base_pfn) / nr_nodes);
+}
+
 /*
  * Sets up fake nodes of `size' interleaved over physical nodes ranging from
  * `addr' to `max_addr'.
@@ -236,7 +244,7 @@ static int __init split_nodes_size_interleave_uniform(struct numa_meminfo *ei,
 	}
 
 	if (uniform) {
-		min_size = (max_addr - addr) / nr_nodes;
+		min_size = uniform_size(max_addr, addr, nr_nodes);
 		size = min_size;
 	} else {
 		/*
