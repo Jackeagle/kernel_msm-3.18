@@ -209,14 +209,16 @@ cifs_statfs(struct dentry *dentry, struct kstatfs *buf)
 
 	xid = get_xid();
 
-	/*
-	 * PATH_MAX may be too long - it would presumably be total path,
-	 * but note that some servers (includinng Samba 3) have a shorter
-	 * maximum path.
-	 *
-	 * Instead could get the real value via SMB_QUERY_FS_ATTRIBUTE_INFO.
-	 */
-	buf->f_namelen = PATH_MAX;
+	if (le32_to_cpu(tcon->fsAttrInfo.MaxPathNameComponentLength) > 0)
+		buf->f_namelen =
+		       le32_to_cpu(tcon->fsAttrInfo.MaxPathNameComponentLength);
+	else
+		buf->f_namelen = PATH_MAX;
+
+	buf->f_fsid.val[0] = tcon->vol_serial_number;
+	/* are using part of create time for more randomness, see man statfs */
+	buf->f_fsid.val[1] =  (int)le64_to_cpu(tcon->vol_create_time);
+
 	buf->f_files = 0;	/* undefined */
 	buf->f_ffree = 0;	/* unlimited */
 
@@ -481,20 +483,12 @@ cifs_show_options(struct seq_file *s, struct dentry *root)
 		seq_puts(s, ",persistenthandles");
 	else if (tcon->use_resilient)
 		seq_puts(s, ",resilienthandles");
-
-#ifdef CONFIG_CIFS_SMB311
 	if (tcon->posix_extensions)
 		seq_puts(s, ",posix");
 	else if (tcon->unix_ext)
 		seq_puts(s, ",unix");
 	else
 		seq_puts(s, ",nounix");
-#else
-	if (tcon->unix_ext)
-		seq_puts(s, ",unix");
-	else
-		seq_puts(s, ",nounix");
-#endif /* SMB311 */
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_POSIX_PATHS)
 		seq_puts(s, ",posixpaths");
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_SET_UID)
