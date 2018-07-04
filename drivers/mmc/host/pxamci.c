@@ -58,7 +58,6 @@ struct pxamci_host {
 	void __iomem		*base;
 	struct clk		*clk;
 	unsigned long		clkrate;
-	int			irq;
 	unsigned int		clkrt;
 	unsigned int		cmdat;
 	unsigned int		imask;
@@ -72,64 +71,48 @@ struct pxamci_host {
 	struct dma_chan		*dma_chan_rx;
 	struct dma_chan		*dma_chan_tx;
 	dma_cookie_t		dma_cookie;
-	dma_addr_t		sg_dma;
 	unsigned int		dma_len;
-
 	unsigned int		dma_dir;
-	unsigned int		dma_drcmrrx;
-	unsigned int		dma_drcmrtx;
-
-	struct regulator	*vcc;
 };
 
-static inline void pxamci_init_ocr(struct pxamci_host *host)
+static int pxamci_init_ocr(struct pxamci_host *host)
 {
-#ifdef CONFIG_REGULATOR
-	host->vcc = devm_regulator_get_optional(mmc_dev(host->mmc), "vmmc");
+	struct mmc_host *mmc = host->mmc;
+	int ret;
 
-	if (IS_ERR(host->vcc))
-		host->vcc = NULL;
-	else {
-		host->mmc->ocr_avail = mmc_regulator_get_ocrmask(host->vcc);
-		if (host->pdata && host->pdata->ocr_mask)
-			dev_warn(mmc_dev(host->mmc),
-				"ocr_mask/setpower will not be used\n");
-	}
-#endif
-	if (host->vcc == NULL) {
+	ret = mmc_regulator_get_supply(mmc);
+	if (ret < 0)
+		return ret;
+
+	if (IS_ERR(mmc->supply.vmmc)) {
 		/* fall-back to platform data */
-		host->mmc->ocr_avail = host->pdata ?
+		mmc->ocr_avail = host->pdata ?
 			host->pdata->ocr_mask :
 			MMC_VDD_32_33 | MMC_VDD_33_34;
 	}
+
+	return 0;
 }
 
 static inline int pxamci_set_power(struct pxamci_host *host,
 				    unsigned char power_mode,
 				    unsigned int vdd)
 {
+	struct mmc_host *mmc = host->mmc;
+	struct regulator *supply = mmc->supply.vmmc;
 	int on;
 
-	if (host->vcc) {
-		int ret;
+	if (!IS_ERR(supply))
+		return mmc_regulator_set_ocr(mmc, supply, vdd);
 
-		if (power_mode == MMC_POWER_UP) {
-			ret = mmc_regulator_set_ocr(host->mmc, host->vcc, vdd);
-			if (ret)
-				return ret;
-		} else if (power_mode == MMC_POWER_OFF) {
-			ret = mmc_regulator_set_ocr(host->mmc, host->vcc, 0);
-			if (ret)
-				return ret;
-		}
-	}
-	if (!host->vcc && host->pdata &&
+	if (host->pdata &&
 	    gpio_is_valid(host->pdata->gpio_power)) {
 		on = ((1 << vdd) & host->pdata->ocr_mask);
 		gpio_set_value(host->pdata->gpio_power,
 			       !!on ^ host->pdata->gpio_power_invert);
 	}
-	if (!host->vcc && host->pdata && host->pdata->setpower)
+
+	if (host->pdata && host->pdata->setpower)
 		return host->pdata->setpower(mmc_dev(host->mmc), vdd);
 
 	return 0;
@@ -596,37 +579,36 @@ static const struct of_device_id pxa_mmc_dt_ids[] = {
 
 MODULE_DEVICE_TABLE(of, pxa_mmc_dt_ids);
 
-static int pxamci_of_init(struct platform_device *pdev)
+static int pxamci_of_init(struct platform_device *pdev,
+			  struct mmc_host *mmc)
 {
-        struct device_node *np = pdev->dev.of_node;
-        struct pxamci_platform_data *pdata;
-        u32 tmp;
+	struct device_node *np = pdev->dev.of_node;
+	struct pxamci_platform_data *pdata;
+	u32 tmp;
+	int ret;
 
-        if (!np)
-                return 0;
+	if (!np)
+		return 0;
 
-        pdata = devm_kzalloc(&pdev->dev, sizeof(*pdata), GFP_KERNEL);
-        if (!pdata)
-                return -ENOMEM;
-
-	pdata->gpio_card_detect =
-		of_get_named_gpio(np, "cd-gpios", 0);
-	pdata->gpio_card_ro =
-		of_get_named_gpio(np, "wp-gpios", 0);
+	pdata = devm_kzalloc(&pdev->dev, sizeof(*pdata), GFP_KERNEL);
+	if (!pdata)
+		return -ENOMEM;
 
 	/* pxa-mmc specific */
-	pdata->gpio_power =
-		of_get_named_gpio(np, "pxa-mmc,gpio-power", 0);
-
 	if (of_property_read_u32(np, "pxa-mmc,detect-delay-ms", &tmp) == 0)
 		pdata->detect_delay_ms = tmp;
 
-        pdev->dev.platform_data = pdata;
+	ret = mmc_of_parse(mmc);
+	if (ret < 0)
+		return ret;
 
-        return 0;
+	pdev->dev.platform_data = pdata;
+
+	return 0;
 }
 #else
-static int pxamci_of_init(struct platform_device *pdev)
+static int pxamci_of_init(struct platform_device *pdev,
+			  struct mmc_host *mmc)
 {
         return 0;
 }
@@ -638,10 +620,6 @@ static int pxamci_probe(struct platform_device *pdev)
 	struct pxamci_host *host = NULL;
 	struct resource *r;
 	int ret, irq, gpio_cd = -1, gpio_ro = -1, gpio_power = -1;
-
-	ret = pxamci_of_init(pdev);
-	if (ret)
-		return ret;
 
 	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	irq = platform_get_irq(pdev, 0);
@@ -677,6 +655,10 @@ static int pxamci_probe(struct platform_device *pdev)
 	 */
 	mmc->max_blk_count = 65535;
 
+	ret = pxamci_of_init(pdev, mmc);
+	if (ret)
+		return ret;
+
 	host = mmc_priv(mmc);
 	host->mmc = mmc;
 	host->pdata = pdev->dev.platform_data;
@@ -697,7 +679,9 @@ static int pxamci_probe(struct platform_device *pdev)
 	mmc->f_min = (host->clkrate + 63) / 64;
 	mmc->f_max = (mmc_has_26MHz()) ? 26000000 : host->clkrate;
 
-	pxamci_init_ocr(host);
+	ret = pxamci_init_ocr(host);
+	if (ret < 0)
+		return ret;
 
 	mmc->caps = 0;
 	host->cmdat = 0;
@@ -711,7 +695,6 @@ static int pxamci_probe(struct platform_device *pdev)
 
 	spin_lock_init(&host->lock);
 	host->res = r;
-	host->irq = irq;
 	host->imask = MMC_I_MASK_ALL;
 
 	host->base = devm_ioremap_resource(&pdev->dev, r);
@@ -729,7 +712,7 @@ static int pxamci_probe(struct platform_device *pdev)
 	writel(64, host->base + MMC_RESTO);
 	writel(host->imask, host->base + MMC_I_MASK);
 
-	ret = devm_request_irq(&pdev->dev, host->irq, pxamci_irq, 0,
+	ret = devm_request_irq(&pdev->dev, irq, pxamci_irq, 0,
 			       DRIVER_NAME, host);
 	if (ret)
 		goto out;
@@ -812,18 +795,12 @@ out:
 static int pxamci_remove(struct platform_device *pdev)
 {
 	struct mmc_host *mmc = platform_get_drvdata(pdev);
-	int gpio_cd = -1, gpio_ro = -1, gpio_power = -1;
 
 	if (mmc) {
 		struct pxamci_host *host = mmc_priv(mmc);
 
 		mmc_remove_host(mmc);
 
-		if (host->pdata) {
-			gpio_cd = host->pdata->gpio_card_detect;
-			gpio_ro = host->pdata->gpio_card_ro;
-			gpio_power = host->pdata->gpio_power;
-		}
 		if (host->pdata && host->pdata->exit)
 			host->pdata->exit(&pdev->dev, mmc);
 
@@ -839,6 +816,7 @@ static int pxamci_remove(struct platform_device *pdev)
 
 		mmc_free_host(mmc);
 	}
+
 	return 0;
 }
 
