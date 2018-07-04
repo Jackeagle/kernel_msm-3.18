@@ -4,6 +4,7 @@
 // Copyright (c) 2017 Sysam, Angelo Dureghello  <angelo@sysam.it>
 
 #include <linux/dmapool.h>
+#include <linux/module.h>
 #include <linux/slab.h>
 
 #include "fsl-edma-common.h"
