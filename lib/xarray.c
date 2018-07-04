@@ -32,6 +32,11 @@ static inline unsigned int xa_lock_type(const struct xarray *xa)
 	return (__force unsigned int)xa->xa_flags & 3;
 }
 
+static inline bool xa_track_free(const struct xarray *xa)
+{
+	return xa->xa_flags & XA_FLAGS_TRACK_FREE;
+}
+
 static inline void xa_tag_set(struct xarray *xa, xa_tag_t tag)
 {
 	if (!(xa->xa_flags & XA_FLAGS_TAG(tag)))
@@ -67,6 +72,11 @@ static inline bool node_clear_tag(struct xa_node *node, unsigned int offset,
 static inline bool node_any_tag(struct xa_node *node, xa_tag_t tag)
 {
 	return !bitmap_empty(node->tags[(__force unsigned)tag], XA_CHUNK_SIZE);
+}
+
+static inline void node_tag_all(struct xa_node *node, xa_tag_t tag)
+{
+	bitmap_fill(node->tags[(__force unsigned)tag], XA_CHUNK_SIZE);
 }
 
 #define tag_inc(tag) do { \
@@ -402,6 +412,8 @@ static void xas_shrink(struct xa_state *xas)
 		xas->xa_node = XAS_BOUNDS;
 
 		RCU_INIT_POINTER(xa->xa_head, entry);
+		if (xa_track_free(xa) && !node_get_tag(node, 0, XA_FREE_TAG))
+			xa_tag_clear(xa, XA_FREE_TAG);
 
 		node->count = 0;
 		node->nr_values = 0;
@@ -535,8 +547,15 @@ static int xas_expand(struct xa_state *xas, void *head)
 
 		/* Propagate the aggregated tag info to the new child */
 		for (;;) {
-			if (xa_tagged(xa, tag))
+			if (xa_track_free(xa) && tag == XA_FREE_TAG) {
+				node_tag_all(node, XA_FREE_TAG);
+				if (!xa_tagged(xa, XA_FREE_TAG)) {
+					node_clear_tag(node, 0, XA_FREE_TAG);
+					xa_tag_set(xa, XA_FREE_TAG);
+				}
+			} else if (xa_tagged(xa, tag)) {
 				node_set_tag(node, 0, tag);
+			}
 			if (tag == XA_TAG_MAX)
 				break;
 			tag_inc(tag);
@@ -610,6 +629,8 @@ static void *xas_create(struct xa_state *xas)
 			node = xas_alloc(xas, shift);
 			if (!node)
 				break;
+			if (xa_track_free(xa))
+				node_tag_all(node, XA_FREE_TAG);
 			rcu_assign_pointer(*slot, xa_mk_node(node));
 		} else if (xa_is_node(entry)) {
 			node = xa_to_node(entry);
@@ -866,7 +887,10 @@ void xas_init_tags(const struct xa_state *xas)
 	xa_tag_t tag = 0;
 
 	for (;;) {
-		xas_clear_tag(xas, tag);
+		if (xa_track_free(xas->xa) && tag == XA_FREE_TAG)
+			xas_set_tag(xas, tag);
+		else
+			xas_clear_tag(xas, tag);
 		if (tag == XA_TAG_MAX)
 			break;
 		tag_inc(tag);
@@ -1302,6 +1326,8 @@ void *xa_store(struct xarray *xa, unsigned long index, void *entry, gfp_t gfp)
 	do {
 		xas_lock(&xas);
 		curr = xas_store(&xas, entry);
+		if (xa_track_free(xa) && entry)
+			xas_clear_tag(&xas, XA_FREE_TAG);
 		xas_unlock(&xas);
 	} while (xas_nomem(&xas, gfp));
 
@@ -1334,6 +1360,8 @@ void *__xa_store(struct xarray *xa, unsigned long index, void *entry, gfp_t gfp)
 
 	do {
 		curr = xas_store(&xas, entry);
+		if (xa_track_free(xa) && entry)
+			xas_clear_tag(&xas, XA_FREE_TAG);
 	} while (__xas_nomem(&xas, gfp));
 
 	return xas_result(&xas, curr);
@@ -1367,8 +1395,11 @@ void *xa_cmpxchg(struct xarray *xa, unsigned long index,
 	do {
 		xas_lock(&xas);
 		curr = xas_load(&xas);
-		if (curr == old)
+		if (curr == old) {
 			xas_store(&xas, entry);
+			if (xa_track_free(xa) && entry)
+				xas_clear_tag(&xas, XA_FREE_TAG);
+		}
 		xas_unlock(&xas);
 	} while (xas_nomem(&xas, gfp));
 
@@ -1403,13 +1434,57 @@ void *__xa_cmpxchg(struct xarray *xa, unsigned long index,
 
 	do {
 		curr = xas_load(&xas);
-		if (curr == old)
+		if (curr == old) {
 			xas_store(&xas, entry);
+			if (xa_track_free(xa) && entry)
+				xas_clear_tag(&xas, XA_FREE_TAG);
+		}
 	} while (__xas_nomem(&xas, gfp));
 
 	return xas_result(&xas, curr);
 }
 EXPORT_SYMBOL(__xa_cmpxchg);
+
+/**
+ * xa_alloc() - Find somewhere to store this entry in the XArray.
+ * @xa: XArray.
+ * @id: Pointer to ID.
+ * @entry: New entry.
+ * @gfp: Memory allocation flags.
+ *
+ * Searches the XArray for an index marked as free, updates the @id pointer
+ * with the index, then stores the entry at that index.  A concurrent lookup
+ * will not see an uninitialised @id.
+ *
+ * Context: Process context.  Takes and releases the xa_lock.  May sleep
+ * if the @gfp flags permit.
+ * Return: 0 on success, -ENOMEM if memory allocation fails or -ENOSPC if
+ * there is no more space in the XArray.
+ */
+int xa_alloc(struct xarray *xa, u32 *id, void *entry, gfp_t gfp)
+{
+	XA_STATE(xas, xa, 0);
+
+	if (WARN_ON_ONCE(xa_is_internal(entry)))
+		return -EINVAL;
+	if (WARN_ON_ONCE(!xa_track_free(xa)))
+		return -EINVAL;
+
+	do {
+		xas.xa_index = 0;
+		xas_lock(&xas);
+		xas_find_tagged(&xas, UINT_MAX, XA_FREE_TAG);
+		if (xas.xa_node == XAS_BOUNDS && xas.xa_index == UINT_MAX + 1)
+			return -ENOSPC;
+		*id = xas.xa_index;
+		xas_store(&xas, entry);
+		xas_clear_tag(&xas, XA_FREE_TAG);
+		xas_unlock(&xas);
+	} while (xas_nomem(&xas, gfp));
+
+	return xas_error(&xas);
+}
+EXPORT_SYMBOL(xa_alloc);
 
 /**
  * __xa_set_tag() - Set this tag on this entry while locked.
