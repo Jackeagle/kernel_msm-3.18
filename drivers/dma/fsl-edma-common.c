@@ -668,3 +668,5 @@ void fsl_edma_setup_regs(struct fsl_edma_engine *edma)
 	edma->regs.tcd = edma->membase + EDMA_TCD;
 }
 EXPORT_SYMBOL_GPL(fsl_edma_setup_regs);
+
+MODULE_LICENSE("GPL v2");
