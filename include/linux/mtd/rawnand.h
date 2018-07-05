@@ -121,6 +121,7 @@ enum nand_ecc_algo {
 	NAND_ECC_UNKNOWN,
 	NAND_ECC_HAMMING,
 	NAND_ECC_BCH,
+	NAND_ECC_RS,
 };
 
 /*
@@ -218,6 +219,12 @@ enum nand_ecc_algo {
  */
 #define NAND_WAIT_TCCS		0x00200000
 
+/*
+ * Whether the NAND chip is a boot medium. Drivers might use this information
+ * to select ECC algorithms supported by the boot ROM or similar restrictions.
+ */
+#define NAND_IS_BOOT_MEDIUM	0x00400000
+
 /* Options set by nand scan */
 /* Nand scan has allocated controller struct */
 #define NAND_CONTROLLER_ALLOC	0x80000000
@@ -229,6 +236,17 @@ enum nand_ecc_algo {
 
 /* Keep gcc happy */
 struct nand_chip;
+
+/* ONFI version bits */
+#define ONFI_VERSION_1_0		BIT(1)
+#define ONFI_VERSION_2_0		BIT(2)
+#define ONFI_VERSION_2_1		BIT(3)
+#define ONFI_VERSION_2_2		BIT(4)
+#define ONFI_VERSION_2_3		BIT(5)
+#define ONFI_VERSION_3_0		BIT(6)
+#define ONFI_VERSION_3_1		BIT(7)
+#define ONFI_VERSION_3_2		BIT(8)
+#define ONFI_VERSION_4_0		BIT(9)
 
 /* ONFI features */
 #define ONFI_FEATURE_16_BIT_BUS		(1 << 0)
@@ -778,11 +796,15 @@ nand_get_sdr_timings(const struct nand_data_interface *conf)
  *	  implementation) if any.
  * @cleanup: the ->init() function may have allocated resources, ->cleanup()
  *	     is here to let vendor specific code release those resources.
+ * @fixup_onfi_param_page: apply vendor specific fixups to the ONFI parameter
+ *			   page. This is called after the checksum is verified.
  */
 struct nand_manufacturer_ops {
 	void (*detect)(struct nand_chip *chip);
 	int (*init)(struct nand_chip *chip);
 	void (*cleanup)(struct nand_chip *chip);
+	void (*fixup_onfi_param_page)(struct nand_chip *chip,
+				      struct nand_onfi_params *p);
 };
 
 /**
@@ -1641,14 +1663,8 @@ int nand_check_erased_ecc_chunk(void *data, int datalen,
 				void *extraoob, int extraooblen,
 				int threshold);
 
-int nand_check_ecc_caps(struct nand_chip *chip,
-			const struct nand_ecc_caps *caps, int oobavail);
-
-int nand_match_ecc_req(struct nand_chip *chip,
-		       const struct nand_ecc_caps *caps,  int oobavail);
-
-int nand_maximize_ecc(struct nand_chip *chip,
-		      const struct nand_ecc_caps *caps, int oobavail);
+int nand_ecc_choose_conf(struct nand_chip *chip,
+			 const struct nand_ecc_caps *caps, int oobavail);
 
 /* Default write_oob implementation */
 int nand_write_oob_std(struct mtd_info *mtd, struct nand_chip *chip, int page);
