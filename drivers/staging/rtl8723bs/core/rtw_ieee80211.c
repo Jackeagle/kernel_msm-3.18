@@ -747,7 +747,7 @@ u8 rtw_is_wps_ie(u8 *ie_ptr, uint *wps_ielen)
 	u8 match = false;
 	u8 eid, wps_oui[4] = {0x0, 0x50, 0xf2, 0x04};
 
-	if (ie_ptr == NULL)
+	if (!ie_ptr)
 		return match;
 
 	eid = ie_ptr[0];
@@ -1137,25 +1137,6 @@ ParseRes rtw_ieee802_11_parse_elems(u8 *start, uint len,
 
 }
 
-static u8 key_char2num(u8 ch);
-static u8 key_char2num(u8 ch)
-{
-		if ((ch >= '0') && (ch <= '9'))
-			return ch - '0';
-		else if ((ch >= 'a') && (ch <= 'f'))
-			return ch - 'a' + 10;
-		else if ((ch >= 'A') && (ch <= 'F'))
-			return ch - 'A' + 10;
-		else
-			return 0xff;
-}
-
-u8 key_2char2num(u8 hch, u8 lch);
-u8 key_2char2num(u8 hch, u8 lch)
-{
-		return ((key_char2num(hch) << 4) | key_char2num(lch));
-}
-
 void rtw_macaddr_cfg(struct device *dev, u8 *mac_addr)
 {
 	u8 mac[ETH_ALEN];
@@ -1163,38 +1144,24 @@ void rtw_macaddr_cfg(struct device *dev, u8 *mac_addr)
 	const unsigned char *addr;
 	int len;
 
-	if (mac_addr == NULL)
+	if (!mac_addr)
 		return;
 
-	if (rtw_initmac) {	/* 	Users specify the mac address */
-		int jj, kk;
-
-		for (jj = 0, kk = 0; jj < ETH_ALEN; jj++, kk += 3) {
-			mac[jj] = key_2char2num(rtw_initmac[kk], rtw_initmac[kk + 1]);
-		}
-		memcpy(mac_addr, mac, ETH_ALEN);
-	} else{	/* 	Use the mac address stored in the Efuse */
-		memcpy(mac, mac_addr, ETH_ALEN);
+	if (rtw_initmac && mac_pton(rtw_initmac, mac)) {
+		/* Users specify the mac address */
+		ether_addr_copy(mac_addr, mac);
+	} else {
+		/* Use the mac address stored in the Efuse */
+		ether_addr_copy(mac, mac_addr);
 	}
 
-	if (((mac[0] == 0xff) && (mac[1] == 0xff) && (mac[2] == 0xff) &&
-	     (mac[3] == 0xff) && (mac[4] == 0xff) && (mac[5] == 0xff)) ||
-	    ((mac[0] == 0x00) && (mac[1] == 0x00) && (mac[2] == 0x00) &&
-	     (mac[3] == 0x00) && (mac[4] == 0x00) && (mac[5] == 0x00))) {
-		if (np &&
-		    (addr = of_get_property(np, "local-mac-address", &len)) &&
+	if (is_broadcast_ether_addr(mac) || is_zero_ether_addr(mac)) {
+		if ((addr = of_get_property(np, "local-mac-address", &len)) &&
 		    len == ETH_ALEN) {
-			memcpy(mac_addr, addr, ETH_ALEN);
+			ether_addr_copy(mac_addr, addr);
 		} else {
-			mac[0] = 0x00;
-			mac[1] = 0xe0;
-			mac[2] = 0x4c;
-			mac[3] = 0x87;
-			mac[4] = 0x00;
-			mac[5] = 0x00;
-			/*  use default mac addresss */
-			memcpy(mac_addr, mac, ETH_ALEN);
-			DBG_871X("MAC Address from efuse error, assign default one !!!\n");
+			eth_random_addr(mac_addr);
+			DBG_871X("MAC Address from efuse error, assign random one !!!\n");
 		}
 	}
 
