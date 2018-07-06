@@ -40,10 +40,7 @@
 enum {
 	BYT_RT5651_DMIC_MAP,
 	BYT_RT5651_IN1_MAP,
-	BYT_RT5651_IN2_MAP,
 	BYT_RT5651_IN1_IN2_MAP,
-	BYT_RT5651_IN1_HS_IN3_MAP,
-	BYT_RT5651_IN2_HS_IN3_MAP,
 };
 
 enum {
@@ -76,6 +73,12 @@ enum {
 #define BYT_RT5651_SSP2_AIF2		BIT(19) /* default is using AIF1  */
 #define BYT_RT5651_SSP0_AIF1		BIT(20)
 #define BYT_RT5651_SSP0_AIF2		BIT(21)
+#define BYT_RT5651_HP_LR_SWAPPED	BIT(22)
+
+#define BYT_RT5651_DEFAULT_QUIRKS	(BYT_RT5651_MCLK_EN | \
+					 BYT_RT5651_JD1_1   | \
+					 BYT_RT5651_OVCD_TH_2000UA | \
+					 BYT_RT5651_OVCD_SF_0P75)
 
 /* jack-detect-source + dmic-en + ovcd-th + -sf + terminating empty entry */
 #define MAX_NO_PROPS 5
@@ -85,12 +88,9 @@ struct byt_rt5651_private {
 	struct snd_soc_jack jack;
 };
 
-/* Default: jack-detect on JD1_1, internal mic on in2, headsetmic on in3 */
-static unsigned long byt_rt5651_quirk = BYT_RT5651_MCLK_EN |
-					BYT_RT5651_JD1_1 |
-					BYT_RT5651_OVCD_TH_2000UA |
-					BYT_RT5651_OVCD_SF_0P75 |
-					BYT_RT5651_IN2_HS_IN3_MAP;
+/* Default: jack-detect on JD1_1, internal mic on in1, headsetmic on in3 */
+static unsigned long byt_rt5651_quirk = BYT_RT5651_DEFAULT_QUIRKS |
+					BYT_RT5651_IN1_MAP;
 
 static void log_quirks(struct device *dev)
 {
@@ -98,12 +98,8 @@ static void log_quirks(struct device *dev)
 		dev_info(dev, "quirk DMIC_MAP enabled");
 	if (BYT_RT5651_MAP(byt_rt5651_quirk) == BYT_RT5651_IN1_MAP)
 		dev_info(dev, "quirk IN1_MAP enabled");
-	if (BYT_RT5651_MAP(byt_rt5651_quirk) == BYT_RT5651_IN2_MAP)
-		dev_info(dev, "quirk IN2_MAP enabled");
-	if (BYT_RT5651_MAP(byt_rt5651_quirk) == BYT_RT5651_IN1_HS_IN3_MAP)
-		dev_info(dev, "quirk IN1_HS_IN3_MAP enabled");
-	if (BYT_RT5651_MAP(byt_rt5651_quirk) == BYT_RT5651_IN2_HS_IN3_MAP)
-		dev_info(dev, "quirk IN2_HS_IN3_MAP enabled");
+	if (BYT_RT5651_MAP(byt_rt5651_quirk) == BYT_RT5651_IN1_IN2_MAP)
+		dev_info(dev, "quirk IN1_IN2_MAP enabled");
 	if (BYT_RT5651_JDSRC(byt_rt5651_quirk)) {
 		dev_info(dev, "quirk realtek,jack-detect-source %ld\n",
 			 BYT_RT5651_JDSRC(byt_rt5651_quirk));
@@ -241,38 +237,20 @@ static const struct snd_soc_dapm_route byt_rt5651_audio_map[] = {
 };
 
 static const struct snd_soc_dapm_route byt_rt5651_intmic_dmic_map[] = {
-	{"IN2P", NULL, "Headset Mic"},
 	{"DMIC L1", NULL, "Internal Mic"},
 	{"DMIC R1", NULL, "Internal Mic"},
+	{"IN3P", NULL, "Headset Mic"},
 };
 
 static const struct snd_soc_dapm_route byt_rt5651_intmic_in1_map[] = {
 	{"Internal Mic", NULL, "micbias1"},
 	{"IN1P", NULL, "Internal Mic"},
-	{"IN2P", NULL, "Headset Mic"},
-};
-
-static const struct snd_soc_dapm_route byt_rt5651_intmic_in2_map[] = {
-	{"Internal Mic", NULL, "micbias1"},
-	{"IN1P", NULL, "Headset Mic"},
-	{"IN2P", NULL, "Internal Mic"},
+	{"IN3P", NULL, "Headset Mic"},
 };
 
 static const struct snd_soc_dapm_route byt_rt5651_intmic_in1_in2_map[] = {
 	{"Internal Mic", NULL, "micbias1"},
 	{"IN1P", NULL, "Internal Mic"},
-	{"IN2P", NULL, "Internal Mic"},
-	{"IN3P", NULL, "Headset Mic"},
-};
-
-static const struct snd_soc_dapm_route byt_rt5651_intmic_in1_hs_in3_map[] = {
-	{"Internal Mic", NULL, "micbias1"},
-	{"IN1P", NULL, "Internal Mic"},
-	{"IN3P", NULL, "Headset Mic"},
-};
-
-static const struct snd_soc_dapm_route byt_rt5651_intmic_in2_hs_in3_map[] = {
-	{"Internal Mic", NULL, "micbias1"},
 	{"IN2P", NULL, "Internal Mic"},
 	{"IN3P", NULL, "Headset Mic"},
 };
@@ -357,33 +335,15 @@ static int byt_rt5651_quirk_cb(const struct dmi_system_id *id)
 
 static const struct dmi_system_id byt_rt5651_quirk_table[] = {
 	{
+		/* Chuwi Hi8 Pro (CWI513) */
 		.callback = byt_rt5651_quirk_cb,
 		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "Circuitco"),
-			DMI_MATCH(DMI_PRODUCT_NAME, "Minnowboard Max B3 PLATFORM"),
+			DMI_MATCH(DMI_SYS_VENDOR, "Hampoo"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "X1D3_C806N"),
 		},
-		.driver_data = (void *)(BYT_RT5651_IN1_HS_IN3_MAP),
-	},
-	{
-		.callback = byt_rt5651_quirk_cb,
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "ADI"),
-			DMI_MATCH(DMI_PRODUCT_NAME, "Minnowboard Turbot"),
-		},
-		.driver_data = (void *)(BYT_RT5651_MCLK_EN |
-					BYT_RT5651_IN1_HS_IN3_MAP),
-	},
-	{
-		.callback = byt_rt5651_quirk_cb,
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "KIANO"),
-			DMI_MATCH(DMI_PRODUCT_NAME, "KIANO SlimNote 14.2"),
-		},
-		.driver_data = (void *)(BYT_RT5651_MCLK_EN |
-					BYT_RT5651_JD1_1 |
-					BYT_RT5651_OVCD_TH_2000UA |
-					BYT_RT5651_OVCD_SF_0P75 |
-					BYT_RT5651_IN1_IN2_MAP),
+		.driver_data = (void *)(BYT_RT5651_DEFAULT_QUIRKS |
+					BYT_RT5651_IN1_MAP |
+					BYT_RT5651_HP_LR_SWAPPED),
 	},
 	{
 		/* Chuwi Vi8 Plus (CWI519) */
@@ -392,11 +352,38 @@ static const struct dmi_system_id byt_rt5651_quirk_table[] = {
 			DMI_MATCH(DMI_SYS_VENDOR, "Hampoo"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "D2D3_Vi8A1"),
 		},
+		.driver_data = (void *)(BYT_RT5651_DEFAULT_QUIRKS |
+					BYT_RT5651_IN1_MAP |
+					BYT_RT5651_HP_LR_SWAPPED),
+	},
+	{
+		/* KIANO SlimNote 14.2 */
+		.callback = byt_rt5651_quirk_cb,
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "KIANO"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "KIANO SlimNote 14.2"),
+		},
+		.driver_data = (void *)(BYT_RT5651_DEFAULT_QUIRKS |
+					BYT_RT5651_IN1_IN2_MAP),
+	},
+	{
+		/* Minnowboard Max B3 */
+		.callback = byt_rt5651_quirk_cb,
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Circuitco"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Minnowboard Max B3 PLATFORM"),
+		},
+		.driver_data = (void *)(BYT_RT5651_IN1_MAP),
+	},
+	{
+		/* Minnowboard Turbot */
+		.callback = byt_rt5651_quirk_cb,
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "ADI"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Minnowboard Turbot"),
+		},
 		.driver_data = (void *)(BYT_RT5651_MCLK_EN |
-					BYT_RT5651_JD1_1 |
-					BYT_RT5651_OVCD_TH_2000UA |
-					BYT_RT5651_OVCD_SF_0P75 |
-					BYT_RT5651_IN2_HS_IN3_MAP),
+					BYT_RT5651_IN1_MAP),
 	},
 	{
 		/* VIOS LTH17 */
@@ -405,10 +392,7 @@ static const struct dmi_system_id byt_rt5651_quirk_table[] = {
 			DMI_MATCH(DMI_SYS_VENDOR, "VIOS"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "LTH17"),
 		},
-		.driver_data = (void *)(BYT_RT5651_MCLK_EN |
-					BYT_RT5651_JD1_1 |
-					BYT_RT5651_OVCD_TH_2000UA |
-					BYT_RT5651_OVCD_SF_1P0 |
+		.driver_data = (void *)(BYT_RT5651_DEFAULT_QUIRKS |
 					BYT_RT5651_IN1_IN2_MAP),
 	},
 	{}
@@ -467,21 +451,9 @@ static int byt_rt5651_init(struct snd_soc_pcm_runtime *runtime)
 		custom_map = byt_rt5651_intmic_in1_map;
 		num_routes = ARRAY_SIZE(byt_rt5651_intmic_in1_map);
 		break;
-	case BYT_RT5651_IN2_MAP:
-		custom_map = byt_rt5651_intmic_in2_map;
-		num_routes = ARRAY_SIZE(byt_rt5651_intmic_in2_map);
-		break;
 	case BYT_RT5651_IN1_IN2_MAP:
 		custom_map = byt_rt5651_intmic_in1_in2_map;
 		num_routes = ARRAY_SIZE(byt_rt5651_intmic_in1_in2_map);
-		break;
-	case BYT_RT5651_IN1_HS_IN3_MAP:
-		custom_map = byt_rt5651_intmic_in1_hs_in3_map;
-		num_routes = ARRAY_SIZE(byt_rt5651_intmic_in1_hs_in3_map);
-		break;
-	case BYT_RT5651_IN2_HS_IN3_MAP:
-		custom_map = byt_rt5651_intmic_in2_hs_in3_map;
-		num_routes = ARRAY_SIZE(byt_rt5651_intmic_in2_hs_in3_map);
 		break;
 	default:
 		custom_map = byt_rt5651_intmic_dmic_map;
@@ -706,7 +678,7 @@ static struct snd_soc_card byt_rt5651_card = {
 static char byt_rt5651_codec_name[SND_ACPI_I2C_ID_LEN];
 static char byt_rt5651_codec_aif_name[12]; /*  = "rt5651-aif[1|2]" */
 static char byt_rt5651_cpu_dai_name[10]; /*  = "ssp[0|2]-port" */
-static char byt_rt5651_long_name[40]; /* = "bytcr-rt5651-*-spk-*-mic" */
+static char byt_rt5651_long_name[40]; /* = "bytcr-rt5651-*-mic[-swapped-hp]" */
 
 static bool is_valleyview(void)
 {
@@ -727,13 +699,11 @@ struct acpi_chan_package {   /* ACPICA seems to require 64 bit integers */
 
 static int snd_byt_rt5651_mc_probe(struct platform_device *pdev)
 {
-	const char * const intmic_name[] =
-		{ "dmic", "in1", "in2", "in12", "in1", "in2" };
-	const char * const hsmic_name[] =
-		{  "in2", "in2", "in1",  "in3", "in3", "in3" };
+	const char * const mic_name[] = { "dmic", "in1", "in12" };
 	struct byt_rt5651_private *priv;
 	struct snd_soc_acpi_mach *mach;
 	const char *i2c_name = NULL;
+	const char *hp_swapped;
 	bool is_bytcr = false;
 	int ret_val = 0;
 	int dai_index = 0;
@@ -876,10 +846,14 @@ static int snd_byt_rt5651_mc_probe(struct platform_device *pdev)
 		}
 	}
 
+	if (byt_rt5651_quirk & BYT_RT5651_HP_LR_SWAPPED)
+		hp_swapped = "-hp-swapped";
+	else
+		hp_swapped = "";
+
 	snprintf(byt_rt5651_long_name, sizeof(byt_rt5651_long_name),
-		 "bytcr-rt5651-%s-intmic-%s-hsmic",
-		 intmic_name[BYT_RT5651_MAP(byt_rt5651_quirk)],
-		 hsmic_name[BYT_RT5651_MAP(byt_rt5651_quirk)]);
+		 "bytcr-rt5651-%s-mic%s",
+		 mic_name[BYT_RT5651_MAP(byt_rt5651_quirk)], hp_swapped);
 	byt_rt5651_card.long_name = byt_rt5651_long_name;
 
 	ret_val = devm_snd_soc_register_card(&pdev->dev, &byt_rt5651_card);
