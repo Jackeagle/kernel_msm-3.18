@@ -1,15 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0
 /******************************************************************************
  *
  * Copyright(c) 2007 - 2011 Realtek Corporation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of version 2 of the GNU General Public License as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
  *
  ******************************************************************************/
 #define _IEEE80211_C
@@ -186,7 +178,6 @@ u8 *rtw_get_ie(u8 *pbuf, int index, uint *len, int limit)
 
 void rtw_set_supported_rate(u8 *SupportedRates, uint mode)
 {
-
 	memset(SupportedRates, 0, NDIS_802_11_LENGTH_RATES_EX);
 
 	switch (mode) {
@@ -209,17 +200,13 @@ void rtw_set_supported_rate(u8 *SupportedRates, uint mode)
 	}
 }
 
-uint	rtw_get_rateset_len(u8	*rateset)
+uint rtw_get_rateset_len(u8 *rateset)
 {
-	uint i = 0;
+	uint i;
 
-	while (1) {
-		if ((rateset[i]) == 0)
+	for (i = 0; i < 13; i++)
+		if (rateset[i] == 0)
 			break;
-		if (i > 12)
-			break;
-		i++;
-	}
 	return i;
 }
 
@@ -334,7 +321,6 @@ check_next_ie:
 
 unsigned char *rtw_get_wpa2_ie(unsigned char *pie, uint *rsn_ie_len, int limit)
 {
-
 	return rtw_get_ie(pie, _WPA2_IE_ID_, rsn_ie_len, limit);
 }
 
