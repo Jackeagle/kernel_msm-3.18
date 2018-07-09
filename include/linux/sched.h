@@ -722,8 +722,8 @@ struct task_struct {
 	unsigned			restore_sigmask:1;
 #endif
 #ifdef CONFIG_MEMCG
-	unsigned			memcg_may_oom:1;
-#ifndef CONFIG_SLOB
+	unsigned			in_user_fault:1;
+#ifdef CONFIG_MEMCG_KMEM
 	unsigned			memcg_kmem_skip_account:1;
 #endif
 #endif
@@ -849,6 +849,7 @@ struct task_struct {
 #endif
 #ifdef CONFIG_DETECT_HUNG_TASK
 	unsigned long			last_switch_count;
+	unsigned long			last_switch_time;
 #endif
 	/* Filesystem information: */
 	struct fs_struct		*fs;
@@ -1149,6 +1150,9 @@ struct task_struct {
 
 	/* Number of pages to reclaim on returning to userland: */
 	unsigned int			memcg_nr_pages_over_high;
+
+	/* Used by memcontrol for targeted memcg charge: */
+	struct mem_cgroup		*active_memcg;
 #endif
 
 #ifdef CONFIG_UPROBES
