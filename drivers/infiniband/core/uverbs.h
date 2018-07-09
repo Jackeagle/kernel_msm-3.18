@@ -230,7 +230,7 @@ void ib_uverbs_wq_event_handler(struct ib_event *event, void *context_ptr);
 void ib_uverbs_srq_event_handler(struct ib_event *event, void *context_ptr);
 void ib_uverbs_event_handler(struct ib_event_handler *handler,
 			     struct ib_event *event);
-int ib_uverbs_dealloc_xrcd(struct ib_uverbs_device *dev, struct ib_xrcd *xrcd,
+int ib_uverbs_dealloc_xrcd(struct ib_uobject *uobject, struct ib_xrcd *xrcd,
 			   enum rdma_remove_reason why);
 
 int uverbs_dealloc_mw(struct ib_mw *mw);
@@ -238,8 +238,6 @@ void ib_uverbs_detach_umcast(struct ib_qp *qp,
 			     struct ib_uqp_object *uobj);
 
 void create_udata(struct uverbs_attr_bundle *ctx, struct ib_udata *udata);
-extern const struct uverbs_attr_def uverbs_uhw_compat_in;
-extern const struct uverbs_attr_def uverbs_uhw_compat_out;
 long ib_uverbs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 int uverbs_destroy_def_handler(struct ib_device *ib_dev,
 			       struct ib_uverbs_file *file,
