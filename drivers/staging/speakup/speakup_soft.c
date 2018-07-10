@@ -228,7 +228,7 @@ static ssize_t softsynthx_read(struct file *fp, char __user *buf, size_t count,
 	init = get_initstring();
 
 	/* Keep 3 bytes available for a 16bit UTF-8-encoded character */
-	while (chars_sent <= count - 3) {
+	while (chars_sent < count) {
 		if (speakup_info.flushing) {
 			speakup_info.flushing = 0;
 			ch = '\x18';
@@ -257,6 +257,8 @@ static ssize_t softsynthx_read(struct file *fp, char __user *buf, size_t count,
 				0x80 | (ch & 0x3f)
 			};
 
+			if (chars_sent + 2 > count)
+				break;
 			if (copy_to_user(cp, s, sizeof(s)))
 				return -EFAULT;
 
@@ -269,6 +271,8 @@ static ssize_t softsynthx_read(struct file *fp, char __user *buf, size_t count,
 				0x80 | (ch & 0x3f)
 			};
 
+			if (chars_sent + 3 > count)
+				break;
 			if (copy_to_user(cp, s, sizeof(s)))
 				return -EFAULT;
 
