@@ -243,6 +243,7 @@ static int compat_restore_sigframe(struct pt_regs *regs,
 	int err;
 	sigset_t set;
 	struct compat_aux_sigframe __user *aux;
+	unsigned long psr;
 
 	err = get_sigset_t(&set, &sf->uc.uc_sigmask);
 	if (err == 0) {
@@ -266,7 +267,9 @@ static int compat_restore_sigframe(struct pt_regs *regs,
 	__get_user_error(regs->compat_sp, &sf->uc.uc_mcontext.arm_sp, err);
 	__get_user_error(regs->compat_lr, &sf->uc.uc_mcontext.arm_lr, err);
 	__get_user_error(regs->pc, &sf->uc.uc_mcontext.arm_pc, err);
-	__get_user_error(regs->pstate, &sf->uc.uc_mcontext.arm_cpsr, err);
+	__get_user_error(psr, &sf->uc.uc_mcontext.arm_cpsr, err);
+
+	regs->pstate = compat_psr_to_pstate(psr);
 
 	/*
 	 * Avoid compat_sys_sigreturn() restarting.
@@ -372,22 +375,22 @@ static void compat_setup_return(struct pt_regs *regs, struct k_sigaction *ka,
 {
 	compat_ulong_t handler = ptr_to_compat(ka->sa.sa_handler);
 	compat_ulong_t retcode;
-	compat_ulong_t spsr = regs->pstate & ~(PSR_f | COMPAT_PSR_E_BIT);
+	compat_ulong_t spsr = regs->pstate & ~(PSR_f | PSR_AA32_E_BIT);
 	int thumb;
 
 	/* Check if the handler is written for ARM or Thumb */
 	thumb = handler & 1;
 
 	if (thumb)
-		spsr |= COMPAT_PSR_T_BIT;
+		spsr |= PSR_AA32_T_BIT;
 	else
-		spsr &= ~COMPAT_PSR_T_BIT;
+		spsr &= ~PSR_AA32_T_BIT;
 
 	/* The IT state must be cleared for both ARM and Thumb-2 */
-	spsr &= ~COMPAT_PSR_IT_MASK;
+	spsr &= ~PSR_AA32_IT_MASK;
 
 	/* Restore the original endianness */
-	spsr |= COMPAT_PSR_ENDSTATE;
+	spsr |= PSR_AA32_ENDSTATE;
 
 	if (ka->sa.sa_flags & SA_RESTORER) {
 		retcode = ptr_to_compat(ka->sa.sa_restorer);
@@ -414,6 +417,7 @@ static int compat_setup_sigframe(struct compat_sigframe __user *sf,
 				 struct pt_regs *regs, sigset_t *set)
 {
 	struct compat_aux_sigframe __user *aux;
+	unsigned long psr = pstate_to_compat_psr(regs->pstate);
 	int err = 0;
 
 	__put_user_error(regs->regs[0], &sf->uc.uc_mcontext.arm_r0, err);
@@ -432,7 +436,7 @@ static int compat_setup_sigframe(struct compat_sigframe __user *sf,
 	__put_user_error(regs->compat_sp, &sf->uc.uc_mcontext.arm_sp, err);
 	__put_user_error(regs->compat_lr, &sf->uc.uc_mcontext.arm_lr, err);
 	__put_user_error(regs->pc, &sf->uc.uc_mcontext.arm_pc, err);
-	__put_user_error(regs->pstate, &sf->uc.uc_mcontext.arm_cpsr, err);
+	__put_user_error(psr, &sf->uc.uc_mcontext.arm_cpsr, err);
 
 	__put_user_error((compat_ulong_t)0, &sf->uc.uc_mcontext.trap_no, err);
 	/* set the compat FSR WnR */
