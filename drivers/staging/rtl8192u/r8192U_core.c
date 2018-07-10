@@ -505,7 +505,7 @@ static void watch_dog_timer_callback(struct timer_list *t);
 
 static struct proc_dir_entry *rtl8192_proc;
 
-static int proc_get_stats_ap(struct seq_file *m, void *v)
+static int __maybe_unused proc_get_stats_ap(struct seq_file *m, void *v)
 {
 	struct net_device *dev = m->private;
 	struct r8192_priv *priv = (struct r8192_priv *)ieee80211_priv(dev);
@@ -524,7 +524,7 @@ static int proc_get_stats_ap(struct seq_file *m, void *v)
 	return 0;
 }
 
-static int proc_get_registers(struct seq_file *m, void *v)
+static int __maybe_unused proc_get_registers(struct seq_file *m, void *v)
 {
 	struct net_device *dev = m->private;
 	int i, n, max = 0xff;
@@ -565,7 +565,7 @@ static int proc_get_registers(struct seq_file *m, void *v)
 	return 0;
 }
 
-static int proc_get_stats_tx(struct seq_file *m, void *v)
+static int __maybe_unused proc_get_stats_tx(struct seq_file *m, void *v)
 {
 	struct net_device *dev = m->private;
 	struct r8192_priv *priv = (struct r8192_priv *)ieee80211_priv(dev);
@@ -624,7 +624,7 @@ static int proc_get_stats_tx(struct seq_file *m, void *v)
 	return 0;
 }
 
-static int proc_get_stats_rx(struct seq_file *m, void *v)
+static int __maybe_unused proc_get_stats_rx(struct seq_file *m, void *v)
 {
 	struct net_device *dev = m->private;
 	struct r8192_priv *priv = (struct r8192_priv *)ieee80211_priv(dev);
@@ -3932,11 +3932,10 @@ static void rtl8192_process_phyinfo(struct r8192_priv *priv, u8 *buffer,
 
 	struct rtl_80211_hdr_3addr *hdr;
 	u16 sc;
-	unsigned int frag, seq;
+	unsigned int seq;
 
 	hdr = (struct rtl_80211_hdr_3addr *)buffer;
 	sc = le16_to_cpu(hdr->seq_ctl);
-	frag = WLAN_GET_SEQ_FRAG(sc);
 	seq = WLAN_GET_SEQ_SEQ(sc);
 	/* to record the sequence number */
 	pcurrent_stats->Seq_Num = seq;
@@ -4772,14 +4771,10 @@ static void rtl819xusb_process_received_packet(
 		struct net_device *dev,
 		struct ieee80211_rx_stats *pstats)
 {
-	u8	*frame;
-	u16     frame_len = 0;
 	struct r8192_priv *priv = ieee80211_priv(dev);
 
 	/* Get shifted bytes of Starting address of 802.11 header. */
 	pstats->virtual_address += get_rxpacket_shiftbytes_819xusb(pstats);
-	frame = pstats->virtual_address;
-	frame_len = pstats->packetlength;
 #ifdef TODO	/* about HCT */
 	if (!Adapter->bInHctTest)
 		CountRxErrStatistics(Adapter, pRfd);
