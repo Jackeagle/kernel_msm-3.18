@@ -32,6 +32,15 @@ static void *xa_store_value(struct xarray *xa, unsigned long index, gfp_t gfp)
 	return xa_store(xa, index, xa_mk_value(index), gfp);
 }
 
+static void xa_alloc_value(struct xarray *xa, unsigned long index, gfp_t gfp)
+{
+	u32 id = 0;
+
+	XA_BUG_ON(xa, xa_alloc(xa, &id, UINT_MAX, xa_mk_value(index),
+				GFP_KERNEL) != 0);
+	XA_BUG_ON(xa, id != index);
+}
+
 static void xa_erase_value(struct xarray *xa, unsigned long index)
 {
 	XA_BUG_ON(xa, xa_erase(xa, index) != xa_mk_value(index));
@@ -348,6 +357,56 @@ static void check_multi_store(struct xarray *xa)
 	}
 }
 
+static void check_xa_alloc(void)
+{
+	DEFINE_XARRAY_ALLOC(xa0);
+	int i;
+	u32 id;
+
+	/* An empty array should assign 0 to the first alloc */
+	xa_alloc_value(&xa0, 0, GFP_KERNEL);
+
+	/* Erasing it should make the array empty again */
+	xa_erase_value(&xa0, 0);
+	XA_BUG_ON(&xa0, !xa_empty(&xa0));
+
+	/* And it should assign 0 again */
+	xa_alloc_value(&xa0, 0, GFP_KERNEL);
+
+	/* The next assigned ID should be 1 */
+	xa_alloc_value(&xa0, 1, GFP_KERNEL);
+	xa_erase_value(&xa0, 1);
+
+	/* Storing a value should mark it used */
+	xa_store_value(&xa0, 1, GFP_KERNEL);
+	xa_alloc_value(&xa0, 2, GFP_KERNEL);
+
+	/* If we then erase 0, it should be free */
+	xa_erase_value(&xa0, 0);
+	xa_alloc_value(&xa0, 0, GFP_KERNEL);
+
+	xa_erase_value(&xa0, 1);
+	xa_erase_value(&xa0, 2);
+
+	for (i = 1; i < 5000; i++) {
+		xa_alloc_value(&xa0, i, GFP_KERNEL);
+	}
+
+	xa_destroy(&xa0);
+
+	id = 0xfffffffeU;
+	XA_BUG_ON(&xa0, xa_alloc(&xa0, &id, UINT_MAX, xa_mk_value(0),
+				GFP_KERNEL) != 0);
+	XA_BUG_ON(&xa0, id != 0xfffffffeU);
+	XA_BUG_ON(&xa0, xa_alloc(&xa0, &id, UINT_MAX, xa_mk_value(0),
+				GFP_KERNEL) != 0);
+	XA_BUG_ON(&xa0, id != 0xffffffffU);
+	XA_BUG_ON(&xa0, xa_alloc(&xa0, &id, UINT_MAX, xa_mk_value(0),
+				GFP_KERNEL) != -ENOSPC);
+	XA_BUG_ON(&xa0, id != 0xffffffffU);
+	xa_destroy(&xa0);
+}
+
 static void __check_store_iter(struct xarray *xa, unsigned long start,
 			unsigned int order, unsigned int present)
 {
@@ -440,6 +499,10 @@ static void check_find(struct xarray *xa)
 
 	XA_BUG_ON(xa, !xa_empty(xa));
 
+	/*
+	 * Check xa_find with all pairs between 0 and 99 inclusive,
+	 * starting at every index between 0 and 99
+	 */
 	for (i = 0; i < 100; i++) {
 		XA_BUG_ON(xa, xa_store_value(xa, i, GFP_KERNEL) != NULL);
 		xa_set_tag(xa, i, XA_TAG_0);
@@ -687,6 +750,7 @@ static int xarray_checks(void)
 	check_xas_erase(&array);
 	check_cmpxchg(&array);
 	check_multi_store(&array);
+	check_xa_alloc();
 	check_find(&array);
 	check_move(&array);
 	check_create_range(&array);
