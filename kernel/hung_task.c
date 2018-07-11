@@ -18,6 +18,7 @@
 #include <linux/utsname.h>
 #include <linux/sched/signal.h>
 #include <linux/sched/debug.h>
+#include <linux/percpu-rwsem.h>
 
 #include <trace/events/sched.h>
 
@@ -82,6 +83,31 @@ static struct notifier_block panic_block = {
 	.notifier_call = hung_task_panic,
 };
 
+static void dump_percpu_rwsem_state(struct percpu_rw_semaphore *sem)
+{
+#ifndef CONFIG_RWSEM_GENERIC_SPINLOCK
+	unsigned int sum = 0;
+	int cpu;
+
+	if (!sem)
+		return;
+	pr_info("percpu_rw_semaphore(%p)\n", sem);
+	pr_info("  ->rw_sem.count=0x%lx\n",
+		atomic_long_read(&sem->rw_sem.count));
+	pr_info("  ->rss.gp_state=%d\n", sem->rss.gp_state);
+	pr_info("  ->rss.gp_count=%d\n", sem->rss.gp_count);
+	pr_info("  ->rss.cb_state=%d\n", sem->rss.cb_state);
+	pr_info("  ->rss.gp_type=%d\n", sem->rss.gp_type);
+	pr_info("  ->readers_block=%d\n", sem->readers_block);
+	for_each_possible_cpu(cpu)
+		sum += per_cpu(*sem->read_count, cpu);
+	pr_info("  ->read_count=%d\n", sum);
+	pr_info("  ->list_empty(rw_sem.wait_list)=%d\n",
+	       list_empty(&sem->rw_sem.wait_list));
+	pr_info("  ->writer.task=%p\n", sem->writer.task);
+#endif
+}
+
 static void check_hung_task(struct task_struct *t, unsigned long timeout)
 {
 	unsigned long switch_count = t->nvcsw + t->nivcsw;
@@ -130,6 +156,7 @@ static void check_hung_task(struct task_struct *t, unsigned long timeout)
 		pr_err("\"echo 0 > /proc/sys/kernel/hung_task_timeout_secs\""
 			" disables this message.\n");
 		sched_show_task(t);
+		dump_percpu_rwsem_state(t->pcpu_rwsem_read_waiting);
 		hung_task_show_lock = true;
 	}
 
