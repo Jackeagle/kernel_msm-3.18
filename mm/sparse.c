@@ -457,7 +457,6 @@ void __init sparse_mem_maps_populate_node(struct page **map_map,
 }
 #endif /* !CONFIG_SPARSEMEM_VMEMMAP */
 
-#ifdef CONFIG_SPARSEMEM_ALLOC_MEM_MAP_TOGETHER
 static void __init sparse_early_mem_maps_alloc_node(void *data,
 				 unsigned long pnum_begin,
 				 unsigned long pnum_end,
@@ -467,22 +466,6 @@ static void __init sparse_early_mem_maps_alloc_node(void *data,
 	sparse_mem_maps_populate_node(map_map, pnum_begin, pnum_end,
 					 map_count, nodeid);
 }
-#else
-static struct page __init *sparse_early_mem_map_alloc(unsigned long pnum)
-{
-	struct page *map;
-	struct mem_section *ms = __nr_to_section(pnum);
-	int nid = sparse_early_nid(ms);
-
-	map = sparse_mem_map_populate(pnum, nid, NULL);
-	if (map)
-		return map;
-
-	pr_err("%s: sparsemem memory map backing failed some memory will not be available\n",
-	       __func__);
-	return NULL;
-}
-#endif
 
 void __weak __meminit vmemmap_populate_print_last(void)
 {
@@ -544,14 +527,11 @@ void __init sparse_init(void)
 {
 	unsigned long pnum;
 	struct page *map;
+	struct page **map_map;
 	unsigned long *usemap;
 	unsigned long **usemap_map;
-	int size;
+	int size, size2;
 	int nr_consumed_maps = 0;
-#ifdef CONFIG_SPARSEMEM_ALLOC_MEM_MAP_TOGETHER
-	int size2;
-	struct page **map_map;
-#endif
 
 	/* see include/linux/mmzone.h 'struct mem_section' definition */
 	BUILD_BUG_ON(!is_power_of_2(sizeof(struct mem_section)));
@@ -578,7 +558,6 @@ void __init sparse_init(void)
 				(void *)usemap_map,
 				sizeof(usemap_map[0]));
 
-#ifdef CONFIG_SPARSEMEM_ALLOC_MEM_MAP_TOGETHER
 	size2 = sizeof(struct page *) * nr_present_sections;
 	map_map = memblock_virt_alloc(size2, 0);
 	if (!map_map)
@@ -586,7 +565,6 @@ void __init sparse_init(void)
 	alloc_usemap_and_memmap(sparse_early_mem_maps_alloc_node,
 				(void *)map_map,
 				sizeof(map_map[0]));
-#endif
 
 	/*
 	 * The number of present sections stored in nr_present_sections
@@ -614,11 +592,7 @@ void __init sparse_init(void)
 			continue;
 		}
 
-#ifdef CONFIG_SPARSEMEM_ALLOC_MEM_MAP_TOGETHER
 		map = map_map[nr_consumed_maps];
-#else
-		map = sparse_early_mem_map_alloc(pnum);
-#endif
 		if (!map) {
 			ms->section_mem_map = 0;
 			nr_consumed_maps++;
@@ -632,9 +606,7 @@ void __init sparse_init(void)
 
 	vmemmap_populate_print_last();
 
-#ifdef CONFIG_SPARSEMEM_ALLOC_MEM_MAP_TOGETHER
 	memblock_free_early(__pa(map_map), size2);
-#endif
 	memblock_free_early(__pa(usemap_map), size);
 }
 
