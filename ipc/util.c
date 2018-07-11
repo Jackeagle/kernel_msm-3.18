@@ -182,11 +182,20 @@ static struct kern_ipc_perm *ipc_findkey(struct ipc_ids *ids, key_t key)
 }
 
 /*
- * Specify desired id for next allocated IPC object.
+ * Insert new IPC object into idr tree, and set sequence number and id
+ * in the correct order.
+ * Especially:
+ * - the sequence number must be set before inserting the object into the idr,
+ *   because the sequence number is accessed without a lock.
+ * - the id can/must be set after inserting the object into the idr.
+ *   All accesses must be done after getting kern_ipc_perm.lock.
+ *
+ * The caller must own kern_ipc_perm.lock.of the new object.
+ * On error, the function returns a (negative) error code.
  */
 static inline int ipc_idr_alloc(struct ipc_ids *ids, struct kern_ipc_perm *new)
 {
-	int key, next_id = -1;
+	int id, next_id = -1;
 
 #ifdef CONFIG_CHECKPOINT_RESTORE
 	next_id = ids->next_id;
@@ -197,14 +206,15 @@ static inline int ipc_idr_alloc(struct ipc_ids *ids, struct kern_ipc_perm *new)
 		new->seq = ids->seq++;
 		if (ids->seq > IPCID_SEQ_MAX)
 			ids->seq = 0;
-		key = idr_alloc(&ids->ipcs_idr, new, 0, 0, GFP_NOWAIT);
+		id = idr_alloc(&ids->ipcs_idr, new, 0, 0, GFP_NOWAIT);
 	} else {
 		new->seq = ipcid_to_seqx(next_id);
-		key = idr_alloc(&ids->ipcs_idr, new, ipcid_to_idx(next_id),
+		id = idr_alloc(&ids->ipcs_idr, new, ipcid_to_idx(next_id),
 				0, GFP_NOWAIT);
 	}
-	new->id = SEQ_MULTIPLIER * new->seq + key;
-	return key;
+	if (id >= 0)
+		new->id = SEQ_MULTIPLIER * new->seq + id;
+	return id;
 }
 
 /**
