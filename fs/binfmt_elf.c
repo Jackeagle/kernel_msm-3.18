@@ -1259,9 +1259,8 @@ static int load_elf_library(struct file *file)
 		goto out_free_ph;
 	}
 
-	len = ELF_PAGESTART(eppnt->p_filesz + eppnt->p_vaddr +
-			    ELF_MIN_ALIGN - 1);
-	bss = eppnt->p_memsz + eppnt->p_vaddr;
+	len = ELF_PAGEALIGN(eppnt->p_filesz + eppnt->p_vaddr);
+	bss = ELF_PAGEALIGN(eppnt->p_memsz + eppnt->p_vaddr);
 	if (bss > len) {
 		error = vm_brk(len, bss - len);
 		if (error)
@@ -1302,7 +1301,7 @@ static bool always_dump_vma(struct vm_area_struct *vma)
 	 * Assume that all vmas with a .name op should always be dumped.
 	 * If this changes, a new vm_ops field can easily be added.
 	 */
-	if (vma->vm_ops && vma->vm_ops->name && vma->vm_ops->name(vma))
+	if (vma->vm_ops->name && vma->vm_ops->name(vma))
 		return true;
 
 	/*

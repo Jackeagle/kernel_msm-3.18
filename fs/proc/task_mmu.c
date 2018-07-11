@@ -326,7 +326,7 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 		goto done;
 	}
 
-	if (vma->vm_ops && vma->vm_ops->name) {
+	if (vma->vm_ops->name) {
 		name = vma->vm_ops->name(vma);
 		if (name)
 			goto done;
@@ -831,7 +831,8 @@ static int show_smap(struct seq_file *m, void *v, int is_pid)
 		SEQ_PUT_DEC(" kB\nSwap:           ", mss->swap);
 		SEQ_PUT_DEC(" kB\nSwapPss:        ",
 						mss->swap_pss >> PSS_SHIFT);
-		SEQ_PUT_DEC(" kB\nLocked:         ", mss->pss >> PSS_SHIFT);
+		SEQ_PUT_DEC(" kB\nLocked:         ",
+						mss->pss_locked >> PSS_SHIFT);
 		seq_puts(m, " kB\n");
 	}
 	if (!rollup_mode) {

@@ -115,10 +115,6 @@ config SPARSEMEM_EXTREME
 config SPARSEMEM_VMEMMAP_ENABLE
 	bool
 
-config SPARSEMEM_ALLOC_MEM_MAP_TOGETHER
-	def_bool y
-	depends on SPARSEMEM && X86_64
-
 config SPARSEMEM_VMEMMAP
 	bool "Sparse Memory virtual memmap"
 	depends on SPARSEMEM && SPARSEMEM_VMEMMAP_ENABLE
@@ -135,6 +131,9 @@ config HAVE_MEMBLOCK_NODE_MAP
 	bool
 
 config HAVE_MEMBLOCK_PHYS_MAP
+	bool
+
+config HAVE_MEMBLOCK_PFN_VALID
 	bool
 
 config HAVE_GENERIC_GUP
@@ -635,7 +634,7 @@ config DEFERRED_STRUCT_PAGE_INIT
 	bool "Defer initialisation of struct pages to kthreads"
 	default n
 	depends on NO_BOOTMEM
-	depends on !FLATMEM
+	depends on SPARSEMEM
 	depends on !NEED_PER_CPU_KM
 	help
 	  Ordinarily all struct pages are initialised during early boot in a
