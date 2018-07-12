@@ -1192,6 +1192,7 @@ struct task_struct {
 	/* Used by LSM modules for access restriction: */
 	void				*security;
 #endif
+	struct percpu_rw_semaphore	*pcpu_rwsem_read_waiting;
 
 #ifdef CONFIG_GCC_PLUGIN_STACKLEAK
 	unsigned long			lowest_stack;
