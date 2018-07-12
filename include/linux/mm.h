@@ -1536,9 +1536,12 @@ int clear_page_dirty_for_io(struct page *page);
 
 int get_cmdline(struct task_struct *task, char *buffer, int buflen);
 
+extern const struct vm_operations_struct anon_vm_ops;
+extern const struct vm_operations_struct dummy_vm_ops;
+
 static inline bool vma_is_anonymous(struct vm_area_struct *vma)
 {
-	return !vma->vm_ops;
+	return vma->vm_ops == &anon_vm_ops;
 }
 
 #ifdef CONFIG_SHMEM
@@ -2733,7 +2736,8 @@ extern void clear_huge_page(struct page *page,
 			    unsigned long addr_hint,
 			    unsigned int pages_per_huge_page);
 extern void copy_user_huge_page(struct page *dst, struct page *src,
-				unsigned long addr, struct vm_area_struct *vma,
+				unsigned long addr_hint,
+				struct vm_area_struct *vma,
 				unsigned int pages_per_huge_page);
 extern long copy_huge_page_from_user(struct page *dst_page,
 				const void __user *usr_src,
