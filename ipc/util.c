@@ -88,16 +88,12 @@ struct ipc_proc_iface {
  */
 static int __init ipc_init(void)
 {
-	int err_sem, err_msg;
-
 	proc_mkdir("sysvipc", NULL);
-	err_sem = sem_init();
-	WARN(err_sem, "ipc: sysv sem_init failed: %d\n", err_sem);
-	err_msg = msg_init();
-	WARN(err_msg, "ipc: sysv msg_init failed: %d\n", err_msg);
+	sem_init();
+	msg_init();
 	shm_init();
 
-	return err_msg ? err_msg : err_sem;
+	return 0;
 }
 device_initcall(ipc_init);
 
@@ -116,22 +112,17 @@ static const struct rhashtable_params ipc_kht_params = {
  * Set up the sequence range to use for the ipc identifier range (limited
  * below IPCMNI) then initialise the keys hashtable and ids idr.
  */
-int ipc_init_ids(struct ipc_ids *ids)
+void ipc_init_ids(struct ipc_ids *ids)
 {
-	int err;
 	ids->in_use = 0;
 	ids->seq = 0;
 	init_rwsem(&ids->rwsem);
-	err = rhashtable_init(&ids->key_ht, &ipc_kht_params);
-	if (err)
-		return err;
+	rhashtable_init(&ids->key_ht, &ipc_kht_params);
 	idr_init(&ids->ipcs_idr);
-	ids->tables_initialized = true;
 	ids->max_id = -1;
 #ifdef CONFIG_CHECKPOINT_RESTORE
 	ids->next_id = -1;
 #endif
-	return 0;
 }
 
 #ifdef CONFIG_PROC_FS
@@ -179,60 +170,53 @@ void __init ipc_init_proc_interface(const char *path, const char *header,
  */
 static struct kern_ipc_perm *ipc_findkey(struct ipc_ids *ids, key_t key)
 {
-	struct kern_ipc_perm *ipcp = NULL;
+	struct kern_ipc_perm *ipcp;
 
-	if (likely(ids->tables_initialized))
-		ipcp = rhashtable_lookup_fast(&ids->key_ht, &key,
+	ipcp = rhashtable_lookup_fast(&ids->key_ht, &key,
 					      ipc_kht_params);
+	if (!ipcp)
+		return NULL;
 
-	if (ipcp) {
-		rcu_read_lock();
-		ipc_lock_object(ipcp);
-		return ipcp;
-	}
-
-	return NULL;
+	rcu_read_lock();
+	ipc_lock_object(ipcp);
+	return ipcp;
 }
 
-#ifdef CONFIG_CHECKPOINT_RESTORE
 /*
- * Specify desired id for next allocated IPC object.
+ * Insert new IPC object into idr tree, and set sequence number and id
+ * in the correct order.
+ * Especially:
+ * - the sequence number must be set before inserting the object into the idr,
+ *   because the sequence number is accessed without a lock.
+ * - the id can/must be set after inserting the object into the idr.
+ *   All accesses must be done after getting kern_ipc_perm.lock.
+ *
+ * The caller must own kern_ipc_perm.lock.of the new object.
+ * On error, the function returns a (negative) error code.
  */
-#define ipc_idr_alloc(ids, new)						\
-	idr_alloc(&(ids)->ipcs_idr, (new),				\
-		  (ids)->next_id < 0 ? 0 : ipcid_to_idx((ids)->next_id),\
-		  0, GFP_NOWAIT)
-
-static inline int ipc_buildid(int id, struct ipc_ids *ids,
-			      struct kern_ipc_perm *new)
+static inline int ipc_idr_alloc(struct ipc_ids *ids, struct kern_ipc_perm *new)
 {
-	if (ids->next_id < 0) { /* default, behave as !CHECKPOINT_RESTORE */
+	int id, next_id = -1;
+
+#ifdef CONFIG_CHECKPOINT_RESTORE
+	next_id = ids->next_id;
+	ids->next_id = -1;
+#endif
+
+	if (next_id < 0) { /* !CHECKPOINT_RESTORE or next_id is unset */
 		new->seq = ids->seq++;
 		if (ids->seq > IPCID_SEQ_MAX)
 			ids->seq = 0;
+		id = idr_alloc(&ids->ipcs_idr, new, 0, 0, GFP_NOWAIT);
 	} else {
-		new->seq = ipcid_to_seqx(ids->next_id);
-		ids->next_id = -1;
+		new->seq = ipcid_to_seqx(next_id);
+		id = idr_alloc(&ids->ipcs_idr, new, ipcid_to_idx(next_id),
+				0, GFP_NOWAIT);
 	}
-
-	return SEQ_MULTIPLIER * new->seq + id;
+	if (id >= 0)
+		new->id = SEQ_MULTIPLIER * new->seq + id;
+	return id;
 }
-
-#else
-#define ipc_idr_alloc(ids, new)					\
-	idr_alloc(&(ids)->ipcs_idr, (new), 0, 0, GFP_NOWAIT)
-
-static inline int ipc_buildid(int id, struct ipc_ids *ids,
-			      struct kern_ipc_perm *new)
-{
-	new->seq = ids->seq++;
-	if (ids->seq > IPCID_SEQ_MAX)
-		ids->seq = 0;
-
-	return SEQ_MULTIPLIER * new->seq + id;
-}
-
-#endif /* CONFIG_CHECKPOINT_RESTORE */
 
 /**
  * ipc_addid - add an ipc identifier
@@ -243,7 +227,9 @@ static inline int ipc_buildid(int id, struct ipc_ids *ids,
  * Add an entry 'new' to the ipc ids idr. The permissions object is
  * initialised and the first free entry is set up and the id assigned
  * is returned. The 'new' entry is returned in a locked state on success.
+ *
  * On failure the entry is not locked and a negative err-code is returned.
+ * The caller must use ipc_rcu_putref() to free the identifier.
  *
  * Called with writer ipc_ids.rwsem held.
  */
@@ -253,24 +239,40 @@ int ipc_addid(struct ipc_ids *ids, struct kern_ipc_perm *new, int limit)
 	kgid_t egid;
 	int id, err;
 
+	/* 1) Initialize the refcount so that ipc_rcu_putref works */
+	refcount_set(&new->refcount, 1);
+
 	if (limit > IPCMNI)
 		limit = IPCMNI;
 
-	if (!ids->tables_initialized || ids->in_use >= limit)
+	if (ids->in_use >= limit)
 		return -ENOSPC;
 
 	idr_preload(GFP_KERNEL);
 
-	refcount_set(&new->refcount, 1);
 	spin_lock_init(&new->lock);
-	new->deleted = false;
 	rcu_read_lock();
 	spin_lock(&new->lock);
 
 	current_euid_egid(&euid, &egid);
 	new->cuid = new->uid = euid;
 	new->gid = new->cgid = egid;
+	new->deleted = false;
 
+	/*
+	 * As soon as a new object is inserted into the idr,
+	 * ipc_obtain_object_idr() or ipc_obtain_object_check() can find it,
+	 * and the lockless preparations for ipc operations can start.
+	 * This means especially: permission checks, audit calls, allocation
+	 * of undo structures, ...
+	 *
+	 * Thus the object must be fully initialized, and if something fails,
+	 * then the full tear-down sequence must be followed.
+	 * (i.e.: set new->deleted, reduce refcount, call_rcu())
+	 *
+	 * This function sets new->deleted, the caller must use ipc_rcu_putef()
+	 * for the remaining steps.
+	 */
 	id = ipc_idr_alloc(ids, new);
 	idr_preload_end();
 
@@ -283,6 +285,7 @@ int ipc_addid(struct ipc_ids *ids, struct kern_ipc_perm *new, int limit)
 		}
 	}
 	if (id < 0) {
+		new->deleted = true;
 		spin_unlock(&new->lock);
 		rcu_read_unlock();
 		return id;
@@ -291,9 +294,6 @@ int ipc_addid(struct ipc_ids *ids, struct kern_ipc_perm *new, int limit)
 	ids->in_use++;
 	if (id > ids->max_id)
 		ids->max_id = id;
-
-	new->id = ipc_buildid(id, ids, new);
-
 	return id;
 }
 
@@ -567,9 +567,6 @@ struct kern_ipc_perm *ipc_obtain_object_idr(struct ipc_ids *ids, int id)
 	struct kern_ipc_perm *out;
 	int lid = ipcid_to_idx(id);
 
-	if (unlikely(!ids->tables_initialized))
-		return ERR_PTR(-EINVAL);
-
 	out = idr_find(&ids->ipcs_idr, lid);
 	if (!out)
 		return ERR_PTR(-EINVAL);
@@ -578,15 +575,17 @@ struct kern_ipc_perm *ipc_obtain_object_idr(struct ipc_ids *ids, int id)
 }
 
 /**
- * ipc_lock - lock an ipc structure without rwsem held
+ * ipc_lock_idr - lock an ipc structure without rwsem held
  * @ids: ipc identifier set
  * @id: ipc id to look for
  *
  * Look for an id in the ipc ids idr and lock the associated ipc object.
+ * The function does not check if the sequence counter matches the
+ * found ipc object.
  *
  * The ipc object is locked on successful exit.
  */
-struct kern_ipc_perm *ipc_lock(struct ipc_ids *ids, int id)
+struct kern_ipc_perm *ipc_lock_idr(struct ipc_ids *ids, int id)
 {
 	struct kern_ipc_perm *out;
 
@@ -598,8 +597,8 @@ struct kern_ipc_perm *ipc_lock(struct ipc_ids *ids, int id)
 	spin_lock(&out->lock);
 
 	/*
-	 * ipc_rmid() may have already freed the ID while ipc_lock()
-	 * was spinning: here verify that the structure is still valid.
+	 * ipc_rmid() may have already freed the ID while waiting for
+	 * the lock. Here verify that the structure is still valid.
 	 * Upon races with RMID, return -EIDRM, thus indicating that
 	 * the ID points to a removed identifier.
 	 */
@@ -618,8 +617,8 @@ err:
  * @ids: ipc identifier set
  * @id: ipc id to look for
  *
- * Similar to ipc_obtain_object_idr() but also checks
- * the ipc object reference counter.
+ * Similar to ipc_obtain_object_idr() but also checks the ipc object
+ * sequence number.
  *
  * Call inside the RCU critical section.
  * The ipc object is *not* locked on exit.
@@ -677,7 +676,7 @@ int ipc_update_perm(struct ipc64_perm *in, struct kern_ipc_perm *out)
 }
 
 /**
- * ipcctl_pre_down_nolock - retrieve an ipc and check permissions for some IPC_XXX cmd
+ * ipcctl_obtain_check - retrieve an ipc object and check permissions
  * @ns:  ipc namespace
  * @ids:  the table of ids where to look for the ipc
  * @id:   the id of the ipc to retrieve
@@ -687,16 +686,16 @@ int ipc_update_perm(struct ipc64_perm *in, struct kern_ipc_perm *out)
  *
  * This function does some common audit and permissions check for some IPC_XXX
  * cmd and is called from semctl_down, shmctl_down and msgctl_down.
- * It must be called without any lock held and:
  *
- *   - retrieves the ipc with the given id in the given table.
+ * It:
+ *   - retrieves the ipc object with the given id in the given table.
  *   - performs some audit and permission check, depending on the given cmd
  *   - returns a pointer to the ipc object or otherwise, the corresponding
  *     error.
  *
  * Call holding the both the rwsem and the rcu read lock.
  */
-struct kern_ipc_perm *ipcctl_pre_down_nolock(struct ipc_namespace *ns,
+struct kern_ipc_perm *ipcctl_obtain_check(struct ipc_namespace *ns,
 					struct ipc_ids *ids, int id, int cmd,
 					struct ipc64_perm *perm, int extra_perm)
 {
