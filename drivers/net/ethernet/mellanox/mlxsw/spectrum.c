@@ -74,15 +74,22 @@
 #include "spectrum_span.h"
 #include "../mlxfw/mlxfw.h"
 
-#define MLXSW_FWREV_MAJOR 13
-#define MLXSW_FWREV_MINOR 1620
-#define MLXSW_FWREV_SUBMINOR 192
-#define MLXSW_FWREV_MINOR_TO_BRANCH(minor) ((minor) / 100)
+#define MLXSW_SP_FWREV_MINOR_TO_BRANCH(minor) ((minor) / 100)
 
-#define MLXSW_SP_FW_FILENAME \
-	"mellanox/mlxsw_spectrum-" __stringify(MLXSW_FWREV_MAJOR) \
-	"." __stringify(MLXSW_FWREV_MINOR) \
-	"." __stringify(MLXSW_FWREV_SUBMINOR) ".mfa2"
+#define MLXSW_SP1_FWREV_MAJOR 13
+#define MLXSW_SP1_FWREV_MINOR 1620
+#define MLXSW_SP1_FWREV_SUBMINOR 192
+
+static const struct mlxsw_fw_rev mlxsw_sp1_fw_rev = {
+	.major = MLXSW_SP1_FWREV_MAJOR,
+	.minor = MLXSW_SP1_FWREV_MINOR,
+	.subminor = MLXSW_SP1_FWREV_SUBMINOR,
+};
+
+#define MLXSW_SP1_FW_FILENAME \
+	"mellanox/mlxsw_spectrum-" __stringify(MLXSW_SP1_FWREV_MAJOR) \
+	"." __stringify(MLXSW_SP1_FWREV_MINOR) \
+	"." __stringify(MLXSW_SP1_FWREV_SUBMINOR) ".mfa2"
 
 static const char mlxsw_sp_driver_name[] = "mlxsw_spectrum";
 static const char mlxsw_sp_driver_version[] = "1.0";
@@ -338,29 +345,35 @@ static int mlxsw_sp_firmware_flash(struct mlxsw_sp *mlxsw_sp,
 static int mlxsw_sp_fw_rev_validate(struct mlxsw_sp *mlxsw_sp)
 {
 	const struct mlxsw_fw_rev *rev = &mlxsw_sp->bus_info->fw_rev;
+	const struct mlxsw_fw_rev *req_rev = mlxsw_sp->req_rev;
+	const char *fw_filename = mlxsw_sp->fw_filename;
 	const struct firmware *firmware;
 	int err;
 
+	/* Don't check if driver does not require it */
+	if (!req_rev || !fw_filename)
+		return 0;
+
 	/* Validate driver & FW are compatible */
-	if (rev->major != MLXSW_FWREV_MAJOR) {
+	if (rev->major != req_rev->major) {
 		WARN(1, "Mismatch in major FW version [%d:%d] is never expected; Please contact support\n",
-		     rev->major, MLXSW_FWREV_MAJOR);
+		     rev->major, req_rev->major);
 		return -EINVAL;
 	}
-	if (MLXSW_FWREV_MINOR_TO_BRANCH(rev->minor) ==
-	    MLXSW_FWREV_MINOR_TO_BRANCH(MLXSW_FWREV_MINOR))
+	if (MLXSW_SP_FWREV_MINOR_TO_BRANCH(rev->minor) ==
+	    MLXSW_SP_FWREV_MINOR_TO_BRANCH(req_rev->minor))
 		return 0;
 
 	dev_info(mlxsw_sp->bus_info->dev, "The firmware version %d.%d.%d is incompatible with the driver\n",
 		 rev->major, rev->minor, rev->subminor);
 	dev_info(mlxsw_sp->bus_info->dev, "Flashing firmware using file %s\n",
-		 MLXSW_SP_FW_FILENAME);
+		 fw_filename);
 
-	err = request_firmware_direct(&firmware, MLXSW_SP_FW_FILENAME,
+	err = request_firmware_direct(&firmware, fw_filename,
 				      mlxsw_sp->bus_info->dev);
 	if (err) {
 		dev_err(mlxsw_sp->bus_info->dev, "Could not request firmware file %s\n",
-			MLXSW_SP_FW_FILENAME);
+			fw_filename);
 		return err;
 	}
 
@@ -1503,7 +1516,8 @@ static int mlxsw_sp_setup_tc_block_cb_flower(enum tc_setup_type type,
 
 static int
 mlxsw_sp_setup_tc_block_flower_bind(struct mlxsw_sp_port *mlxsw_sp_port,
-				    struct tcf_block *block, bool ingress)
+				    struct tcf_block *block, bool ingress,
+				    struct netlink_ext_ack *extack)
 {
 	struct mlxsw_sp *mlxsw_sp = mlxsw_sp_port->mlxsw_sp;
 	struct mlxsw_sp_acl_block *acl_block;
@@ -1518,7 +1532,7 @@ mlxsw_sp_setup_tc_block_flower_bind(struct mlxsw_sp_port *mlxsw_sp_port,
 			return -ENOMEM;
 		block_cb = __tcf_block_cb_register(block,
 						   mlxsw_sp_setup_tc_block_cb_flower,
-						   mlxsw_sp, acl_block);
+						   mlxsw_sp, acl_block, extack);
 		if (IS_ERR(block_cb)) {
 			err = PTR_ERR(block_cb);
 			goto err_cb_register;
@@ -1541,7 +1555,7 @@ mlxsw_sp_setup_tc_block_flower_bind(struct mlxsw_sp_port *mlxsw_sp_port,
 
 err_block_bind:
 	if (!tcf_block_cb_decref(block_cb)) {
-		__tcf_block_cb_unregister(block_cb);
+		__tcf_block_cb_unregister(block, block_cb);
 err_cb_register:
 		mlxsw_sp_acl_block_destroy(acl_block);
 	}
@@ -1571,7 +1585,7 @@ mlxsw_sp_setup_tc_block_flower_unbind(struct mlxsw_sp_port *mlxsw_sp_port,
 	err = mlxsw_sp_acl_block_unbind(mlxsw_sp, acl_block,
 					mlxsw_sp_port, ingress);
 	if (!err && !tcf_block_cb_decref(block_cb)) {
-		__tcf_block_cb_unregister(block_cb);
+		__tcf_block_cb_unregister(block, block_cb);
 		mlxsw_sp_acl_block_destroy(acl_block);
 	}
 }
@@ -1596,11 +1610,12 @@ static int mlxsw_sp_setup_tc_block(struct mlxsw_sp_port *mlxsw_sp_port,
 	switch (f->command) {
 	case TC_BLOCK_BIND:
 		err = tcf_block_cb_register(f->block, cb, mlxsw_sp_port,
-					    mlxsw_sp_port);
+					    mlxsw_sp_port, f->extack);
 		if (err)
 			return err;
 		err = mlxsw_sp_setup_tc_block_flower_bind(mlxsw_sp_port,
-							  f->block, ingress);
+							  f->block, ingress,
+							  f->extack);
 		if (err) {
 			tcf_block_cb_unregister(f->block, cb, mlxsw_sp_port);
 			return err;
@@ -3371,6 +3386,8 @@ static const struct mlxsw_listener mlxsw_sp_listener[] = {
 	MLXSW_SP_RXL_MARK(ROUTER_ALERT_IPV4, TRAP_TO_CPU, ROUTER_EXP, false),
 	MLXSW_SP_RXL_MARK(ROUTER_ALERT_IPV6, TRAP_TO_CPU, ROUTER_EXP, false),
 	MLXSW_SP_RXL_MARK(IPIP_DECAP_ERROR, TRAP_TO_CPU, ROUTER_EXP, false),
+	MLXSW_SP_RXL_MARK(IPV4_VRRP, TRAP_TO_CPU, ROUTER_EXP, false),
+	MLXSW_SP_RXL_MARK(IPV6_VRRP, TRAP_TO_CPU, ROUTER_EXP, false),
 	/* PKT Sample trap */
 	MLXSW_RXL(mlxsw_sp_rx_listener_sample_func, PKT_SAMPLE, MIRROR_TO_CPU,
 		  false, SP_IP2ME, DISCARD),
@@ -3618,6 +3635,14 @@ static int mlxsw_sp_init(struct mlxsw_core *mlxsw_core,
 {
 	struct mlxsw_sp *mlxsw_sp = mlxsw_core_driver_priv(mlxsw_core);
 	int err;
+
+	mlxsw_sp->req_rev = &mlxsw_sp1_fw_rev;
+	mlxsw_sp->fw_filename = MLXSW_SP1_FW_FILENAME;
+	mlxsw_sp->kvdl_ops = &mlxsw_sp1_kvdl_ops;
+	mlxsw_sp->afa_ops = &mlxsw_sp1_act_afa_ops;
+	mlxsw_sp->afk_ops = &mlxsw_sp1_afk_ops;
+	mlxsw_sp->mr_tcam_ops = &mlxsw_sp1_mr_tcam_ops;
+	mlxsw_sp->acl_tcam_ops = &mlxsw_sp1_acl_tcam_ops;
 
 	mlxsw_sp->core = mlxsw_core;
 	mlxsw_sp->bus_info = mlxsw_bus_info;
@@ -3876,7 +3901,7 @@ static int mlxsw_sp_resources_register(struct mlxsw_core *mlxsw_core)
 	if (err)
 		return err;
 
-	err = mlxsw_sp_kvdl_resources_register(mlxsw_core);
+	err = mlxsw_sp1_kvdl_resources_register(mlxsw_core);
 	if  (err)
 		return err;
 
@@ -4397,7 +4422,8 @@ static int mlxsw_sp_netdevice_port_upper_event(struct net_device *lower_dev,
 		if (!is_vlan_dev(upper_dev) &&
 		    !netif_is_lag_master(upper_dev) &&
 		    !netif_is_bridge_master(upper_dev) &&
-		    !netif_is_ovs_master(upper_dev)) {
+		    !netif_is_ovs_master(upper_dev) &&
+		    !netif_is_macvlan(upper_dev)) {
 			NL_SET_ERR_MSG_MOD(extack, "Unknown upper device type");
 			return -EINVAL;
 		}
@@ -4422,6 +4448,11 @@ static int mlxsw_sp_netdevice_port_upper_event(struct net_device *lower_dev,
 		    !netif_is_lag_master(vlan_dev_real_dev(upper_dev))) {
 			NL_SET_ERR_MSG_MOD(extack, "Can not put a VLAN on a LAG port");
 			return -EINVAL;
+		}
+		if (netif_is_macvlan(upper_dev) &&
+		    !mlxsw_sp_rif_find_by_dev(mlxsw_sp, lower_dev)) {
+			NL_SET_ERR_MSG_MOD(extack, "macvlan is only supported on top of router interfaces");
+			return -EOPNOTSUPP;
 		}
 		if (netif_is_ovs_master(upper_dev) && vlan_uses_dev(dev)) {
 			NL_SET_ERR_MSG_MOD(extack, "Master device is an OVS master and this device has a VLAN");
@@ -4461,6 +4492,9 @@ static int mlxsw_sp_netdevice_port_upper_event(struct net_device *lower_dev,
 				err = mlxsw_sp_port_ovs_join(mlxsw_sp_port);
 			else
 				mlxsw_sp_port_ovs_leave(mlxsw_sp_port);
+		} else if (netif_is_macvlan(upper_dev)) {
+			if (!info->linking)
+				mlxsw_sp_rif_macvlan_del(mlxsw_sp, upper_dev);
 		}
 		break;
 	}
@@ -4545,8 +4579,9 @@ static int mlxsw_sp_netdevice_port_vlan_event(struct net_device *vlan_dev,
 	switch (event) {
 	case NETDEV_PRECHANGEUPPER:
 		upper_dev = info->upper_dev;
-		if (!netif_is_bridge_master(upper_dev)) {
-			NL_SET_ERR_MSG_MOD(extack, "VLAN devices only support bridge and VRF uppers");
+		if (!netif_is_bridge_master(upper_dev) &&
+		    !netif_is_macvlan(upper_dev)) {
+			NL_SET_ERR_MSG_MOD(extack, "Unknown upper device type");
 			return -EINVAL;
 		}
 		if (!info->linking)
@@ -4557,6 +4592,11 @@ static int mlxsw_sp_netdevice_port_vlan_event(struct net_device *vlan_dev,
 							  upper_dev))) {
 			NL_SET_ERR_MSG_MOD(extack, "Enslaving a port to a device that already has an upper device is not supported");
 			return -EINVAL;
+		}
+		if (netif_is_macvlan(upper_dev) &&
+		    !mlxsw_sp_rif_find_by_dev(mlxsw_sp, vlan_dev)) {
+			NL_SET_ERR_MSG_MOD(extack, "macvlan is only supported on top of router interfaces");
+			return -EOPNOTSUPP;
 		}
 		break;
 	case NETDEV_CHANGEUPPER:
@@ -4571,6 +4611,9 @@ static int mlxsw_sp_netdevice_port_vlan_event(struct net_device *vlan_dev,
 				mlxsw_sp_port_bridge_leave(mlxsw_sp_port,
 							   vlan_dev,
 							   upper_dev);
+		} else if (netif_is_macvlan(upper_dev)) {
+			if (!info->linking)
+				mlxsw_sp_rif_macvlan_del(mlxsw_sp, upper_dev);
 		} else {
 			err = -EINVAL;
 			WARN_ON(1);
@@ -4620,6 +4663,64 @@ static int mlxsw_sp_netdevice_vlan_event(struct net_device *vlan_dev,
 	return 0;
 }
 
+static int mlxsw_sp_netdevice_bridge_event(struct net_device *br_dev,
+					   unsigned long event, void *ptr)
+{
+	struct mlxsw_sp *mlxsw_sp = mlxsw_sp_lower_get(br_dev);
+	struct netdev_notifier_changeupper_info *info = ptr;
+	struct netlink_ext_ack *extack;
+	struct net_device *upper_dev;
+
+	if (!mlxsw_sp)
+		return 0;
+
+	extack = netdev_notifier_info_to_extack(&info->info);
+
+	switch (event) {
+	case NETDEV_PRECHANGEUPPER:
+		upper_dev = info->upper_dev;
+		if (!is_vlan_dev(upper_dev) && !netif_is_macvlan(upper_dev)) {
+			NL_SET_ERR_MSG_MOD(extack, "Unknown upper device type");
+			return -EOPNOTSUPP;
+		}
+		if (!info->linking)
+			break;
+		if (netif_is_macvlan(upper_dev) &&
+		    !mlxsw_sp_rif_find_by_dev(mlxsw_sp, br_dev)) {
+			NL_SET_ERR_MSG_MOD(extack, "macvlan is only supported on top of router interfaces");
+			return -EOPNOTSUPP;
+		}
+		break;
+	case NETDEV_CHANGEUPPER:
+		upper_dev = info->upper_dev;
+		if (info->linking)
+			break;
+		if (netif_is_macvlan(upper_dev))
+			mlxsw_sp_rif_macvlan_del(mlxsw_sp, upper_dev);
+		break;
+	}
+
+	return 0;
+}
+
+static int mlxsw_sp_netdevice_macvlan_event(struct net_device *macvlan_dev,
+					    unsigned long event, void *ptr)
+{
+	struct mlxsw_sp *mlxsw_sp = mlxsw_sp_lower_get(macvlan_dev);
+	struct netdev_notifier_changeupper_info *info = ptr;
+	struct netlink_ext_ack *extack;
+
+	if (!mlxsw_sp || event != NETDEV_PRECHANGEUPPER)
+		return 0;
+
+	extack = netdev_notifier_info_to_extack(&info->info);
+
+	/* VRF enslavement is handled in mlxsw_sp_netdevice_vrf_event() */
+	NL_SET_ERR_MSG_MOD(extack, "Unknown upper device type");
+
+	return -EOPNOTSUPP;
+}
+
 static bool mlxsw_sp_is_vrf_event(unsigned long event, void *ptr)
 {
 	struct netdev_notifier_changeupper_info *info = ptr;
@@ -4661,6 +4762,10 @@ static int mlxsw_sp_netdevice_event(struct notifier_block *nb,
 		err = mlxsw_sp_netdevice_lag_event(dev, event, ptr);
 	else if (is_vlan_dev(dev))
 		err = mlxsw_sp_netdevice_vlan_event(dev, event, ptr);
+	else if (netif_is_bridge_master(dev))
+		err = mlxsw_sp_netdevice_bridge_event(dev, event, ptr);
+	else if (netif_is_macvlan(dev))
+		err = mlxsw_sp_netdevice_macvlan_event(dev, event, ptr);
 
 	return notifier_from_errno(err);
 }
@@ -4737,4 +4842,4 @@ MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Jiri Pirko <jiri@mellanox.com>");
 MODULE_DESCRIPTION("Mellanox Spectrum driver");
 MODULE_DEVICE_TABLE(pci, mlxsw_sp_pci_id_table);
-MODULE_FIRMWARE(MLXSW_SP_FW_FILENAME);
+MODULE_FIRMWARE(MLXSW_SP1_FW_FILENAME);
