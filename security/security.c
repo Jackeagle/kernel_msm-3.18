@@ -1078,7 +1078,12 @@ int security_kernel_create_files_as(struct cred *new, struct inode *inode)
 
 int security_kernel_module_request(char *kmod_name)
 {
-	return call_int_hook(kernel_module_request, 0, kmod_name);
+	int ret;
+
+	ret = call_int_hook(kernel_module_request, 0, kmod_name);
+	if (ret)
+		return ret;
+	return integrity_kernel_module_request(kmod_name);
 }
 
 int security_kernel_read_file(struct file *file, enum kernel_read_file_id id)
@@ -1103,6 +1108,16 @@ int security_kernel_post_read_file(struct file *file, char *buf, loff_t size,
 	return ima_post_read_file(file, buf, size, id);
 }
 EXPORT_SYMBOL_GPL(security_kernel_post_read_file);
+
+int security_kernel_load_data(enum kernel_load_data_id id)
+{
+	int ret;
+
+	ret = call_int_hook(kernel_load_data, 0, id);
+	if (ret)
+		return ret;
+	return ima_load_data(id);
+}
 
 int security_task_fix_setuid(struct cred *new, const struct cred *old,
 			     int flags)
