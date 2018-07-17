@@ -63,6 +63,8 @@ next/dt
 		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v4.18-rockchip-dts32fixes-1
 	gemini/dts
 		git://git.kernel.org/pub/scm/linux/kernel/git/linusw/linux-nomadik tags/gemini-dts-v4.19
+	amlogic/dt64
+		https://git.kernel.org/pub/scm/linux/kernel/git/khilman/linux-amlogic tags/amlogic-dt64
 
 next/drivers
 	drivers/tee
