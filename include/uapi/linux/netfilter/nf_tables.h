@@ -921,10 +921,12 @@ enum nft_socket_attributes {
 /*
  * enum nft_socket_keys - nf_tables socket expression keys
  *
- * @NFT_SOCKET_TRANSPARENT: Value of the IP(V6)_TRANSPARENT socket option_
+ * @NFT_SOCKET_TRANSPARENT: Value of the IP(V6)_TRANSPARENT socket option
+ * @NFT_SOCKET_MARK: Value of the socket mark
  */
 enum nft_socket_keys {
 	NFT_SOCKET_TRANSPARENT,
+	NFT_SOCKET_MARK,
 	__NFT_SOCKET_MAX
 };
 #define NFT_SOCKET_MAX	(__NFT_SOCKET_MAX - 1)
@@ -1249,6 +1251,22 @@ enum nft_nat_attributes {
 	__NFTA_NAT_MAX
 };
 #define NFTA_NAT_MAX		(__NFTA_NAT_MAX - 1)
+
+/**
+ * enum nft_tproxy_attributes - nf_tables tproxy expression netlink attributes
+ *
+ * NFTA_TPROXY_FAMILY: Target address family (NLA_U32: nft_registers)
+ * NFTA_TPROXY_REG_ADDR: Target address register (NLA_U32: nft_registers)
+ * NFTA_TPROXY_REG_PORT: Target port register (NLA_U32: nft_registers)
+ */
+enum nft_tproxy_attributes {
+	NFTA_TPROXY_UNSPEC,
+	NFTA_TPROXY_FAMILY,
+	NFTA_TPROXY_REG_ADDR,
+	NFTA_TPROXY_REG_PORT,
+	__NFTA_TPROXY_MAX
+};
+#define NFTA_TPROXY_MAX		(__NFTA_TPROXY_MAX - 1)
 
 /**
  * enum nft_masq_attributes - nf_tables masquerade expression attributes
