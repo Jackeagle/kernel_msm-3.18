@@ -101,6 +101,8 @@ next/defconfig
 		git://git.kernel.org/pub/scm/linux/kernel/git/atorgue/stm32 tags/stm32-defconfig-for-v4.19-1
 	mvebu/defconfig
 		git://git.infradead.org/linux-mvebu tags/mvebu-defconfig-4.19-1
+	hisi/defconfig
+		git://github.com/hisilicon/linux-hisi tags/hisi-defconfig-for-4.19
 
 next/late
 
