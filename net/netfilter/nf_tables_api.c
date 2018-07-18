@@ -2995,7 +2995,7 @@ static int nf_tables_set_alloc_name(struct nft_ctx *ctx, struct nft_set *set,
 {
 	const struct nft_set *i;
 	const char *p;
-	unsigned int n = 0, id = 0;
+	int id = 0;
 	DEFINE_IDA(inuse);
 
 	p = strchr(name, '%');
@@ -3011,22 +3011,22 @@ static int nf_tables_set_alloc_name(struct nft_ctx *ctx, struct nft_set *set,
 			if (!sscanf(i->name, name, &tmp))
 				continue;
 
-			n = ida_get_new_above(&inuse, tmp, &id);
-			if (n < 0) {
-				if (n == -EAGAIN)
+			id = ida_alloc_min(&inuse, tmp, GFP_KERNEL);
+			if (id < 0) {
+				if (id == -EAGAIN)
 					return -ENOMEM;
 
-				return n;
+				return id;
 			}
 		}
 
-		n = ida_get_new_above(&inuse, 0, &id);
+		id = ida_alloc(&inuse, GFP_KERNEL);
 		ida_destroy(&inuse);
 
-		if (n < 0) {
-			if (n == -EAGAIN)
+		if (id < 0) {
+			if (id == -EAGAIN)
 				return -ENOMEM;
-			return n;
+			return id;
 		}
 
 	}
