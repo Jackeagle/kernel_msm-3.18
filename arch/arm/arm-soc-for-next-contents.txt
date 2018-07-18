@@ -14,6 +14,8 @@ next/soc
 		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v4.19/soc-signed
 	tegra/firmware
 		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-4.19-firmware
+	pxa/soc-v2
+		https://github.com/rjarzmik/linux tags/pxa-for-4.19-v2
 
 next/dt
 	renesas/arm64-dt
