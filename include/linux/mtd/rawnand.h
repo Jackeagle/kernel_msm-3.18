@@ -510,6 +510,19 @@ struct nand_id {
 };
 
 /**
+ * struct nand_controller_ops - Controller operations
+ *
+ * @attach_chip: Callback that will be called between nand_detect() and
+ *		 nand_scan_tail() during nand_scan() (optional).
+ * @detach_chip: Callback that will be called from nand_cleanup() or if
+ *		 nand_scan_tail() fails (optional).
+ */
+struct nand_controller_ops {
+	int (*attach_chip)(struct nand_chip *chip);
+	void (*detach_chip)(struct nand_chip *chip);
+};
+
+/**
  * struct nand_controller - Structure used to describe a NAND controller
  *
  * @lock:               protection lock
@@ -517,11 +530,13 @@ struct nand_id {
  * @wq:			wait queue to sleep on if a NAND operation is in
  *			progress used instead of the per chip wait queue
  *			when a hw controller is available.
+ * @ops:		NAND controller operations.
  */
 struct nand_controller {
 	spinlock_t lock;
 	struct nand_chip *active;
 	wait_queue_head_t wq;
+	const struct nand_controller_ops *ops;
 };
 
 static inline void nand_controller_init(struct nand_controller *nfc)
