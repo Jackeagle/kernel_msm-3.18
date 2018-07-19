@@ -14,6 +14,41 @@
 
 #include <linux/stackleak.h>
 
+#ifdef CONFIG_STACKLEAK_RUNTIME_DISABLE
+#include <linux/jump_label.h>
+#include <linux/sysctl.h>
+
+static DEFINE_STATIC_KEY_FALSE(stack_erasing_bypass);
+
+int stack_erasing_bypass_sysctl(struct ctl_table *table, int write,
+			void __user *buffer, size_t *lenp, loff_t *ppos)
+{
+	int ret = 0;
+	int state = static_branch_unlikely(&stack_erasing_bypass);
+
+	table->data = &state;
+	table->maxlen = sizeof(int);
+	ret = proc_dointvec_minmax(table, write, buffer, lenp, ppos);
+	if (ret || !write)
+		return ret;
+
+	/* Stack erasing re-enabling is not supported */
+	if (static_branch_unlikely(&stack_erasing_bypass))
+		return -EOPNOTSUPP;
+
+	if (state) {
+		static_branch_enable(&stack_erasing_bypass);
+		pr_warn("stackleak: stack erasing is disabled until reboot\n");
+	}
+
+	return ret;
+}
+
+#define skip_erasing()	static_branch_unlikely(&stack_erasing_bypass)
+#else
+#define skip_erasing()	false
+#endif /* CONFIG_STACKLEAK_RUNTIME_DISABLE */
+
 asmlinkage void stackleak_erase(void)
 {
 	/* It would be nice not to have 'kstack_ptr' and 'boundary' on stack */
@@ -21,6 +56,9 @@ asmlinkage void stackleak_erase(void)
 	unsigned long boundary = kstack_ptr & ~(THREAD_SIZE - 1);
 	unsigned int poison_count = 0;
 	const unsigned int depth = STACKLEAK_SEARCH_DEPTH / sizeof(unsigned long);
+
+	if (skip_erasing())
+		return;
 
 	/* Search for the poison value in the kernel stack */
 	while (kstack_ptr > boundary && poison_count <= depth) {
@@ -77,6 +115,9 @@ void __used stackleak_track_stack(void)
 	 * new platforms.
 	 */
 	unsigned long sp = (unsigned long)&sp;
+
+	if (skip_erasing())
+		return;
 
 	/*
 	 * Having CONFIG_STACKLEAK_TRACK_MIN_SIZE larger than
