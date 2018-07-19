@@ -382,8 +382,8 @@ static int p9_get_mapped_pages(struct virtio_chan *chan,
  * p9_virtio_zc_request - issue a zero copy request
  * @client: client instance issuing the request
  * @req: request to be issued
- * @uidata: user bffer that should be ued for zero copy read
- * @uodata: user buffer that shoud be user for zero copy write
+ * @uidata: user buffer that should be used for zero copy read
+ * @uodata: user buffer that should be used for zero copy write
  * @inlen: read buffer size
  * @outlen: write buffer size
  * @in_hdr_len: reader header size, This is the size of response protocol data
@@ -406,6 +406,7 @@ p9_virtio_zc_request(struct p9_client *client, struct p9_req_t *req,
 	p9_debug(P9_DEBUG_TRANS, "virtio request\n");
 
 	if (uodata) {
+		__le32 sz;
 		int n = p9_get_mapped_pages(chan, &out_pages, uodata,
 					    outlen, &offs, &need_drop);
 		if (n < 0)
@@ -416,6 +417,12 @@ p9_virtio_zc_request(struct p9_client *client, struct p9_req_t *req,
 			memcpy(&req->tc->sdata[req->tc->size - 4], &v, 4);
 			outlen = n;
 		}
+		/* The size field of the message must include the length of the
+		 * header and the length of the data.  We didn't actually know
+		 * the length of the data until this point so add it in now.
+		 */
+		sz = cpu_to_le32(req->tc->size + outlen);
+		memcpy(&req->tc->sdata[0], &sz, sizeof(sz));
 	} else if (uidata) {
 		int n = p9_get_mapped_pages(chan, &in_pages, uidata,
 					    inlen, &offs, &need_drop);
@@ -490,7 +497,7 @@ req_retry_pinned:
 	virtqueue_kick(chan->vq);
 	spin_unlock_irqrestore(&chan->lock, flags);
 	p9_debug(P9_DEBUG_TRANS, "virtio request kicked\n");
-	err = wait_event_killable(*req->wq, req->status >= REQ_STATUS_RCVD);
+	err = wait_event_killable(req->wq, req->status >= REQ_STATUS_RCVD);
 	/*
 	 * Non kernel buffers are pinned, unpin them
 	 */
@@ -563,7 +570,7 @@ static int p9_virtio_probe(struct virtio_device *vdev)
 	chan->vq = virtio_find_single_vq(vdev, req_done, "requests");
 	if (IS_ERR(chan->vq)) {
 		err = PTR_ERR(chan->vq);
-		goto out_free_vq;
+		goto out_free_chan;
 	}
 	chan->vq->vdev->priv = chan;
 	spin_lock_init(&chan->lock);
@@ -616,6 +623,7 @@ out_free_tag:
 	kfree(tag);
 out_free_vq:
 	vdev->config->del_vqs(vdev);
+out_free_chan:
 	kfree(chan);
 fail:
 	return err;
