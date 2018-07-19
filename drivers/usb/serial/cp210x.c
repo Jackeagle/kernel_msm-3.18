@@ -244,6 +244,8 @@ struct cp210x_serial_private {
 	bool			gpio_registered;
 #endif
 	u8			partnum;
+	speed_t			max_speed;
+	bool			use_actual_rate;
 };
 
 struct cp210x_port_private {
@@ -369,6 +371,9 @@ static struct usb_serial_driver * const serial_drivers[] = {
 #define CP210X_PARTNUM_CP2104	0x04
 #define CP210X_PARTNUM_CP2105	0x05
 #define CP210X_PARTNUM_CP2108	0x08
+#define CP210X_PARTNUM_CP2102N_QFN28	0x20
+#define CP210X_PARTNUM_CP2102N_QFN24	0x21
+#define CP210X_PARTNUM_CP2102N_QFN20	0x22
 #define CP210X_PARTNUM_UNKNOWN	0xFF
 
 /* CP210X_GET_COMM_STATUS returns these 0x13 bytes */
@@ -767,48 +772,6 @@ static int cp210x_get_line_ctl(struct usb_serial_port *port, u16 *ctl)
 	return 0;
 }
 
-/*
- * cp210x_quantise_baudrate
- * Quantises the baud rate as per AN205 Table 1
- */
-static unsigned int cp210x_quantise_baudrate(unsigned int baud)
-{
-	if (baud <= 300)
-		baud = 300;
-	else if (baud <= 600)      baud = 600;
-	else if (baud <= 1200)     baud = 1200;
-	else if (baud <= 1800)     baud = 1800;
-	else if (baud <= 2400)     baud = 2400;
-	else if (baud <= 4000)     baud = 4000;
-	else if (baud <= 4803)     baud = 4800;
-	else if (baud <= 7207)     baud = 7200;
-	else if (baud <= 9612)     baud = 9600;
-	else if (baud <= 14428)    baud = 14400;
-	else if (baud <= 16062)    baud = 16000;
-	else if (baud <= 19250)    baud = 19200;
-	else if (baud <= 28912)    baud = 28800;
-	else if (baud <= 38601)    baud = 38400;
-	else if (baud <= 51558)    baud = 51200;
-	else if (baud <= 56280)    baud = 56000;
-	else if (baud <= 58053)    baud = 57600;
-	else if (baud <= 64111)    baud = 64000;
-	else if (baud <= 77608)    baud = 76800;
-	else if (baud <= 117028)   baud = 115200;
-	else if (baud <= 129347)   baud = 128000;
-	else if (baud <= 156868)   baud = 153600;
-	else if (baud <= 237832)   baud = 230400;
-	else if (baud <= 254234)   baud = 250000;
-	else if (baud <= 273066)   baud = 256000;
-	else if (baud <= 491520)   baud = 460800;
-	else if (baud <= 567138)   baud = 500000;
-	else if (baud <= 670254)   baud = 576000;
-	else if (baud < 1000000)
-		baud = 921600;
-	else if (baud > 2000000)
-		baud = 2000000;
-	return baud;
-}
-
 static int cp210x_open(struct tty_struct *tty, struct usb_serial_port *port)
 {
 	int result;
@@ -1028,6 +991,75 @@ static void cp210x_get_termios_port(struct usb_serial_port *port,
 	*cflagp = cflag;
 }
 
+struct cp210x_rate {
+	speed_t rate;
+	speed_t high;
+};
+
+static const struct cp210x_rate cp210x_an205_table1[] = {
+	{ 300, 300 },
+	{ 600, 600 },
+	{ 1200, 1200 },
+	{ 1800, 1800 },
+	{ 2400, 2400 },
+	{ 4000, 4000 },
+	{ 4800, 4803 },
+	{ 7200, 7207 },
+	{ 9600, 9612 },
+	{ 14400, 14428 },
+	{ 16000, 16062 },
+	{ 19200, 19250 },
+	{ 28800, 28912 },
+	{ 38400, 38601 },
+	{ 51200, 51558 },
+	{ 56000, 56280 },
+	{ 57600, 58053 },
+	{ 64000, 64111 },
+	{ 76800, 77608 },
+	{ 115200, 117028 },
+	{ 128000, 129347 },
+	{ 153600, 156868 },
+	{ 230400, 237832 },
+	{ 250000, 254234 },
+	{ 256000, 273066 },
+	{ 460800, 491520 },
+	{ 500000, 567138 },
+	{ 576000, 670254 },
+	{ 921600, UINT_MAX }
+};
+
+/*
+ * Quantises the baud rate as per AN205 Table 1
+ */
+static speed_t cp210x_get_an205_rate(speed_t baud)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(cp210x_an205_table1); ++i) {
+		if (baud <= cp210x_an205_table1[i].high)
+			break;
+	}
+
+	return cp210x_an205_table1[i].rate;
+}
+
+static speed_t cp210x_get_actual_rate(struct usb_serial *serial, speed_t baud)
+{
+	struct cp210x_serial_private *priv = usb_get_serial_data(serial);
+	unsigned int prescale = 1;
+	unsigned int div;
+
+	baud = clamp(baud, 300u, priv->max_speed);
+
+	if (baud <= 365)
+		prescale = 4;
+
+	div = DIV_ROUND_CLOSEST(48000000, 2 * prescale * baud);
+	baud = 48000000 / (2 * prescale * div);
+
+	return baud;
+}
+
 /*
  * CP2101 supports the following baud rates:
  *
@@ -1057,16 +1089,24 @@ static void cp210x_get_termios_port(struct usb_serial_port *port,
 static void cp210x_change_speed(struct tty_struct *tty,
 		struct usb_serial_port *port, struct ktermios *old_termios)
 {
+	struct usb_serial *serial = port->serial;
+	struct cp210x_serial_private *priv = usb_get_serial_data(serial);
 	u32 baud;
 
 	baud = tty->termios.c_ospeed;
 
-	/* This maps the requested rate to a rate valid on cp2102 or cp2103,
-	 * or to an arbitrary rate in [1M,2M].
+	/*
+	 * This maps the requested rate to the actual rate, a valid rate on
+	 * cp2102 or cp2103, or to an arbitrary rate in [1M, max_speed].
 	 *
 	 * NOTE: B0 is not implemented.
 	 */
-	baud = cp210x_quantise_baudrate(baud);
+	if (priv->use_actual_rate)
+		baud = cp210x_get_actual_rate(serial, baud);
+	else if (baud < 1000000)
+		baud = cp210x_get_an205_rate(baud);
+	else if (baud > priv->max_speed)
+		baud = priv->max_speed;
 
 	dev_dbg(&port->dev, "%s - setting baud rate to %u\n", __func__, baud);
 	if (cp210x_write_u32_reg(port, CP210X_SET_BAUDRATE, baud)) {
@@ -1497,6 +1537,50 @@ static int cp210x_port_remove(struct usb_serial_port *port)
 	return 0;
 }
 
+static void cp210x_init_max_speed(struct usb_serial *serial)
+{
+	struct cp210x_serial_private *priv = usb_get_serial_data(serial);
+	bool use_actual_rate = false;
+	speed_t max;
+
+	switch (priv->partnum) {
+	case CP210X_PARTNUM_CP2101:
+		max = 921600;
+		break;
+	case CP210X_PARTNUM_CP2102:
+	case CP210X_PARTNUM_CP2103:
+		max = 1000000;
+		break;
+	case CP210X_PARTNUM_CP2104:
+		use_actual_rate = true;
+		max = 2000000;
+		break;
+	case CP210X_PARTNUM_CP2108:
+		max = 2000000;
+		break;
+	case CP210X_PARTNUM_CP2105:
+		if (cp210x_interface_num(serial) == 0) {
+			use_actual_rate = true;
+			max = 2000000;	/* ECI */
+		} else {
+			max = 921600;	/* SCI */
+		}
+		break;
+	case CP210X_PARTNUM_CP2102N_QFN28:
+	case CP210X_PARTNUM_CP2102N_QFN24:
+	case CP210X_PARTNUM_CP2102N_QFN20:
+		use_actual_rate = true;
+		max = 3000000;
+		break;
+	default:
+		max = 2000000;
+		break;
+	}
+
+	priv->max_speed = max;
+	priv->use_actual_rate = use_actual_rate;
+}
+
 static int cp210x_attach(struct usb_serial *serial)
 {
 	int result;
@@ -1516,6 +1600,8 @@ static int cp210x_attach(struct usb_serial *serial)
 	}
 
 	usb_set_serial_data(serial, priv);
+
+	cp210x_init_max_speed(serial);
 
 	if (priv->partnum == CP210X_PARTNUM_CP2105) {
 		result = cp2105_shared_gpio_init(serial);
