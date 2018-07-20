@@ -129,6 +129,11 @@
 #define DEFAULT_TIMEOUT_MS			1000
 #define MIN_DMA_LEN				128
 
+static bool atmel_nand_avoid_dma __read_mostly;
+
+MODULE_PARM_DESC(avoiddma, "Avoid using DMA");
+module_param_named(avoiddma, atmel_nand_avoid_dma, bool, 0400);
+
 enum atmel_nand_rb_type {
 	ATMEL_NAND_NO_RB,
 	ATMEL_NAND_NATIVE_RB,
@@ -211,7 +216,7 @@ struct atmel_nand_controller_caps {
 };
 
 struct atmel_nand_controller {
-	struct nand_hw_control base;
+	struct nand_controller base;
 	const struct atmel_nand_controller_caps *caps;
 	struct device *dev;
 	struct regmap *smc;
@@ -222,7 +227,7 @@ struct atmel_nand_controller {
 };
 
 static inline struct atmel_nand_controller *
-to_nand_controller(struct nand_hw_control *ctl)
+to_nand_controller(struct nand_controller *ctl)
 {
 	return container_of(ctl, struct atmel_nand_controller, base);
 }
@@ -234,7 +239,7 @@ struct atmel_smc_nand_controller {
 };
 
 static inline struct atmel_smc_nand_controller *
-to_smc_nand_controller(struct nand_hw_control *ctl)
+to_smc_nand_controller(struct nand_controller *ctl)
 {
 	return container_of(to_nand_controller(ctl),
 			    struct atmel_smc_nand_controller, base);
@@ -258,7 +263,7 @@ struct atmel_hsmc_nand_controller {
 };
 
 static inline struct atmel_hsmc_nand_controller *
-to_hsmc_nand_controller(struct nand_hw_control *ctl)
+to_hsmc_nand_controller(struct nand_controller *ctl)
 {
 	return container_of(to_nand_controller(ctl),
 			    struct atmel_hsmc_nand_controller, base);
@@ -1961,7 +1966,7 @@ static int atmel_nand_controller_init(struct atmel_nand_controller *nc,
 	struct device_node *np = dev->of_node;
 	int ret;
 
-	nand_hw_control_init(&nc->base);
+	nand_controller_init(&nc->base);
 	INIT_LIST_HEAD(&nc->chips);
 	nc->dev = dev;
 	nc->caps = caps;
@@ -1977,7 +1982,7 @@ static int atmel_nand_controller_init(struct atmel_nand_controller *nc,
 		return ret;
 	}
 
-	if (nc->caps->has_dma) {
+	if (nc->caps->has_dma && !atmel_nand_avoid_dma) {
 		dma_cap_mask_t mask;
 
 		dma_cap_zero(mask);
@@ -2045,7 +2050,7 @@ atmel_smc_nand_controller_init(struct atmel_smc_nand_controller *nc)
 		return ret;
 	}
 
-	nc->ebi_csa_offs = (unsigned int)match->data;
+	nc->ebi_csa_offs = (uintptr_t)match->data;
 
 	/*
 	 * The at91sam9263 has 2 EBIs, if the NAND controller is under EBI1
@@ -2214,9 +2219,9 @@ atmel_hsmc_nand_controller_init(struct atmel_hsmc_nand_controller *nc)
 		return -ENOMEM;
 	}
 
-	nc->sram.virt = gen_pool_dma_alloc(nc->sram.pool,
-					    ATMEL_NFC_SRAM_SIZE,
-					    &nc->sram.dma);
+	nc->sram.virt = (void __iomem *)gen_pool_dma_alloc(nc->sram.pool,
+							   ATMEL_NFC_SRAM_SIZE,
+							   &nc->sram.dma);
 	if (!nc->sram.virt) {
 		dev_err(nc->base.dev,
 			"Could not allocate memory from the NFC SRAM pool\n");

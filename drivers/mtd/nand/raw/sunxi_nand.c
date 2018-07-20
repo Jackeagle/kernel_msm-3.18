@@ -127,7 +127,7 @@
 #define NFC_CMD_TYPE_MSK	GENMASK(31, 30)
 #define NFC_NORMAL_OP		(0 << 30)
 #define NFC_ECC_OP		(1 << 30)
-#define NFC_PAGE_OP		(2 << 30)
+#define NFC_PAGE_OP		(2U << 30)
 
 /* define bit use in NFC_RCMD_SET */
 #define NFC_READ_CMD_MSK	GENMASK(7, 0)
@@ -234,7 +234,7 @@ static inline struct sunxi_nand_chip *to_sunxi_nand(struct nand_chip *nand)
  *			controller events
  */
 struct sunxi_nfc {
-	struct nand_hw_control controller;
+	struct nand_controller controller;
 	struct device *dev;
 	void __iomem *regs;
 	struct clk *ahb_clk;
@@ -247,7 +247,7 @@ struct sunxi_nfc {
 	struct dma_chan *dmac;
 };
 
-static inline struct sunxi_nfc *to_sunxi_nfc(struct nand_hw_control *ctrl)
+static inline struct sunxi_nfc *to_sunxi_nfc(struct nand_controller *ctrl)
 {
 	return container_of(ctrl, struct sunxi_nfc, controller);
 }
@@ -544,7 +544,7 @@ static void sunxi_nfc_write_buf(struct mtd_info *mtd, const uint8_t *buf,
 
 static uint8_t sunxi_nfc_read_byte(struct mtd_info *mtd)
 {
-	uint8_t ret;
+	uint8_t ret = 0;
 
 	sunxi_nfc_read_buf(mtd, &ret, 1);
 
@@ -2012,7 +2012,7 @@ static int sunxi_nfc_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	nfc->dev = dev;
-	nand_hw_control_init(&nfc->controller);
+	nand_controller_init(&nfc->controller);
 	INIT_LIST_HEAD(&nfc->chips);
 
 	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);

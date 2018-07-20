@@ -62,7 +62,7 @@
 						reg)
 
 /* fsmc controller registers for NAND flash */
-#define PC			0x00
+#define FSMC_PC			0x00
 	/* pc register definitions */
 	#define FSMC_RESET		(1 << 0)
 	#define FSMC_WAITON		(1 << 1)
@@ -273,12 +273,13 @@ static void fsmc_nand_setup(struct fsmc_nand_data *host,
 	tset = (tims->tset & FSMC_TSET_MASK) << FSMC_TSET_SHIFT;
 
 	if (host->nand.options & NAND_BUSWIDTH_16)
-		writel_relaxed(value | FSMC_DEVWID_16, host->regs_va + PC);
+		writel_relaxed(value | FSMC_DEVWID_16,
+			       host->regs_va + FSMC_PC);
 	else
-		writel_relaxed(value | FSMC_DEVWID_8, host->regs_va + PC);
+		writel_relaxed(value | FSMC_DEVWID_8, host->regs_va + FSMC_PC);
 
-	writel_relaxed(readl(host->regs_va + PC) | tclr | tar,
-		       host->regs_va + PC);
+	writel_relaxed(readl(host->regs_va + FSMC_PC) | tclr | tar,
+		       host->regs_va + FSMC_PC);
 	writel_relaxed(thiz | thold | twait | tset, host->regs_va + COMM);
 	writel_relaxed(thiz | thold | twait | tset, host->regs_va + ATTRIB);
 }
@@ -371,12 +372,12 @@ static void fsmc_enable_hwecc(struct mtd_info *mtd, int mode)
 {
 	struct fsmc_nand_data *host = mtd_to_fsmc(mtd);
 
-	writel_relaxed(readl(host->regs_va + PC) & ~FSMC_ECCPLEN_256,
-		       host->regs_va + PC);
-	writel_relaxed(readl(host->regs_va + PC) & ~FSMC_ECCEN,
-		       host->regs_va + PC);
-	writel_relaxed(readl(host->regs_va + PC) | FSMC_ECCEN,
-		       host->regs_va + PC);
+	writel_relaxed(readl(host->regs_va + FSMC_PC) & ~FSMC_ECCPLEN_256,
+		       host->regs_va + FSMC_PC);
+	writel_relaxed(readl(host->regs_va + FSMC_PC) & ~FSMC_ECCEN,
+		       host->regs_va + FSMC_PC);
+	writel_relaxed(readl(host->regs_va + FSMC_PC) | FSMC_ECCEN,
+		       host->regs_va + FSMC_PC);
 }
 
 /*
@@ -546,7 +547,7 @@ static void fsmc_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 	struct fsmc_nand_data *host  = mtd_to_fsmc(mtd);
 	int i;
 
-	if (IS_ALIGNED((uint32_t)buf, sizeof(uint32_t)) &&
+	if (IS_ALIGNED((uintptr_t)buf, sizeof(uint32_t)) &&
 			IS_ALIGNED(len, sizeof(uint32_t))) {
 		uint32_t *p = (uint32_t *)buf;
 		len = len >> 2;
@@ -569,7 +570,7 @@ static void fsmc_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 	struct fsmc_nand_data *host  = mtd_to_fsmc(mtd);
 	int i;
 
-	if (IS_ALIGNED((uint32_t)buf, sizeof(uint32_t)) &&
+	if (IS_ALIGNED((uintptr_t)buf, sizeof(uint32_t)) &&
 			IS_ALIGNED(len, sizeof(uint32_t))) {
 		uint32_t *p = (uint32_t *)buf;
 		len = len >> 2;
@@ -618,11 +619,11 @@ static void fsmc_select_chip(struct mtd_info *mtd, int chipnr)
 	if (chipnr > 0)
 		return;
 
-	pc = readl(host->regs_va + PC);
+	pc = readl(host->regs_va + FSMC_PC);
 	if (chipnr < 0)
-		writel_relaxed(pc & ~FSMC_ENABLE, host->regs_va + PC);
+		writel_relaxed(pc & ~FSMC_ENABLE, host->regs_va + FSMC_PC);
 	else
-		writel_relaxed(pc | FSMC_ENABLE, host->regs_va + PC);
+		writel_relaxed(pc | FSMC_ENABLE, host->regs_va + FSMC_PC);
 
 	/* nCE line must be asserted before starting any operation */
 	mb();
@@ -740,7 +741,7 @@ static int fsmc_read_page_hwecc(struct mtd_info *mtd, struct nand_chip *chip,
 	for (i = 0, s = 0; s < eccsteps; s++, i += eccbytes, p += eccsize) {
 		nand_read_page_op(chip, page, s * eccsize, NULL, 0);
 		chip->ecc.hwctl(mtd, NAND_ECC_READ);
-		chip->read_buf(mtd, p, eccsize);
+		nand_read_data_op(chip, p, eccsize, false);
 
 		for (j = 0; j < eccbytes;) {
 			struct mtd_oob_region oobregion;
