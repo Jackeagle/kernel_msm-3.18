@@ -25,8 +25,8 @@ struct crc_test_record {
 	void	(*handler)(struct crc_test_record *rec);
 };
 
-int failed_tests;
-int total_tests;
+static int failed_tests;
+static int total_tests;
 
 static void chk_and_msg(const char *name, u64 crc, u64 expval)
 {
@@ -68,9 +68,6 @@ static int __init test_crc_init(void)
 {
 	int i;
 
-	failed_tests = 0;
-	total_tests = 0;
-
 	pr_info("Kernel CRC consistency testing:\n");
 	for (i = 0; test_data[i].name; i++)
 		test_data[i].handler(&test_data[i]);
@@ -85,7 +82,9 @@ static int __init test_crc_init(void)
 }
 late_initcall(test_crc_init);
 
-static void __exit test_crc_exit(void) { }
+static void __exit test_crc_exit(void)
+{
+}
 module_exit(test_crc_exit);
 
 MODULE_DESCRIPTION("CRC consistency testing driver");
