@@ -1911,6 +1911,16 @@ config TEST_SYSCTL
 
 	  If unsure, say N.
 
+config TEST_CRC
+	tristate "CRC calculation test driver"
+	depends on CRC64
+	help
+	  This builds the "test_crc" module. This driver enables to test the
+	  CRC calculation consistency to make sure new modification does not
+	  break existing checksum calculation.
+
+	  if unsure, say N.
+
 config TEST_UDELAY
 	tristate "udelay test driver"
 	default n
