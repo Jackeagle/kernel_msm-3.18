@@ -262,7 +262,7 @@ static inline time64_t __hfs_m_to_utime(__be32 mt)
 
 static inline __be32 __hfs_u_to_mtime(time64_t ut)
 {
-	ut -= - sys_tz.tz_minuteswest * 60;
+	ut -= -sys_tz.tz_minuteswest * 60;
 
 	/*
 	 * MacOS wraps "invalid" times after 2040 when writing back, so
