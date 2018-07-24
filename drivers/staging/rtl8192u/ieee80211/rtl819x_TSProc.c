@@ -101,11 +101,11 @@ static void TsAddBaProcess(struct timer_list *t)
 }
 
 
-static void ResetTsCommonInfo(PTS_COMMON_INFO pTsCommonInfo)
+static void ResetTsCommonInfo(struct ts_common_info *pTsCommonInfo)
 {
-	eth_zero_addr(pTsCommonInfo->Addr);
-	memset(&pTsCommonInfo->TSpec, 0, sizeof(TSPEC_BODY));
-	memset(&pTsCommonInfo->TClass, 0, sizeof(QOS_TCLAS)*TCLAS_NUM);
+	eth_zero_addr(pTsCommonInfo->addr);
+	memset(&pTsCommonInfo->t_spec, 0, sizeof(TSPEC_BODY));
+	memset(&pTsCommonInfo->t_class, 0, sizeof(QOS_TCLAS)*TCLAS_NUM);
 	pTsCommonInfo->TClasProc = 0;
 	pTsCommonInfo->TClasNum = 0;
 }
@@ -146,9 +146,9 @@ void TSInitialize(struct ieee80211_device *ieee)
 		pTxTS->num = count;
 		// The timers for the operation of Traffic Stream and Block Ack.
 		// DLS related timer will be add here in the future!!
-		timer_setup(&pTxTS->TsCommonInfo.SetupTimer, TsSetupTimeOut,
+		timer_setup(&pTxTS->TsCommonInfo.setup_timer, TsSetupTimeOut,
 			    0);
-		timer_setup(&pTxTS->TsCommonInfo.InactTimer, TsInactTimeout,
+		timer_setup(&pTxTS->TsCommonInfo.inact_timer, TsInactTimeout,
 			    0);
 		timer_setup(&pTxTS->TsAddBaTimer, TsAddBaProcess, 0);
 		timer_setup(&pTxTS->TxPendingBARecord.Timer, BaSetupTimeOut,
@@ -156,7 +156,7 @@ void TSInitialize(struct ieee80211_device *ieee)
 		timer_setup(&pTxTS->TxAdmittedBARecord.Timer,
 			    TxBaInactTimeout, 0);
 		ResetTxTsEntry(pTxTS);
-		list_add_tail(&pTxTS->TsCommonInfo.List, &ieee->Tx_TS_Unused_List);
+		list_add_tail(&pTxTS->TsCommonInfo.list, &ieee->Tx_TS_Unused_List);
 		pTxTS++;
 	}
 
@@ -167,15 +167,15 @@ void TSInitialize(struct ieee80211_device *ieee)
 	for(count = 0; count < TOTAL_TS_NUM; count++) {
 		pRxTS->num = count;
 		INIT_LIST_HEAD(&pRxTS->RxPendingPktList);
-		timer_setup(&pRxTS->TsCommonInfo.SetupTimer, TsSetupTimeOut,
+		timer_setup(&pRxTS->TsCommonInfo.setup_timer, TsSetupTimeOut,
 			    0);
-		timer_setup(&pRxTS->TsCommonInfo.InactTimer, TsInactTimeout,
+		timer_setup(&pRxTS->TsCommonInfo.inact_timer, TsInactTimeout,
 			    0);
 		timer_setup(&pRxTS->RxAdmittedBARecord.Timer,
 			    RxBaInactTimeout, 0);
 		timer_setup(&pRxTS->RxPktPendingTimer, RxPktPendingTimeout, 0);
 		ResetRxTsEntry(pRxTS);
-		list_add_tail(&pRxTS->TsCommonInfo.List, &ieee->Rx_TS_Unused_List);
+		list_add_tail(&pRxTS->TsCommonInfo.list, &ieee->Rx_TS_Unused_List);
 		pRxTS++;
 	}
 	// Initialize unused Rx Reorder List.
@@ -191,26 +191,26 @@ void TSInitialize(struct ieee80211_device *ieee)
 }
 
 static void AdmitTS(struct ieee80211_device *ieee,
-		    PTS_COMMON_INFO pTsCommonInfo, u32 InactTime)
+		    struct ts_common_info *pTsCommonInfo, u32 InactTime)
 {
-	del_timer_sync(&pTsCommonInfo->SetupTimer);
-	del_timer_sync(&pTsCommonInfo->InactTimer);
+	del_timer_sync(&pTsCommonInfo->setup_timer);
+	del_timer_sync(&pTsCommonInfo->inact_timer);
 
 	if(InactTime!=0)
-		mod_timer(&pTsCommonInfo->InactTimer,
+		mod_timer(&pTsCommonInfo->inact_timer,
 			  jiffies + msecs_to_jiffies(InactTime));
 }
 
 
-static PTS_COMMON_INFO SearchAdmitTRStream(struct ieee80211_device *ieee,
-					   u8 *Addr, u8 TID,
-					   TR_SELECT TxRxSelect)
+static struct ts_common_info *SearchAdmitTRStream(struct ieee80211_device *ieee,
+						  u8 *Addr, u8 TID,
+						  enum tr_select TxRxSelect)
 {
 	//DIRECTION_VALUE	dir;
 	u8	dir;
 	bool				search_dir[4] = {0};
 	struct list_head		*psearch_list; //FIXME
-	PTS_COMMON_INFO	pRet = NULL;
+	struct ts_common_info	*pRet = NULL;
 	if(ieee->iw_mode == IW_MODE_MASTER) { //ap mode
 		if(TxRxSelect == TX_DIR) {
 			search_dir[DIR_DOWN] = true;
@@ -245,26 +245,26 @@ static PTS_COMMON_INFO SearchAdmitTRStream(struct ieee80211_device *ieee,
 	for(dir = 0; dir <= DIR_BI_DIR; dir++) {
 		if (!search_dir[dir])
 			continue;
-		list_for_each_entry(pRet, psearch_list, List){
+		list_for_each_entry(pRet, psearch_list, list){
 	//		IEEE80211_DEBUG(IEEE80211_DL_TS, "ADD:%pM, TID:%d, dir:%d\n", pRet->Addr, pRet->TSpec.f.TSInfo.field.ucTSID, pRet->TSpec.f.TSInfo.field.ucDirection);
-			if (memcmp(pRet->Addr, Addr, 6) == 0)
-				if (pRet->TSpec.f.TSInfo.field.ucTSID == TID)
-					if(pRet->TSpec.f.TSInfo.field.ucDirection == dir) {
+			if (memcmp(pRet->addr, Addr, 6) == 0)
+				if (pRet->t_spec.f.TSInfo.field.ucTSID == TID)
+					if(pRet->t_spec.f.TSInfo.field.ucDirection == dir) {
 	//					printk("Bingo! got it\n");
 						break;
 					}
 		}
-		if(&pRet->List  != psearch_list)
+		if(&pRet->list  != psearch_list)
 			break;
 	}
 
-	if(&pRet->List  != psearch_list)
+	if(&pRet->list  != psearch_list)
 		return pRet ;
 	else
 		return NULL;
 }
 
-static void MakeTSEntry(PTS_COMMON_INFO pTsCommonInfo, u8 *Addr,
+static void MakeTSEntry(struct ts_common_info *pTsCommonInfo, u8 *Addr,
 			PTSPEC_BODY pTSPEC, PQOS_TCLAS pTCLAS, u8 TCLAS_Num,
 			u8 TCLAS_Proc)
 {
@@ -273,13 +273,13 @@ static void MakeTSEntry(PTS_COMMON_INFO pTsCommonInfo, u8 *Addr,
 	if(pTsCommonInfo == NULL)
 		return;
 
-	memcpy(pTsCommonInfo->Addr, Addr, 6);
+	memcpy(pTsCommonInfo->addr, Addr, 6);
 
 	if(pTSPEC != NULL)
-		memcpy((u8 *)(&(pTsCommonInfo->TSpec)), (u8 *)pTSPEC, sizeof(TSPEC_BODY));
+		memcpy((u8 *)(&(pTsCommonInfo->t_spec)), (u8 *)pTSPEC, sizeof(TSPEC_BODY));
 
 	for(count = 0; count < TCLAS_Num; count++)
-		memcpy((u8 *)(&(pTsCommonInfo->TClass[count])), (u8 *)pTCLAS, sizeof(QOS_TCLAS));
+		memcpy((u8 *)(&(pTsCommonInfo->t_class[count])), (u8 *)pTCLAS, sizeof(QOS_TCLAS));
 
 	pTsCommonInfo->TClasProc = TCLAS_Proc;
 	pTsCommonInfo->TClasNum = TCLAS_Num;
@@ -288,10 +288,10 @@ static void MakeTSEntry(PTS_COMMON_INFO pTsCommonInfo, u8 *Addr,
 
 bool GetTs(
 	struct ieee80211_device		*ieee,
-	PTS_COMMON_INFO			*ppTS,
+	struct ts_common_info		**ppTS,
 	u8				*Addr,
 	u8				TID,
-	TR_SELECT			TxRxSelect,  //Rx:1, Tx:0
+	enum tr_select			TxRxSelect,  //Rx:1, Tx:0
 	bool				bAddNewTs
 	)
 {
@@ -371,8 +371,8 @@ bool GetTs(
 								((TxRxSelect==TX_DIR)?DIR_UP:DIR_DOWN);
 			IEEE80211_DEBUG(IEEE80211_DL_TS, "to add Ts\n");
 			if(!list_empty(pUnusedList)) {
-				(*ppTS) = list_entry(pUnusedList->next, TS_COMMON_INFO, List);
-				list_del_init(&(*ppTS)->List);
+				(*ppTS) = list_entry(pUnusedList->next, struct ts_common_info, list);
+				list_del_init(&(*ppTS)->list);
 				if(TxRxSelect==TX_DIR) {
 					PTX_TS_RECORD tmp = container_of(*ppTS, TX_TS_RECORD, TsCommonInfo);
 					ResetTxTsEntry(tmp);
@@ -395,7 +395,7 @@ bool GetTs(
 
 				MakeTSEntry(*ppTS, Addr, &TSpec, NULL, 0, 0);
 				AdmitTS(ieee, *ppTS, 0);
-				list_add_tail(&((*ppTS)->List), pAddmitList);
+				list_add_tail(&((*ppTS)->list), pAddmitList);
 				// if there is DirectLink, we need to do additional operation here!!
 
 				return true;
@@ -407,13 +407,13 @@ bool GetTs(
 	}
 }
 
-static void RemoveTsEntry(struct ieee80211_device *ieee, PTS_COMMON_INFO pTs,
-			  TR_SELECT TxRxSelect)
+static void RemoveTsEntry(struct ieee80211_device *ieee, struct ts_common_info *pTs,
+			  enum tr_select TxRxSelect)
 {
 	//u32 flags = 0;
 	unsigned long flags = 0;
-	del_timer_sync(&pTs->SetupTimer);
-	del_timer_sync(&pTs->InactTimer);
+	del_timer_sync(&pTs->setup_timer);
+	del_timer_sync(&pTs->inact_timer);
 	TsInitDelBA(ieee, pTs, TxRxSelect);
 
 	if(TxRxSelect == RX_DIR) {
@@ -454,69 +454,69 @@ static void RemoveTsEntry(struct ieee80211_device *ieee, PTS_COMMON_INFO pTs,
 
 void RemovePeerTS(struct ieee80211_device *ieee, u8 *Addr)
 {
-	PTS_COMMON_INFO	pTS, pTmpTS;
+	struct ts_common_info	*pTS, *pTmpTS;
 
 	printk("===========>RemovePeerTS,%pM\n", Addr);
-	list_for_each_entry_safe(pTS, pTmpTS, &ieee->Tx_TS_Pending_List, List) {
-		if (memcmp(pTS->Addr, Addr, 6) == 0) {
+	list_for_each_entry_safe(pTS, pTmpTS, &ieee->Tx_TS_Pending_List, list) {
+		if (memcmp(pTS->addr, Addr, 6) == 0) {
 			RemoveTsEntry(ieee, pTS, TX_DIR);
-			list_del_init(&pTS->List);
-			list_add_tail(&pTS->List, &ieee->Tx_TS_Unused_List);
+			list_del_init(&pTS->list);
+			list_add_tail(&pTS->list, &ieee->Tx_TS_Unused_List);
 		}
 	}
 
-	list_for_each_entry_safe(pTS, pTmpTS, &ieee->Tx_TS_Admit_List, List) {
-		if (memcmp(pTS->Addr, Addr, 6) == 0) {
+	list_for_each_entry_safe(pTS, pTmpTS, &ieee->Tx_TS_Admit_List, list) {
+		if (memcmp(pTS->addr, Addr, 6) == 0) {
 			printk("====>remove Tx_TS_admin_list\n");
 			RemoveTsEntry(ieee, pTS, TX_DIR);
-			list_del_init(&pTS->List);
-			list_add_tail(&pTS->List, &ieee->Tx_TS_Unused_List);
+			list_del_init(&pTS->list);
+			list_add_tail(&pTS->list, &ieee->Tx_TS_Unused_List);
 		}
 	}
 
-	list_for_each_entry_safe(pTS, pTmpTS, &ieee->Rx_TS_Pending_List, List) {
-		if (memcmp(pTS->Addr, Addr, 6) == 0) {
+	list_for_each_entry_safe(pTS, pTmpTS, &ieee->Rx_TS_Pending_List, list) {
+		if (memcmp(pTS->addr, Addr, 6) == 0) {
 			RemoveTsEntry(ieee, pTS, RX_DIR);
-			list_del_init(&pTS->List);
-			list_add_tail(&pTS->List, &ieee->Rx_TS_Unused_List);
+			list_del_init(&pTS->list);
+			list_add_tail(&pTS->list, &ieee->Rx_TS_Unused_List);
 		}
 	}
 
-	list_for_each_entry_safe(pTS, pTmpTS, &ieee->Rx_TS_Admit_List, List) {
-		if (memcmp(pTS->Addr, Addr, 6) == 0) {
+	list_for_each_entry_safe(pTS, pTmpTS, &ieee->Rx_TS_Admit_List, list) {
+		if (memcmp(pTS->addr, Addr, 6) == 0) {
 			RemoveTsEntry(ieee, pTS, RX_DIR);
-			list_del_init(&pTS->List);
-			list_add_tail(&pTS->List, &ieee->Rx_TS_Unused_List);
+			list_del_init(&pTS->list);
+			list_add_tail(&pTS->list, &ieee->Rx_TS_Unused_List);
 		}
 	}
 }
 
 void RemoveAllTS(struct ieee80211_device *ieee)
 {
-	PTS_COMMON_INFO pTS, pTmpTS;
+	struct ts_common_info *pTS, *pTmpTS;
 
-	list_for_each_entry_safe(pTS, pTmpTS, &ieee->Tx_TS_Pending_List, List) {
+	list_for_each_entry_safe(pTS, pTmpTS, &ieee->Tx_TS_Pending_List, list) {
 		RemoveTsEntry(ieee, pTS, TX_DIR);
-		list_del_init(&pTS->List);
-		list_add_tail(&pTS->List, &ieee->Tx_TS_Unused_List);
+		list_del_init(&pTS->list);
+		list_add_tail(&pTS->list, &ieee->Tx_TS_Unused_List);
 	}
 
-	list_for_each_entry_safe(pTS, pTmpTS, &ieee->Tx_TS_Admit_List, List) {
+	list_for_each_entry_safe(pTS, pTmpTS, &ieee->Tx_TS_Admit_List, list) {
 		RemoveTsEntry(ieee, pTS, TX_DIR);
-		list_del_init(&pTS->List);
-		list_add_tail(&pTS->List, &ieee->Tx_TS_Unused_List);
+		list_del_init(&pTS->list);
+		list_add_tail(&pTS->list, &ieee->Tx_TS_Unused_List);
 	}
 
-	list_for_each_entry_safe(pTS, pTmpTS, &ieee->Rx_TS_Pending_List, List) {
+	list_for_each_entry_safe(pTS, pTmpTS, &ieee->Rx_TS_Pending_List, list) {
 		RemoveTsEntry(ieee, pTS, RX_DIR);
-		list_del_init(&pTS->List);
-		list_add_tail(&pTS->List, &ieee->Rx_TS_Unused_List);
+		list_del_init(&pTS->list);
+		list_add_tail(&pTS->list, &ieee->Rx_TS_Unused_List);
 	}
 
-	list_for_each_entry_safe(pTS, pTmpTS, &ieee->Rx_TS_Admit_List, List) {
+	list_for_each_entry_safe(pTS, pTmpTS, &ieee->Rx_TS_Admit_List, list) {
 		RemoveTsEntry(ieee, pTS, RX_DIR);
-		list_del_init(&pTS->List);
-		list_add_tail(&pTS->List, &ieee->Rx_TS_Unused_List);
+		list_del_init(&pTS->list);
+		list_add_tail(&pTS->list, &ieee->Rx_TS_Unused_List);
 	}
 }
 
