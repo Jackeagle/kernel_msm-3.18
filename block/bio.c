@@ -28,9 +28,11 @@
 #include <linux/mempool.h>
 #include <linux/workqueue.h>
 #include <linux/cgroup.h>
+#include <linux/blk-cgroup.h>
 
 #include <trace/events/block.h>
 #include "blk.h"
+#include "blk-rq-qos.h"
 
 /*
  * Test patch to inline a certain number of bi_io_vec's inside the bio
@@ -1726,29 +1728,31 @@ void bio_check_pages_dirty(struct bio *bio)
 }
 EXPORT_SYMBOL_GPL(bio_check_pages_dirty);
 
-void generic_start_io_acct(struct request_queue *q, int rw,
+void generic_start_io_acct(struct request_queue *q, int op,
 			   unsigned long sectors, struct hd_struct *part)
 {
+	const int sgrp = op_stat_group(op);
 	int cpu = part_stat_lock();
 
 	part_round_stats(q, cpu, part);
-	part_stat_inc(cpu, part, ios[rw]);
-	part_stat_add(cpu, part, sectors[rw], sectors);
-	part_inc_in_flight(q, part, rw);
+	part_stat_inc(cpu, part, ios[sgrp]);
+	part_stat_add(cpu, part, sectors[sgrp], sectors);
+	part_inc_in_flight(q, part, op_is_write(op));
 
 	part_stat_unlock();
 }
 EXPORT_SYMBOL(generic_start_io_acct);
 
-void generic_end_io_acct(struct request_queue *q, int rw,
+void generic_end_io_acct(struct request_queue *q, int req_op,
 			 struct hd_struct *part, unsigned long start_time)
 {
 	unsigned long duration = jiffies - start_time;
+	const int sgrp = op_stat_group(req_op);
 	int cpu = part_stat_lock();
 
-	part_stat_add(cpu, part, ticks[rw], duration);
+	part_stat_add(cpu, part, ticks[sgrp], duration);
 	part_round_stats(q, cpu, part);
-	part_dec_in_flight(q, part, rw);
+	part_dec_in_flight(q, part, op_is_write(req_op));
 
 	part_stat_unlock();
 }
@@ -1806,6 +1810,9 @@ again:
 		return;
 	if (!bio_integrity_endio(bio))
 		return;
+
+	if (bio->bi_disk)
+		rq_qos_done_bio(bio->bi_disk->queue, bio);
 
 	/*
 	 * Need to have a real endio function for chained bios, otherwise
@@ -2014,6 +2021,30 @@ EXPORT_SYMBOL(bioset_init_from_src);
 
 #ifdef CONFIG_BLK_CGROUP
 
+#ifdef CONFIG_MEMCG
+/**
+ * bio_associate_blkcg_from_page - associate a bio with the page's blkcg
+ * @bio: target bio
+ * @page: the page to lookup the blkcg from
+ *
+ * Associate @bio with the blkcg from @page's owning memcg.  This works like
+ * every other associate function wrt references.
+ */
+int bio_associate_blkcg_from_page(struct bio *bio, struct page *page)
+{
+	struct cgroup_subsys_state *blkcg_css;
+
+	if (unlikely(bio->bi_css))
+		return -EBUSY;
+	if (!page->mem_cgroup)
+		return 0;
+	blkcg_css = cgroup_get_e_css(page->mem_cgroup->css.cgroup,
+				     &io_cgrp_subsys);
+	bio->bi_css = blkcg_css;
+	return 0;
+}
+#endif /* CONFIG_MEMCG */
+
 /**
  * bio_associate_blkcg - associate a bio with the specified blkcg
  * @bio: target bio
@@ -2037,6 +2068,24 @@ int bio_associate_blkcg(struct bio *bio, struct cgroup_subsys_state *blkcg_css)
 EXPORT_SYMBOL_GPL(bio_associate_blkcg);
 
 /**
+ * bio_associate_blkg - associate a bio with the specified blkg
+ * @bio: target bio
+ * @blkg: the blkg to associate
+ *
+ * Associate @bio with the blkg specified by @blkg.  This is the queue specific
+ * blkcg information associated with the @bio, a reference will be taken on the
+ * @blkg and will be freed when the bio is freed.
+ */
+int bio_associate_blkg(struct bio *bio, struct blkcg_gq *blkg)
+{
+	if (unlikely(bio->bi_blkg))
+		return -EBUSY;
+	blkg_get(blkg);
+	bio->bi_blkg = blkg;
+	return 0;
+}
+
+/**
  * bio_disassociate_task - undo bio_associate_current()
  * @bio: target bio
  */
@@ -2049,6 +2098,10 @@ void bio_disassociate_task(struct bio *bio)
 	if (bio->bi_css) {
 		css_put(bio->bi_css);
 		bio->bi_css = NULL;
+	}
+	if (bio->bi_blkg) {
+		blkg_put(bio->bi_blkg);
+		bio->bi_blkg = NULL;
 	}
 }
 
