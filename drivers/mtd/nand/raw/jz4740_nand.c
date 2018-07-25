@@ -25,7 +25,7 @@
 
 #include <linux/gpio.h>
 
-#include <asm/mach-jz4740/jz4740_nand.h>
+#include <linux/platform_data/jz4740/jz4740_nand.h>
 
 #define JZ_REG_NAND_CTRL	0x50
 #define JZ_REG_NAND_ECC_CTRL	0x100
@@ -355,7 +355,7 @@ static int jz_nand_detect_bank(struct platform_device *pdev,
 		mtd->size += chip->chipsize;
 	}
 
-	dev_info(&pdev->dev, "Found chip %i on bank %i\n", chipnr, bank);
+	dev_info(&pdev->dev, "Found chip %zu on bank %i\n", chipnr, bank);
 	return 0;
 
 notfound_id:
@@ -466,9 +466,8 @@ static int jz_nand_probe(struct platform_device *pdev)
 		goto err_unclaim_banks;
 	}
 
-	ret = mtd_device_parse_register(mtd, NULL, NULL,
-					pdata ? pdata->partitions : NULL,
-					pdata ? pdata->num_partitions : 0);
+	ret = mtd_device_register(mtd, pdata ? pdata->partitions : NULL,
+				  pdata ? pdata->num_partitions : 0);
 
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to add mtd device\n");
