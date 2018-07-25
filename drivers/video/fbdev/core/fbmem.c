@@ -1347,6 +1347,7 @@ static long fb_compat_ioctl(struct file *file, unsigned int cmd,
 	case FBIOGET_CON2FBMAP:
 	case FBIOPUT_CON2FBMAP:
 		arg = (unsigned long) compat_ptr(arg);
+		/* fall through */
 	case FBIOBLANK:
 		ret = do_fb_ioctl(info, cmd, arg);
 		break;
@@ -1593,10 +1594,8 @@ static int do_remove_conflicting_framebuffers(struct apertures_struct *a,
 	int i, ret;
 
 	/* check all firmware fbs and kick off if the base addr overlaps */
-	for (i = 0 ; i < FB_MAX; i++) {
+	for_each_registered_fb(i) {
 		struct apertures_struct *gen_aper;
-		if (!registered_fb[i])
-			continue;
 
 		if (!(registered_fb[i]->flags & FBINFO_MISC_FIRMWARE))
 			continue;
