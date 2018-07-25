@@ -2002,7 +2002,7 @@ struct ieee80211_device {
 	short (*check_nic_enough_desc)(struct net_device *dev, int queue_index);
 	//added by wb for HT related
 //	void (*SwChnlByTimerHandler)(struct net_device *dev, int channel);
-	void (*SetBWModeHandler)(struct net_device *dev, HT_CHANNEL_WIDTH Bandwidth, HT_EXTCHNL_OFFSET Offset);
+	void (*SetBWModeHandler)(struct net_device *dev, enum ht_channel_width Bandwidth, enum ht_extension_chan_offset Offset);
 //	void (*UpdateHalRATRTableHandler)(struct net_device* dev, u8* pMcsRate);
 	bool (*GetNmodeSupportBySecCfg)(struct net_device *dev);
 	void (*SetWirelessMode)(struct net_device *dev, u8 wireless_mode);
@@ -2358,7 +2358,7 @@ void HTDebugHTCapability(u8 *CapIE, u8 *TitleString);
 void HTDebugHTInfo(u8 *InfoIE, u8 *TitleString);
 
 void HTSetConnectBwMode(struct ieee80211_device *ieee,
-			HT_CHANNEL_WIDTH Bandwidth, HT_EXTCHNL_OFFSET Offset);
+			enum ht_channel_width Bandwidth, enum ht_extension_chan_offset Offset);
 void HTUpdateDefaultSetting(struct ieee80211_device *ieee);
 void HTConstructCapabilityElement(struct ieee80211_device *ieee, u8 *posHTCap,
 				  u8 *len, u8 isEncrypt);
@@ -2391,7 +2391,7 @@ int ieee80211_rx_DELBA(struct ieee80211_device *ieee, struct sk_buff *skb);
 void TsInitAddBA(struct ieee80211_device *ieee, PTX_TS_RECORD pTS,
 		 u8 Policy, u8 bOverwritePending);
 void TsInitDelBA(struct ieee80211_device *ieee,
-		 PTS_COMMON_INFO pTsCommonInfo, TR_SELECT TxRxSelect);
+		 struct ts_common_info *pTsCommonInfo, enum tr_select TxRxSelect);
 void BaSetupTimeOut(struct timer_list *t);
 void TxBaInactTimeout(struct timer_list *t);
 void RxBaInactTimeout(struct timer_list *t);
@@ -2399,10 +2399,10 @@ void ResetBaEntry(PBA_RECORD pBA);
 //function in TS.c
 bool GetTs(
 	struct ieee80211_device		*ieee,
-	PTS_COMMON_INFO                 *ppTS,
+	struct ts_common_info           **ppTS,
 	u8                              *Addr,
 	u8                              TID,
-	TR_SELECT                       TxRxSelect,  //Rx:1, Tx:0
+	enum tr_select                  TxRxSelect,  //Rx:1, Tx:0
 	bool                            bAddNewTs
 	);
 void TSInitialize(struct ieee80211_device *ieee);
