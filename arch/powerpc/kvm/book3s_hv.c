@@ -128,14 +128,14 @@ static int kvmppc_hv_setup_htab_rma(struct kvm_vcpu *vcpu);
  * and SPURR count and should be set according to the number of
  * online threads in the vcore being run.
  */
-#define RWMR_RPA_P8_1THREAD	0x164520C62609AECA
-#define RWMR_RPA_P8_2THREAD	0x7FFF2908450D8DA9
-#define RWMR_RPA_P8_3THREAD	0x164520C62609AECA
-#define RWMR_RPA_P8_4THREAD	0x199A421245058DA9
-#define RWMR_RPA_P8_5THREAD	0x164520C62609AECA
-#define RWMR_RPA_P8_6THREAD	0x164520C62609AECA
-#define RWMR_RPA_P8_7THREAD	0x164520C62609AECA
-#define RWMR_RPA_P8_8THREAD	0x164520C62609AECA
+#define RWMR_RPA_P8_1THREAD	0x164520C62609AECAUL
+#define RWMR_RPA_P8_2THREAD	0x7FFF2908450D8DA9UL
+#define RWMR_RPA_P8_3THREAD	0x164520C62609AECAUL
+#define RWMR_RPA_P8_4THREAD	0x199A421245058DA9UL
+#define RWMR_RPA_P8_5THREAD	0x164520C62609AECAUL
+#define RWMR_RPA_P8_6THREAD	0x164520C62609AECAUL
+#define RWMR_RPA_P8_7THREAD	0x164520C62609AECAUL
+#define RWMR_RPA_P8_8THREAD	0x164520C62609AECAUL
 
 static unsigned long p8_rwmr_values[MAX_SMT_THREADS + 1] = {
 	RWMR_RPA_P8_1THREAD,
@@ -1808,7 +1808,7 @@ static int threads_per_vcore(struct kvm *kvm)
 	return threads_per_subcore;
 }
 
-static struct kvmppc_vcore *kvmppc_vcore_create(struct kvm *kvm, int core)
+static struct kvmppc_vcore *kvmppc_vcore_create(struct kvm *kvm, int id)
 {
 	struct kvmppc_vcore *vcore;
 
@@ -1822,7 +1822,7 @@ static struct kvmppc_vcore *kvmppc_vcore_create(struct kvm *kvm, int core)
 	init_swait_queue_head(&vcore->wq);
 	vcore->preempt_tb = TB_NIL;
 	vcore->lpcr = kvm->arch.lpcr;
-	vcore->first_vcpuid = core * kvm->arch.smt_mode;
+	vcore->first_vcpuid = id;
 	vcore->kvm = kvm;
 	INIT_LIST_HEAD(&vcore->preempt_list);
 
@@ -1981,9 +1981,15 @@ static struct kvm_vcpu *kvmppc_core_vcpu_create_hv(struct kvm *kvm,
 						   unsigned int id)
 {
 	struct kvm_vcpu *vcpu;
-	int err;
+	int err = -EINVAL;
 	int core;
 	struct kvmppc_vcore *vcore;
+
+	if (id >= (KVM_MAX_VCPUS * kvm->arch.emul_smt_mode) &&
+	    cpu_has_feature(CPU_FTR_ARCH_300)) {
+		pr_devel("DNCI: VCPU ID too high\n");
+		goto out;
+	}
 
 	err = -ENOMEM;
 	vcpu = kmem_cache_zalloc(kvm_vcpu_cache, GFP_KERNEL);
@@ -2038,12 +2044,21 @@ static struct kvm_vcpu *kvmppc_core_vcpu_create_hv(struct kvm *kvm,
 	mutex_lock(&kvm->lock);
 	vcore = NULL;
 	err = -EINVAL;
-	core = id / kvm->arch.smt_mode;
+	if (cpu_has_feature(CPU_FTR_ARCH_300)) {
+		BUG_ON(kvm->arch.smt_mode != 1);
+		core = kvmppc_pack_vcpu_id(kvm, id);
+	} else {
+		core = id / kvm->arch.smt_mode;
+	}
 	if (core < KVM_MAX_VCORES) {
 		vcore = kvm->arch.vcores[core];
-		if (!vcore) {
+		if (vcore && cpu_has_feature(CPU_FTR_ARCH_300)) {
+			pr_devel("KVM: collision on id %u", id);
+			vcore = NULL;
+		} else if (!vcore) {
 			err = -ENOMEM;
-			vcore = kvmppc_vcore_create(kvm, core);
+			vcore = kvmppc_vcore_create(kvm,
+					id & ~(kvm->arch.smt_mode - 1));
 			kvm->arch.vcores[core] = vcore;
 			kvm->arch.online_vcores++;
 		}
@@ -4551,6 +4566,8 @@ static int kvmppc_book3s_init_hv(void)
 			pr_err("KVM-HV: Cannot determine method for accessing XICS\n");
 			return -ENODEV;
 		}
+		/* presence of intc confirmed - node can be dropped again */
+		of_node_put(np);
 	}
 #endif
 
