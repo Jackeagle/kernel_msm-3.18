@@ -293,6 +293,7 @@ static int __bprm_mm_init(struct linux_binprm *bprm)
 	bprm->vma = vma = vm_area_alloc(mm);
 	if (!vma)
 		return -ENOMEM;
+	vma_set_anonymous(vma);
 
 	if (down_write_killable(&mm->mmap_sem)) {
 		err = -EINTR;
@@ -1336,6 +1337,7 @@ void setup_new_exec(struct linux_binprm * bprm)
 	if (bprm->secureexec) {
 		/* Make sure parent cannot signal privileged process. */
 		current->pdeath_signal = 0;
+		current->signal->pdeath_signal_proc = 0;
 
 		/*
 		 * For secureexec, reset the stack limit to sane default to
