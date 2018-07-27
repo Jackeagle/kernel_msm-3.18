@@ -1032,10 +1032,8 @@ void mlx5e_tc_update_neigh_used_value(struct mlx5e_neigh_hash_entry *nhe)
 		 * dst ip pair
 		 */
 		n = neigh_lookup(tbl, &m_neigh->dst_ip, m_neigh->dev);
-		if (!n) {
-			WARN(1, "The neighbour already freed\n");
+		if (!n)
 			return;
-		}
 
 		neigh_event_send(n, NULL);
 		neigh_release(n);
@@ -1213,6 +1211,26 @@ vxlan_match_offload_err:
 		MLX5_SET(fte_match_set_lyr_2_4, headers_v, ethertype, ETH_P_IPV6);
 	}
 
+	if (dissector_uses_key(f->dissector, FLOW_DISSECTOR_KEY_ENC_IP)) {
+		struct flow_dissector_key_ip *key =
+			skb_flow_dissector_target(f->dissector,
+						  FLOW_DISSECTOR_KEY_ENC_IP,
+						  f->key);
+		struct flow_dissector_key_ip *mask =
+			skb_flow_dissector_target(f->dissector,
+						  FLOW_DISSECTOR_KEY_ENC_IP,
+						  f->mask);
+
+		MLX5_SET(fte_match_set_lyr_2_4, headers_c, ip_ecn, mask->tos & 0x3);
+		MLX5_SET(fte_match_set_lyr_2_4, headers_v, ip_ecn, key->tos & 0x3);
+
+		MLX5_SET(fte_match_set_lyr_2_4, headers_c, ip_dscp, mask->tos >> 2);
+		MLX5_SET(fte_match_set_lyr_2_4, headers_v, ip_dscp, key->tos  >> 2);
+
+		MLX5_SET(fte_match_set_lyr_2_4, headers_c, ttl_hoplimit, mask->ttl);
+		MLX5_SET(fte_match_set_lyr_2_4, headers_v, ttl_hoplimit, key->ttl);
+	}
+
 	/* Enforce DMAC when offloading incoming tunneled flows.
 	 * Flow counters require a match on the DMAC.
 	 */
@@ -1237,6 +1255,10 @@ static int __parse_cls_flower(struct mlx5e_priv *priv,
 				       outer_headers);
 	void *headers_v = MLX5_ADDR_OF(fte_match_param, spec->match_value,
 				       outer_headers);
+	void *misc_c = MLX5_ADDR_OF(fte_match_param, spec->match_criteria,
+				    misc_parameters);
+	void *misc_v = MLX5_ADDR_OF(fte_match_param, spec->match_value,
+				    misc_parameters);
 	u16 addr_type = 0;
 	u8 ip_proto = 0;
 
@@ -1247,6 +1269,7 @@ static int __parse_cls_flower(struct mlx5e_priv *priv,
 	      BIT(FLOW_DISSECTOR_KEY_BASIC) |
 	      BIT(FLOW_DISSECTOR_KEY_ETH_ADDRS) |
 	      BIT(FLOW_DISSECTOR_KEY_VLAN) |
+	      BIT(FLOW_DISSECTOR_KEY_CVLAN) |
 	      BIT(FLOW_DISSECTOR_KEY_IPV4_ADDRS) |
 	      BIT(FLOW_DISSECTOR_KEY_IPV6_ADDRS) |
 	      BIT(FLOW_DISSECTOR_KEY_PORTS) |
@@ -1256,7 +1279,8 @@ static int __parse_cls_flower(struct mlx5e_priv *priv,
 	      BIT(FLOW_DISSECTOR_KEY_ENC_PORTS)	|
 	      BIT(FLOW_DISSECTOR_KEY_ENC_CONTROL) |
 	      BIT(FLOW_DISSECTOR_KEY_TCP) |
-	      BIT(FLOW_DISSECTOR_KEY_IP))) {
+	      BIT(FLOW_DISSECTOR_KEY_IP)  |
+	      BIT(FLOW_DISSECTOR_KEY_ENC_IP))) {
 		netdev_warn(priv->netdev, "Unsupported key used: 0x%x\n",
 			    f->dissector->used_keys);
 		return -EOPNOTSUPP;
@@ -1327,15 +1351,59 @@ static int __parse_cls_flower(struct mlx5e_priv *priv,
 			skb_flow_dissector_target(f->dissector,
 						  FLOW_DISSECTOR_KEY_VLAN,
 						  f->mask);
-		if (mask->vlan_id || mask->vlan_priority) {
-			MLX5_SET(fte_match_set_lyr_2_4, headers_c, cvlan_tag, 1);
-			MLX5_SET(fte_match_set_lyr_2_4, headers_v, cvlan_tag, 1);
+		if (mask->vlan_id || mask->vlan_priority || mask->vlan_tpid) {
+			if (key->vlan_tpid == htons(ETH_P_8021AD)) {
+				MLX5_SET(fte_match_set_lyr_2_4, headers_c,
+					 svlan_tag, 1);
+				MLX5_SET(fte_match_set_lyr_2_4, headers_v,
+					 svlan_tag, 1);
+			} else {
+				MLX5_SET(fte_match_set_lyr_2_4, headers_c,
+					 cvlan_tag, 1);
+				MLX5_SET(fte_match_set_lyr_2_4, headers_v,
+					 cvlan_tag, 1);
+			}
 
 			MLX5_SET(fte_match_set_lyr_2_4, headers_c, first_vid, mask->vlan_id);
 			MLX5_SET(fte_match_set_lyr_2_4, headers_v, first_vid, key->vlan_id);
 
 			MLX5_SET(fte_match_set_lyr_2_4, headers_c, first_prio, mask->vlan_priority);
 			MLX5_SET(fte_match_set_lyr_2_4, headers_v, first_prio, key->vlan_priority);
+
+			*match_level = MLX5_MATCH_L2;
+		}
+	}
+
+	if (dissector_uses_key(f->dissector, FLOW_DISSECTOR_KEY_CVLAN)) {
+		struct flow_dissector_key_vlan *key =
+			skb_flow_dissector_target(f->dissector,
+						  FLOW_DISSECTOR_KEY_CVLAN,
+						  f->key);
+		struct flow_dissector_key_vlan *mask =
+			skb_flow_dissector_target(f->dissector,
+						  FLOW_DISSECTOR_KEY_CVLAN,
+						  f->mask);
+		if (mask->vlan_id || mask->vlan_priority || mask->vlan_tpid) {
+			if (key->vlan_tpid == htons(ETH_P_8021AD)) {
+				MLX5_SET(fte_match_set_misc, misc_c,
+					 outer_second_svlan_tag, 1);
+				MLX5_SET(fte_match_set_misc, misc_v,
+					 outer_second_svlan_tag, 1);
+			} else {
+				MLX5_SET(fte_match_set_misc, misc_c,
+					 outer_second_cvlan_tag, 1);
+				MLX5_SET(fte_match_set_misc, misc_v,
+					 outer_second_cvlan_tag, 1);
+			}
+
+			MLX5_SET(fte_match_set_misc, misc_c, outer_second_vid,
+				 mask->vlan_id);
+			MLX5_SET(fte_match_set_misc, misc_v, outer_second_vid,
+				 key->vlan_id);
+			MLX5_SET(fte_match_set_misc, misc_c, outer_second_prio,
+				 mask->vlan_priority);
+			MLX5_SET(fte_match_set_misc, misc_v, outer_second_prio,
+				 key->vlan_priority);
 
 			*match_level = MLX5_MATCH_L2;
 		}
@@ -2082,7 +2150,7 @@ static int mlx5e_route_lookup_ipv4(struct mlx5e_priv *priv,
 				   struct net_device **out_dev,
 				   struct flowi4 *fl4,
 				   struct neighbour **out_n,
-				   int *out_ttl)
+				   u8 *out_ttl)
 {
 	struct mlx5_eswitch *esw = priv->mdev->priv.eswitch;
 	struct mlx5e_rep_priv *uplink_rpriv;
@@ -2106,7 +2174,8 @@ static int mlx5e_route_lookup_ipv4(struct mlx5e_priv *priv,
 	else
 		*out_dev = rt->dst.dev;
 
-	*out_ttl = ip4_dst_hoplimit(&rt->dst);
+	if (!(*out_ttl))
+		*out_ttl = ip4_dst_hoplimit(&rt->dst);
 	n = dst_neigh_lookup(&rt->dst, &fl4->daddr);
 	ip_rt_put(rt);
 	if (!n)
@@ -2135,7 +2204,7 @@ static int mlx5e_route_lookup_ipv6(struct mlx5e_priv *priv,
 				   struct net_device **out_dev,
 				   struct flowi6 *fl6,
 				   struct neighbour **out_n,
-				   int *out_ttl)
+				   u8 *out_ttl)
 {
 	struct neighbour *n = NULL;
 	struct dst_entry *dst;
@@ -2150,7 +2219,8 @@ static int mlx5e_route_lookup_ipv6(struct mlx5e_priv *priv,
 	if (ret < 0)
 		return ret;
 
-	*out_ttl = ip6_dst_hoplimit(dst);
+	if (!(*out_ttl))
+		*out_ttl = ip6_dst_hoplimit(dst);
 
 	uplink_rpriv = mlx5_eswitch_get_uplink_priv(esw, REP_ETH);
 	/* if the egress device isn't on the same HW e-switch, we use the uplink */
@@ -2174,7 +2244,7 @@ static int mlx5e_route_lookup_ipv6(struct mlx5e_priv *priv,
 static void gen_vxlan_header_ipv4(struct net_device *out_dev,
 				  char buf[], int encap_size,
 				  unsigned char h_dest[ETH_ALEN],
-				  int ttl,
+				  u8 tos, u8 ttl,
 				  __be32 daddr,
 				  __be32 saddr,
 				  __be16 udp_dst_port,
@@ -2194,6 +2264,7 @@ static void gen_vxlan_header_ipv4(struct net_device *out_dev,
 	ip->daddr = daddr;
 	ip->saddr = saddr;
 
+	ip->tos = tos;
 	ip->ttl = ttl;
 	ip->protocol = IPPROTO_UDP;
 	ip->version = 0x4;
@@ -2207,7 +2278,7 @@ static void gen_vxlan_header_ipv4(struct net_device *out_dev,
 static void gen_vxlan_header_ipv6(struct net_device *out_dev,
 				  char buf[], int encap_size,
 				  unsigned char h_dest[ETH_ALEN],
-				  int ttl,
+				  u8 tos, u8 ttl,
 				  struct in6_addr *daddr,
 				  struct in6_addr *saddr,
 				  __be16 udp_dst_port,
@@ -2224,7 +2295,7 @@ static void gen_vxlan_header_ipv6(struct net_device *out_dev,
 	ether_addr_copy(eth->h_source, out_dev->dev_addr);
 	eth->h_proto = htons(ETH_P_IPV6);
 
-	ip6_flow_hdr(ip6h, 0, 0);
+	ip6_flow_hdr(ip6h, tos, 0);
 	/* the HW fills up ipv6 payload len */
 	ip6h->nexthdr     = IPPROTO_UDP;
 	ip6h->hop_limit   = ttl;
@@ -2246,9 +2317,9 @@ static int mlx5e_create_encap_header_ipv4(struct mlx5e_priv *priv,
 	struct net_device *out_dev;
 	struct neighbour *n = NULL;
 	struct flowi4 fl4 = {};
+	u8 nud_state, tos, ttl;
 	char *encap_header;
-	int ttl, err;
-	u8 nud_state;
+	int err;
 
 	if (max_encap_size < ipv4_encap_size) {
 		mlx5_core_warn(priv->mdev, "encap size %d too big, max supported is %d\n",
@@ -2269,6 +2340,10 @@ static int mlx5e_create_encap_header_ipv4(struct mlx5e_priv *priv,
 		err = -EOPNOTSUPP;
 		goto free_encap;
 	}
+
+	tos = tun_key->tos;
+	ttl = tun_key->ttl;
+
 	fl4.flowi4_tos = tun_key->tos;
 	fl4.daddr = tun_key->u.ipv4.dst;
 	fl4.saddr = tun_key->u.ipv4.src;
@@ -2303,7 +2378,7 @@ static int mlx5e_create_encap_header_ipv4(struct mlx5e_priv *priv,
 	switch (e->tunnel_type) {
 	case MLX5_HEADER_TYPE_VXLAN:
 		gen_vxlan_header_ipv4(out_dev, encap_header,
-				      ipv4_encap_size, e->h_dest, ttl,
+				      ipv4_encap_size, e->h_dest, tos, ttl,
 				      fl4.daddr,
 				      fl4.saddr, tun_key->tp_dst,
 				      tunnel_id_to_key32(tun_key->tun_id));
@@ -2351,9 +2426,9 @@ static int mlx5e_create_encap_header_ipv6(struct mlx5e_priv *priv,
 	struct net_device *out_dev;
 	struct neighbour *n = NULL;
 	struct flowi6 fl6 = {};
+	u8 nud_state, tos, ttl;
 	char *encap_header;
-	int err, ttl = 0;
-	u8 nud_state;
+	int err;
 
 	if (max_encap_size < ipv6_encap_size) {
 		mlx5_core_warn(priv->mdev, "encap size %d too big, max supported is %d\n",
@@ -2374,6 +2449,9 @@ static int mlx5e_create_encap_header_ipv6(struct mlx5e_priv *priv,
 		err = -EOPNOTSUPP;
 		goto free_encap;
 	}
+
+	tos = tun_key->tos;
+	ttl = tun_key->ttl;
 
 	fl6.flowlabel = ip6_make_flowinfo(RT_TOS(tun_key->tos), tun_key->label);
 	fl6.daddr = tun_key->u.ipv6.dst;
@@ -2409,7 +2487,7 @@ static int mlx5e_create_encap_header_ipv6(struct mlx5e_priv *priv,
 	switch (e->tunnel_type) {
 	case MLX5_HEADER_TYPE_VXLAN:
 		gen_vxlan_header_ipv6(out_dev, encap_header,
-				      ipv6_encap_size, e->h_dest, ttl,
+				      ipv6_encap_size, e->h_dest, tos, ttl,
 				      &fl6.daddr,
 				      &fl6.saddr, tun_key->tp_dst,
 				      tunnel_id_to_key32(tun_key->tun_id));
@@ -2535,6 +2613,56 @@ out_err:
 	return err;
 }
 
+static int parse_tc_vlan_action(struct mlx5e_priv *priv,
+				const struct tc_action *a,
+				struct mlx5_esw_flow_attr *attr,
+				u32 *action)
+{
+	u8 vlan_idx = attr->total_vlan;
+
+	if (vlan_idx >= MLX5_FS_VLAN_DEPTH)
+		return -EOPNOTSUPP;
+
+	if (tcf_vlan_action(a) == TCA_VLAN_ACT_POP) {
+		if (vlan_idx) {
+			if (!mlx5_eswitch_vlan_actions_supported(priv->mdev,
+								 MLX5_FS_VLAN_DEPTH))
+				return -EOPNOTSUPP;
+
+			*action |= MLX5_FLOW_CONTEXT_ACTION_VLAN_POP_2;
+		} else {
+			*action |= MLX5_FLOW_CONTEXT_ACTION_VLAN_POP;
+		}
+	} else if (tcf_vlan_action(a) == TCA_VLAN_ACT_PUSH) {
+		attr->vlan_vid[vlan_idx] = tcf_vlan_push_vid(a);
+		attr->vlan_prio[vlan_idx] = tcf_vlan_push_prio(a);
+		attr->vlan_proto[vlan_idx] = tcf_vlan_push_proto(a);
+		if (!attr->vlan_proto[vlan_idx])
+			attr->vlan_proto[vlan_idx] = htons(ETH_P_8021Q);
+
+		if (vlan_idx) {
+			if (!mlx5_eswitch_vlan_actions_supported(priv->mdev,
+								 MLX5_FS_VLAN_DEPTH))
+				return -EOPNOTSUPP;
+
+			*action |= MLX5_FLOW_CONTEXT_ACTION_VLAN_PUSH_2;
+		} else {
+			if (!mlx5_eswitch_vlan_actions_supported(priv->mdev, 1) &&
+			    (tcf_vlan_push_proto(a) != htons(ETH_P_8021Q) ||
+			     tcf_vlan_push_prio(a)))
+				return -EOPNOTSUPP;
+
+			*action |= MLX5_FLOW_CONTEXT_ACTION_VLAN_PUSH;
+		}
+	} else { /* action is TCA_VLAN_ACT_MODIFY */
+		return -EOPNOTSUPP;
+	}
+
+	attr->total_vlan = vlan_idx + 1;
+
+	return 0;
+}
+
 static int parse_tc_fdb_actions(struct mlx5e_priv *priv, struct tcf_exts *exts,
 				struct mlx5e_tc_flow_parse_attr *parse_attr,
 				struct mlx5e_tc_flow *flow)
@@ -2546,6 +2674,7 @@ static int parse_tc_fdb_actions(struct mlx5e_priv *priv, struct tcf_exts *exts,
 	LIST_HEAD(actions);
 	bool encap = false;
 	u32 action = 0;
+	int err;
 
 	if (!tcf_exts_has_actions(exts))
 		return -EINVAL;
@@ -2562,8 +2691,6 @@ static int parse_tc_fdb_actions(struct mlx5e_priv *priv, struct tcf_exts *exts,
 		}
 
 		if (is_tcf_pedit(a)) {
-			int err;
-
 			err = parse_tc_pedit_action(priv, a, MLX5_FLOW_NAMESPACE_FDB,
 						    parse_attr);
 			if (err)
@@ -2630,23 +2757,11 @@ static int parse_tc_fdb_actions(struct mlx5e_priv *priv, struct tcf_exts *exts,
 		}
 
 		if (is_tcf_vlan(a)) {
-			if (tcf_vlan_action(a) == TCA_VLAN_ACT_POP) {
-				action |= MLX5_FLOW_CONTEXT_ACTION_VLAN_POP;
-			} else if (tcf_vlan_action(a) == TCA_VLAN_ACT_PUSH) {
-				action |= MLX5_FLOW_CONTEXT_ACTION_VLAN_PUSH;
-				attr->vlan_vid = tcf_vlan_push_vid(a);
-				if (mlx5_eswitch_vlan_actions_supported(priv->mdev)) {
-					attr->vlan_prio = tcf_vlan_push_prio(a);
-					attr->vlan_proto = tcf_vlan_push_proto(a);
-					if (!attr->vlan_proto)
-						attr->vlan_proto = htons(ETH_P_8021Q);
-				} else if (tcf_vlan_push_proto(a) != htons(ETH_P_8021Q) ||
-					   tcf_vlan_push_prio(a)) {
-					return -EOPNOTSUPP;
-				}
-			} else { /* action is TCA_VLAN_ACT_MODIFY */
-				return -EOPNOTSUPP;
-			}
+			err = parse_tc_vlan_action(priv, a, attr, &action);
+
+			if (err)
+				return err;
+
 			attr->mirror_count = attr->out_count;
 			continue;
 		}
