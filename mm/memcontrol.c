@@ -1303,8 +1303,6 @@ static const char *const memcg1_stat_names[] = {
  */
 void mem_cgroup_print_oom_context(struct mem_cgroup *memcg, struct task_struct *p)
 {
-	struct cgroup *origin_cgrp, *kill_cgrp;
-
 	rcu_read_lock();
 	if (memcg) {
 		pr_cont(",oom_memcg=");
