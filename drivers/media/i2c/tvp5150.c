@@ -1175,7 +1175,10 @@ static int tvp5150_s_stream(struct v4l2_subdev *sd, int enable)
 		tvp5150_enable(sd);
 
 		/* Enable outputs if decoder is locked */
-		val = decoder->lock ? decoder->oe : 0;
+		if (decoder->irq)
+			val = decoder->lock ? decoder->oe : 0;
+		else
+			val = decoder->oe;
 		int_val = TVP5150_INT_A_LOCK;
 	}
 
