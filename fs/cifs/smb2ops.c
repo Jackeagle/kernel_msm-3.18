@@ -2944,11 +2944,14 @@ static int
 receive_encrypted_standard(struct TCP_Server_Info *server,
 			   struct mid_q_entry **mid)
 {
-	int length;
+	int ret, length;
 	char *buf = server->smallbuf;
+	struct smb2_sync_hdr *shdr;
 	unsigned int pdu_length = server->pdu_size;
 	unsigned int buf_size;
 	struct mid_q_entry *mid_entry;
+	int next_is_large;
+	char *next_buffer = NULL;
 
 	/* switch to large buffer if too big for a small one */
 	if (pdu_length > MAX_CIFS_SMALL_BUFFER_SIZE) {
@@ -2969,6 +2972,23 @@ receive_encrypted_standard(struct TCP_Server_Info *server,
 	if (length)
 		return length;
 
+	next_is_large = server->large_buf;
+ one_more:
+	shdr = (struct smb2_sync_hdr *)buf;
+	if (shdr->NextCommand) {
+		if (next_is_large) {
+			next_buffer = (char *)cifs_buf_get();
+			memcpy(next_buffer,
+			       server->bigbuf + le32_to_cpu(shdr->NextCommand),
+			       pdu_length - le32_to_cpu(shdr->NextCommand));
+		} else {
+			next_buffer = (char *)cifs_small_buf_get();
+			memcpy(next_buffer, server->smallbuf +
+			       le32_to_cpu(shdr->NextCommand),
+			       pdu_length - le32_to_cpu(shdr->NextCommand));
+		}
+	}
+
 	mid_entry = smb2_find_mid(server, buf);
 	if (mid_entry == NULL)
 		cifs_dbg(FYI, "mid not found\n");
@@ -2976,13 +2996,28 @@ receive_encrypted_standard(struct TCP_Server_Info *server,
 		cifs_dbg(FYI, "mid found\n");
 		mid_entry->decrypted = true;
 	}
+	mid_entry->resp_buf_size = server->pdu_size;
 
 	*mid = mid_entry;
 
 	if (mid_entry && mid_entry->handle)
-		return mid_entry->handle(server, mid_entry);
+		ret = mid_entry->handle(server, mid_entry);
+	else
+		ret = cifs_handle_standard(server, mid_entry);
 
-	return cifs_handle_standard(server, mid_entry);
+	if (ret == 0 && shdr->NextCommand) {
+		pdu_length -= le32_to_cpu(shdr->NextCommand);
+		server->large_buf = next_is_large;
+		if (next_is_large)
+			server->bigbuf = next_buffer;
+		else
+			server->smallbuf = next_buffer;
+
+		buf += le32_to_cpu(shdr->NextCommand);
+		goto one_more;
+	}
+
+	return ret;
 }
 
 static int
