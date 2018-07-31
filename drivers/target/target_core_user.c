@@ -137,7 +137,7 @@ struct tcmu_dev {
 	struct inode *inode;
 
 	struct tcmu_mailbox *mb_addr;
-	size_t dev_size;
+	uint64_t dev_size;
 	u32 cmdr_size;
 	u32 cmdr_last_cleaned;
 	/* Offset of data area from start of mb */
@@ -1071,7 +1071,6 @@ static sense_reason_t queue_cmd_ring(struct tcmu_cmd *tcmu_cmd, int *scsi_err)
 				   &udev->cmd_timer);
 	if (ret) {
 		tcmu_cmd_free_data(tcmu_cmd, tcmu_cmd->dbi_cnt);
-		mutex_unlock(&udev->cmdr_lock);
 
 		*scsi_err = TCM_OUT_OF_RESOURCES;
 		return -1;
@@ -1371,6 +1370,7 @@ static struct se_device *tcmu_alloc_device(struct se_hba *hba, const char *name)
 	udev->max_blocks = DATA_BLOCK_BITS_DEF;
 	mutex_init(&udev->cmdr_lock);
 
+	INIT_LIST_HEAD(&udev->node);
 	INIT_LIST_HEAD(&udev->timedout_entry);
 	INIT_LIST_HEAD(&udev->cmdr_queue);
 	idr_init(&udev->commands);
@@ -1839,9 +1839,11 @@ static int tcmu_configure_device(struct se_device *dev)
 
 	info = &udev->uio_info;
 
+	mutex_lock(&udev->cmdr_lock);
 	udev->data_bitmap = kcalloc(BITS_TO_LONGS(udev->max_blocks),
 				    sizeof(unsigned long),
 				    GFP_KERNEL);
+	mutex_unlock(&udev->cmdr_lock);
 	if (!udev->data_bitmap) {
 		ret = -ENOMEM;
 		goto err_bitmap_alloc;
@@ -1934,11 +1936,6 @@ err_bitmap_alloc:
 	info->name = NULL;
 
 	return ret;
-}
-
-static bool tcmu_dev_configured(struct tcmu_dev *udev)
-{
-	return udev->uio_info.uio_dev ? true : false;
 }
 
 static void tcmu_free_device(struct se_device *dev)
@@ -2047,45 +2044,76 @@ enum {
 
 static match_table_t tokens = {
 	{Opt_dev_config, "dev_config=%s"},
-	{Opt_dev_size, "dev_size=%u"},
-	{Opt_hw_block_size, "hw_block_size=%u"},
-	{Opt_hw_max_sectors, "hw_max_sectors=%u"},
+	{Opt_dev_size, "dev_size=%s"},
+	{Opt_hw_block_size, "hw_block_size=%d"},
+	{Opt_hw_max_sectors, "hw_max_sectors=%d"},
 	{Opt_nl_reply_supported, "nl_reply_supported=%d"},
-	{Opt_max_data_area_mb, "max_data_area_mb=%u"},
+	{Opt_max_data_area_mb, "max_data_area_mb=%d"},
 	{Opt_err, NULL}
 };
 
 static int tcmu_set_dev_attrib(substring_t *arg, u32 *dev_attrib)
 {
-	unsigned long tmp_ul;
-	char *arg_p;
-	int ret;
+	int val, ret;
 
-	arg_p = match_strdup(arg);
-	if (!arg_p)
-		return -ENOMEM;
-
-	ret = kstrtoul(arg_p, 0, &tmp_ul);
-	kfree(arg_p);
+	ret = match_int(arg, &val);
 	if (ret < 0) {
-		pr_err("kstrtoul() failed for dev attrib\n");
+		pr_err("match_int() failed for dev attrib. Error %d.\n",
+		       ret);
 		return ret;
 	}
-	if (!tmp_ul) {
-		pr_err("dev attrib must be nonzero\n");
+
+	if (val <= 0) {
+		pr_err("Invalid dev attrib value %d. Must be greater than zero.\n",
+		       val);
 		return -EINVAL;
 	}
-	*dev_attrib = tmp_ul;
+	*dev_attrib = val;
 	return 0;
+}
+
+static int tcmu_set_max_blocks_param(struct tcmu_dev *udev, substring_t *arg)
+{
+	int val, ret;
+
+	ret = match_int(arg, &val);
+	if (ret < 0) {
+		pr_err("match_int() failed for max_data_area_mb=. Error %d.\n",
+		       ret);
+		return ret;
+	}
+
+	if (val <= 0) {
+		pr_err("Invalid max_data_area %d.\n", val);
+		return -EINVAL;
+	}
+
+	mutex_lock(&udev->cmdr_lock);
+	if (udev->data_bitmap) {
+		pr_err("Cannot set max_data_area_mb after it has been enabled.\n");
+		ret = -EINVAL;
+		goto unlock;
+	}
+
+	udev->max_blocks = TCMU_MBS_TO_BLOCKS(val);
+	if (udev->max_blocks > tcmu_global_max_blocks) {
+		pr_err("%d is too large. Adjusting max_data_area_mb to global limit of %u\n",
+		       val, TCMU_BLOCKS_TO_MBS(tcmu_global_max_blocks));
+		udev->max_blocks = tcmu_global_max_blocks;
+	}
+
+unlock:
+	mutex_unlock(&udev->cmdr_lock);
+	return ret;
 }
 
 static ssize_t tcmu_set_configfs_dev_params(struct se_device *dev,
 		const char *page, ssize_t count)
 {
 	struct tcmu_dev *udev = TCMU_DEV(dev);
-	char *orig, *ptr, *opts, *arg_p;
+	char *orig, *ptr, *opts;
 	substring_t args[MAX_OPT_ARGS];
-	int ret = 0, token, tmpval;
+	int ret = 0, token;
 
 	opts = kstrdup(page, GFP_KERNEL);
 	if (!opts)
@@ -2108,15 +2136,10 @@ static ssize_t tcmu_set_configfs_dev_params(struct se_device *dev,
 			pr_debug("TCMU: Referencing Path: %s\n", udev->dev_config);
 			break;
 		case Opt_dev_size:
-			arg_p = match_strdup(&args[0]);
-			if (!arg_p) {
-				ret = -ENOMEM;
-				break;
-			}
-			ret = kstrtoul(arg_p, 0, (unsigned long *) &udev->dev_size);
-			kfree(arg_p);
+			ret = match_u64(&args[0], &udev->dev_size);
 			if (ret < 0)
-				pr_err("kstrtoul() failed for dev_size=\n");
+				pr_err("match_u64() failed for dev_size=. Error %d.\n",
+				       ret);
 			break;
 		case Opt_hw_block_size:
 			ret = tcmu_set_dev_attrib(&args[0],
@@ -2127,48 +2150,13 @@ static ssize_t tcmu_set_configfs_dev_params(struct se_device *dev,
 					&(dev->dev_attrib.hw_max_sectors));
 			break;
 		case Opt_nl_reply_supported:
-			arg_p = match_strdup(&args[0]);
-			if (!arg_p) {
-				ret = -ENOMEM;
-				break;
-			}
-			ret = kstrtoint(arg_p, 0, &udev->nl_reply_supported);
-			kfree(arg_p);
+			ret = match_int(&args[0], &udev->nl_reply_supported);
 			if (ret < 0)
-				pr_err("kstrtoint() failed for nl_reply_supported=\n");
+				pr_err("match_int() failed for nl_reply_supported=. Error %d.\n",
+				       ret);
 			break;
 		case Opt_max_data_area_mb:
-			if (dev->export_count) {
-				pr_err("Unable to set max_data_area_mb while exports exist\n");
-				ret = -EINVAL;
-				break;
-			}
-
-			arg_p = match_strdup(&args[0]);
-			if (!arg_p) {
-				ret = -ENOMEM;
-				break;
-			}
-			ret = kstrtoint(arg_p, 0, &tmpval);
-			kfree(arg_p);
-			if (ret < 0) {
-				pr_err("kstrtoint() failed for max_data_area_mb=\n");
-				break;
-			}
-
-			if (tmpval <= 0) {
-				pr_err("Invalid max_data_area %d\n", tmpval);
-				ret = -EINVAL;
-				break;
-			}
-
-			udev->max_blocks = TCMU_MBS_TO_BLOCKS(tmpval);
-			if (udev->max_blocks > tcmu_global_max_blocks) {
-				pr_err("%d is too large. Adjusting max_data_area_mb to global limit of %u\n",
-				       tmpval,
-				       TCMU_BLOCKS_TO_MBS(tcmu_global_max_blocks));
-				udev->max_blocks = tcmu_global_max_blocks;
-			}
+			ret = tcmu_set_max_blocks_param(udev, &args[0]);
 			break;
 		default:
 			break;
@@ -2189,7 +2177,7 @@ static ssize_t tcmu_show_configfs_dev_params(struct se_device *dev, char *b)
 
 	bl = sprintf(b + bl, "Config: %s ",
 		     udev->dev_config[0] ? udev->dev_config : "NULL");
-	bl += sprintf(b + bl, "Size: %zu ", udev->dev_size);
+	bl += sprintf(b + bl, "Size: %llu ", udev->dev_size);
 	bl += sprintf(b + bl, "MaxDataAreaMB: %u\n",
 		      TCMU_BLOCKS_TO_MBS(udev->max_blocks));
 
@@ -2333,7 +2321,7 @@ static ssize_t tcmu_dev_config_store(struct config_item *item, const char *page,
 		return -EINVAL;
 
 	/* Check if device has been configured before */
-	if (tcmu_dev_configured(udev)) {
+	if (target_dev_configured(&udev->se_dev)) {
 		ret = tcmu_send_dev_config_event(udev, page);
 		if (ret) {
 			pr_err("Unable to reconfigure device\n");
@@ -2358,7 +2346,7 @@ static ssize_t tcmu_dev_size_show(struct config_item *item, char *page)
 						struct se_dev_attrib, da_group);
 	struct tcmu_dev *udev = TCMU_DEV(da->da_dev);
 
-	return snprintf(page, PAGE_SIZE, "%zu\n", udev->dev_size);
+	return snprintf(page, PAGE_SIZE, "%llu\n", udev->dev_size);
 }
 
 static int tcmu_send_dev_size_event(struct tcmu_dev *udev, u64 size)
@@ -2395,7 +2383,7 @@ static ssize_t tcmu_dev_size_store(struct config_item *item, const char *page,
 		return ret;
 
 	/* Check if device has been configured before */
-	if (tcmu_dev_configured(udev)) {
+	if (target_dev_configured(&udev->se_dev)) {
 		ret = tcmu_send_dev_size_event(udev, val);
 		if (ret) {
 			pr_err("Unable to reconfigure device\n");
@@ -2477,7 +2465,7 @@ static ssize_t tcmu_emulate_write_cache_store(struct config_item *item,
 		return ret;
 
 	/* Check if device has been configured before */
-	if (tcmu_dev_configured(udev)) {
+	if (target_dev_configured(&udev->se_dev)) {
 		ret = tcmu_send_emulate_write_cache(udev, val);
 		if (ret) {
 			pr_err("Unable to reconfigure device\n");
@@ -2513,6 +2501,11 @@ static ssize_t tcmu_block_dev_store(struct config_item *item, const char *page,
 	u8 val;
 	int ret;
 
+	if (!target_dev_configured(&udev->se_dev)) {
+		pr_err("Device is not configured.\n");
+		return -EINVAL;
+	}
+
 	ret = kstrtou8(page, 0, &val);
 	if (ret < 0)
 		return ret;
@@ -2539,6 +2532,11 @@ static ssize_t tcmu_reset_ring_store(struct config_item *item, const char *page,
 	struct tcmu_dev *udev = TCMU_DEV(se_dev);
 	u8 val;
 	int ret;
+
+	if (!target_dev_configured(&udev->se_dev)) {
+		pr_err("Device is not configured.\n");
+		return -EINVAL;
+	}
 
 	ret = kstrtou8(page, 0, &val);
 	if (ret < 0)
@@ -2603,6 +2601,11 @@ static void find_free_blocks(void)
 	mutex_lock(&root_udev_mutex);
 	list_for_each_entry(udev, &root_udev, node) {
 		mutex_lock(&udev->cmdr_lock);
+
+		if (!target_dev_configured(&udev->se_dev)) {
+			mutex_unlock(&udev->cmdr_lock);
+			continue;
+		}
 
 		/* Try to complete the finished commands first */
 		tcmu_handle_completions(udev);
