@@ -281,6 +281,7 @@ DEFINE_EVENT(smb3_cmd_done_class, smb3_##name,    \
 	TP_ARGS(tid, sesid, cmd, mid))
 
 DEFINE_SMB3_CMD_DONE_EVENT(cmd_done);
+DEFINE_SMB3_CMD_DONE_EVENT(ses_expired);
 
 DECLARE_EVENT_CLASS(smb3_exit_err_class,
 	TP_PROTO(unsigned int xid,
@@ -421,6 +422,32 @@ DEFINE_EVENT(smb3_open_done_class, smb3_##name,  \
 
 DEFINE_SMB3_OPEN_DONE_EVENT(open_done);
 DEFINE_SMB3_OPEN_DONE_EVENT(posix_mkdir_done);
+
+DECLARE_EVENT_CLASS(smb3_reconnect_class,
+	TP_PROTO(__u64	currmid,
+		char *hostname),
+	TP_ARGS(currmid, hostname),
+	TP_STRUCT__entry(
+		__field(__u64, currmid)
+		__field(char *, hostname)
+	),
+	TP_fast_assign(
+		__entry->currmid = currmid;
+		__entry->hostname = hostname;
+	),
+	TP_printk("server=%s current_mid=0x%llx",
+		__entry->hostname,
+		__entry->currmid)
+)
+
+#define DEFINE_SMB3_RECONNECT_EVENT(name)        \
+DEFINE_EVENT(smb3_reconnect_class, smb3_##name,  \
+	TP_PROTO(__u64	currmid,		\
+		char *hostname),		\
+	TP_ARGS(currmid, hostname))
+
+DEFINE_SMB3_RECONNECT_EVENT(reconnect);
+DEFINE_SMB3_RECONNECT_EVENT(partial_send_reconnect);
 
 #endif /* _CIFS_TRACE_H */
 
