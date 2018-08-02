@@ -441,6 +441,12 @@ xfs_bui_recover(
 			XFS_EXTENTADD_SPACE_RES(mp, XFS_DATA_FORK), 0, 0, &tp);
 	if (error)
 		return error;
+	/*
+	 * Recovery stashes all deferred ops during intent processing and
+	 * finishes them on completion. Transfer current dfops state to this
+	 * transaction and transfer the result back before we return.
+	 */
+	xfs_defer_move(tp->t_dfops, dfops);
 	budp = xfs_trans_get_bud(tp, buip);
 
 	/* Grab the inode. */
@@ -469,7 +475,7 @@ xfs_bui_recover(
 	xfs_trans_ijoin(tp, ip, 0);
 
 	count = bmap->me_len;
-	error = xfs_trans_log_finish_bmap_update(tp, budp, dfops, type,
+	error = xfs_trans_log_finish_bmap_update(tp, budp, tp->t_dfops, type,
 			ip, whichfork, bmap->me_startoff,
 			bmap->me_startblock, &count, state);
 	if (error)
@@ -481,23 +487,26 @@ xfs_bui_recover(
 		irec.br_blockcount = count;
 		irec.br_startoff = bmap->me_startoff;
 		irec.br_state = state;
-		error = xfs_bmap_unmap_extent(tp->t_mountp, dfops, ip, &irec);
+		error = xfs_bmap_unmap_extent(tp->t_mountp, tp->t_dfops, ip,
+					      &irec);
 		if (error)
 			goto err_inode;
 	}
 
 	set_bit(XFS_BUI_RECOVERED, &buip->bui_flags);
+	xfs_defer_move(dfops, tp->t_dfops);
 	error = xfs_trans_commit(tp);
 	xfs_iunlock(ip, XFS_ILOCK_EXCL);
-	IRELE(ip);
+	xfs_irele(ip);
 
 	return error;
 
 err_inode:
+	xfs_defer_move(dfops, tp->t_dfops);
 	xfs_trans_cancel(tp);
 	if (ip) {
 		xfs_iunlock(ip, XFS_ILOCK_EXCL);
-		IRELE(ip);
+		xfs_irele(ip);
 	}
 	return error;
 }
