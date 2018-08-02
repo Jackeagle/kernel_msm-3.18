@@ -381,8 +381,10 @@ static int __write_initial_superblock(struct dm_cache_metadata *cmd)
 	disk_super->write_hits = cpu_to_le32(0);
 	disk_super->write_misses = cpu_to_le32(0);
 
-	if (separate_dirty_bits(cmd))
+	if (separate_dirty_bits(cmd)) {
 		disk_super->dirty_root = cpu_to_le64(cmd->dirty_root);
+		disk_super->incompat_flags |= cpu_to_le32(DM_CACHE_FEATURE_INCOMPAT_SEP_DIRTY_BITS);
+	}
 
 	return dm_tm_commit(cmd->tm, sblock);
 }
