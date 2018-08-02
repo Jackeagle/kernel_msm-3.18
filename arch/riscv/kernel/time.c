@@ -18,12 +18,6 @@
 
 unsigned long riscv_timebase;
 
-void __init init_clockevent(void)
-{
-	timer_probe();
-	csr_set(sie, SIE_STIE);
-}
-
 static long __init timebase_frequency(void)
 {
 	struct device_node *cpu;
@@ -43,5 +37,5 @@ void __init time_init(void)
 {
 	riscv_timebase = timebase_frequency();
 	lpj_fine = riscv_timebase / HZ;
-	init_clockevent();
+	timer_probe();
 }
