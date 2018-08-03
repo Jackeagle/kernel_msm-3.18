@@ -13,6 +13,7 @@ config MT76x0U
 	tristate "MediaTek MT76x0U (USB) support"
 	depends on MAC80211
 	depends on USB
+	depends on BROKEN
 	help
 	  This adds support for MT7610U-based wireless USB dongles.
 
