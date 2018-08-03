@@ -805,6 +805,10 @@ qlt_plogi_ack_find_add(struct scsi_qla_host *vha, port_id_t *id,
 
 	list_for_each_entry(pla, &vha->plogi_ack_list, list) {
 		if (pla->id.b24 == id->b24) {
+			ql_dbg(ql_dbg_disc + ql_dbg_verbose, vha, 0x210d,
+			    "%s %d %8phC Term INOT due to new INOT",
+			    __func__, __LINE__,
+			    pla->iocb.u.isp24.port_name);
 			qlt_send_term_imm_notif(vha, &pla->iocb, 1);
 			memcpy(&pla->iocb, iocb, sizeof(pla->iocb));
 			return pla;
@@ -982,8 +986,9 @@ void qlt_free_session_done(struct work_struct *work)
 
 			logo.id = sess->d_id;
 			logo.cmd_count = 0;
+			if (!own)
+				qlt_send_first_logo(vha, &logo);
 			sess->send_els_logo = 0;
-			qlt_send_first_logo(vha, &logo);
 		}
 
 		if (sess->logout_on_delete && sess->loop_id != FC_NO_LOOP_ID) {
@@ -1053,7 +1058,6 @@ void qlt_free_session_done(struct work_struct *work)
 	sess->disc_state = DSC_DELETED;
 	sess->fw_login_state = DSC_LS_PORT_UNAVAIL;
 	sess->deleted = QLA_SESS_DELETED;
-	sess->login_retry = vha->hw->login_retry_count;
 
 	if (sess->login_succ && !IS_SW_RESV_ADDR(sess->d_id)) {
 		vha->fcport_count--;
@@ -1073,6 +1077,7 @@ void qlt_free_session_done(struct work_struct *work)
 		struct qlt_plogi_ack_t *con =
 		    sess->plogi_link[QLT_PLOGI_LINK_CONFLICT];
 		struct imm_ntfy_from_isp *iocb;
+		own = sess->plogi_link[QLT_PLOGI_LINK_SAME_WWN];
 
 		if (con) {
 			iocb = &con->iocb;
@@ -1156,7 +1161,7 @@ void qlt_unreg_sess(struct fc_port *sess)
 	if (sess->se_sess)
 		vha->hw->tgt.tgt_ops->clear_nacl_from_fcport_map(sess);
 
-	qla2x00_mark_device_lost(vha, sess, 1, 1);
+	qla2x00_mark_device_lost(vha, sess, 0, 0);
 
 	sess->deleted = QLA_SESS_DELETION_IN_PROGRESS;
 	sess->disc_state = DSC_DELETE_PEND;
@@ -4715,6 +4720,10 @@ static int qlt_handle_login(struct scsi_qla_host *vha,
 
 	pla = qlt_plogi_ack_find_add(vha, &port_id, iocb);
 	if (!pla) {
+		ql_dbg(ql_dbg_disc + ql_dbg_verbose, vha, 0xffff,
+		    "%s %d %8phC Term INOT due to mem alloc fail",
+		    __func__, __LINE__,
+		    iocb->u.isp24.port_name);
 		qlt_send_term_imm_notif(vha, iocb, 1);
 		goto out;
 	}

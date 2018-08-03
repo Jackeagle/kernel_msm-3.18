@@ -304,9 +304,9 @@ EXPORT_SYMBOL(transport_alloc_session_tags);
  *	      each command.
  * @sup_prot_ops: bitmask that defines which T10-PI modes are supported.
  */
-struct se_session *transport_init_session_tags(unsigned int tag_num,
-					       unsigned int tag_size,
-					       enum target_prot_op sup_prot_ops)
+static struct se_session *
+transport_init_session_tags(unsigned int tag_num, unsigned int tag_size,
+			    enum target_prot_op sup_prot_ops)
 {
 	struct se_session *se_sess;
 	int rc;
@@ -334,7 +334,6 @@ struct se_session *transport_init_session_tags(unsigned int tag_num,
 
 	return se_sess;
 }
-EXPORT_SYMBOL(transport_init_session_tags);
 
 /*
  * Called with spin_lock_irqsave(&struct se_portal_group->session_lock called.
@@ -347,6 +346,7 @@ void __transport_register_session(
 {
 	const struct target_core_fabric_ops *tfo = se_tpg->se_tpg_tfo;
 	unsigned char buf[PR_REG_ISID_LEN];
+	unsigned long flags;
 
 	se_sess->se_tpg = se_tpg;
 	se_sess->fabric_sess_ptr = fabric_sess_ptr;
@@ -383,7 +383,7 @@ void __transport_register_session(
 			se_sess->sess_bin_isid = get_unaligned_be64(&buf[0]);
 		}
 
-		spin_lock_irq(&se_nacl->nacl_sess_lock);
+		spin_lock_irqsave(&se_nacl->nacl_sess_lock, flags);
 		/*
 		 * The se_nacl->nacl_sess pointer will be set to the
 		 * last active I_T Nexus for each struct se_node_acl.
@@ -392,7 +392,7 @@ void __transport_register_session(
 
 		list_add_tail(&se_sess->sess_acl_list,
 			      &se_nacl->acl_sess_list);
-		spin_unlock_irq(&se_nacl->nacl_sess_lock);
+		spin_unlock_irqrestore(&se_nacl->nacl_sess_lock, flags);
 	}
 	list_add_tail(&se_sess->sess_list, &se_tpg->tpg_sess_list);
 
@@ -416,7 +416,7 @@ void transport_register_session(
 EXPORT_SYMBOL(transport_register_session);
 
 struct se_session *
-target_alloc_session(struct se_portal_group *tpg,
+target_setup_session(struct se_portal_group *tpg,
 		     unsigned int tag_num, unsigned int tag_size,
 		     enum target_prot_op prot_op,
 		     const char *initiatorname, void *private,
@@ -458,7 +458,7 @@ target_alloc_session(struct se_portal_group *tpg,
 	transport_register_session(tpg, sess->se_node_acl, sess, private);
 	return sess;
 }
-EXPORT_SYMBOL(target_alloc_session);
+EXPORT_SYMBOL(target_setup_session);
 
 ssize_t target_show_dynamic_sessions(struct se_portal_group *se_tpg, char *page)
 {
@@ -615,6 +615,13 @@ void transport_deregister_session(struct se_session *se_sess)
 	transport_free_session(se_sess);
 }
 EXPORT_SYMBOL(transport_deregister_session);
+
+void target_remove_session(struct se_session *se_sess)
+{
+	transport_deregister_session_configfs(se_sess);
+	transport_deregister_session(se_sess);
+}
+EXPORT_SYMBOL(target_remove_session);
 
 static void target_remove_from_state_list(struct se_cmd *cmd)
 {

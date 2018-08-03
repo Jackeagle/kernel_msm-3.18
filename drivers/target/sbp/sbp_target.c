@@ -209,7 +209,7 @@ static struct sbp_session *sbp_session_create(
 	INIT_DELAYED_WORK(&sess->maint_work, session_maintenance_work);
 	sess->guid = guid;
 
-	sess->se_sess = target_alloc_session(&tpg->se_tpg, 128,
+	sess->se_sess = target_setup_session(&tpg->se_tpg, 128,
 					     sizeof(struct sbp_target_request),
 					     TARGET_PROT_NORMAL, guid_str,
 					     sess, NULL);
@@ -235,8 +235,7 @@ static void sbp_session_release(struct sbp_session *sess, bool cancel_work)
 	if (cancel_work)
 		cancel_delayed_work_sync(&sess->maint_work);
 
-	transport_deregister_session_configfs(sess->se_sess);
-	transport_deregister_session(sess->se_sess);
+	target_remove_session(sess->se_sess);
 
 	if (sess->card)
 		fw_card_put(sess->card);
