@@ -196,7 +196,7 @@ xlog_bread_noalign(
 	bp->b_io_length = nbblks;
 	bp->b_error = 0;
 
-	error = xfs_buf_submit_wait(bp);
+	error = xfs_buf_submit(bp);
 	if (error && !XFS_FORCED_SHUTDOWN(log->l_mp))
 		xfs_buf_ioerror_alert(bp, __func__);
 	return error;
@@ -4854,16 +4854,10 @@ xlog_finish_defer_ops(
 			0, XFS_TRANS_RESERVE, &tp);
 	if (error)
 		return error;
-
-	error = xfs_defer_finish(&tp, dfops);
-	if (error)
-		goto out_cancel;
+	/* transfer all collected dfops to this transaction */
+	xfs_defer_move(tp->t_dfops, dfops);
 
 	return xfs_trans_commit(tp);
-
-out_cancel:
-	xfs_trans_cancel(tp);
-	return error;
 }
 
 /*
@@ -4890,7 +4884,6 @@ xlog_recover_process_intents(
 	struct xfs_ail_cursor	cur;
 	struct xfs_log_item	*lip;
 	struct xfs_ail		*ailp;
-	xfs_fsblock_t		firstfsb;
 	int			error = 0;
 #if defined(DEBUG) || defined(XFS_WARN)
 	xfs_lsn_t		last_lsn;
@@ -4902,7 +4895,7 @@ xlog_recover_process_intents(
 #if defined(DEBUG) || defined(XFS_WARN)
 	last_lsn = xlog_assign_lsn(log->l_curr_cycle, log->l_curr_block);
 #endif
-	xfs_defer_init(&dfops, &firstfsb);
+	xfs_defer_init(NULL, &dfops);
 	while (lip != NULL) {
 		/*
 		 * We're done when we see something other than an intent.
@@ -4953,7 +4946,7 @@ out:
 	xfs_trans_ail_cursor_done(&cur);
 	spin_unlock(&ailp->ail_lock);
 	if (error)
-		xfs_defer_cancel(&dfops);
+		__xfs_defer_cancel(&dfops);
 	else
 		error = xlog_finish_defer_ops(log->l_mp, &dfops);
 
@@ -5094,11 +5087,11 @@ xlog_recover_process_one_iunlink(
 	 */
 	ip->i_d.di_dmevmask = 0;
 
-	IRELE(ip);
+	xfs_irele(ip);
 	return agino;
 
  fail_iput:
-	IRELE(ip);
+	xfs_irele(ip);
  fail:
 	/*
 	 * We can't read in the inode this bucket points to, or this inode
@@ -5707,7 +5700,7 @@ xlog_do_recover(
 	bp->b_flags |= XBF_READ;
 	bp->b_ops = &xfs_sb_buf_ops;
 
-	error = xfs_buf_submit_wait(bp);
+	error = xfs_buf_submit(bp);
 	if (error) {
 		if (!XFS_FORCED_SHUTDOWN(mp)) {
 			xfs_buf_ioerror_alert(bp, __func__);
