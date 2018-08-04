@@ -35,6 +35,5 @@ void __init time_init(void)
 	riscv_timebase = prop;
 
 	lpj_fine = riscv_timebase / HZ;
-
-	init_clockevent();
+	timer_probe();
 }
