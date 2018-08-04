@@ -31,11 +31,16 @@ name:
 	END(name)
 #endif
 
-#define ENTRY_CFI(name) \
+#define ENTRY_CFI(name, ...) \
 	ENTRY(name)	ASM_NL\
+	.proc		ASM_NL\
+	.callinfo __VA_ARGS__	ASM_NL\
+	.entry		ASM_NL\
 	CFI_STARTPROC
 
 #define ENDPROC_CFI(name) \
+	.exit		ASM_NL\
+	.procend	ASM_NL\
 	ENDPROC(name)	ASM_NL\
 	CFI_ENDPROC
 
