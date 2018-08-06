@@ -5,3 +5,8 @@ hostprogs-$(CONFIG_SAMPLE_STATX) := test-statx
 always := $(hostprogs-y)
 
 HOSTCFLAGS_test-statx.o += -I$(objtree)/usr/include
+
+HOSTCFLAGS_test-fsinfo.o += -I$(objtree)/usr/include
+HOSTLOADLIBES_test-fsinfo += -lm
+
+HOSTCFLAGS_test-fs-query.o += -I$(objtree)/usr/include
