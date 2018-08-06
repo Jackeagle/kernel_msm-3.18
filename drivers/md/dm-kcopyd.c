@@ -483,6 +483,7 @@ static int run_complete_job(struct kcopyd_job *job)
 		mempool_free(job, &kc->job_pool);
 	}
 	fn(read_err, write_err, context);
+	cond_resched();
 
 	if (atomic_dec_and_test(&kc->nr_jobs))
 		wake_up(&kc->destroyq);
