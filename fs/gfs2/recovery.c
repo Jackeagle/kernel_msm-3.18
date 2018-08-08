@@ -354,8 +354,9 @@ static int foreach_descriptor(struct gfs2_jdesc *jd, unsigned int start,
 			return error;
 		}
 
-		while (length--)
-			gfs2_replay_incr_blk(jd, &start);
+		start += length;
+		if (start >= jd->jd_blocks)
+			start -= jd->jd_blocks;
 
 		brelse(bh);
 	}
