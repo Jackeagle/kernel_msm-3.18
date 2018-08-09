@@ -354,8 +354,9 @@ static int foreach_descriptor(struct gfs2_jdesc *jd, unsigned int start,
 			return error;
 		}
 
-		while (length--)
-			gfs2_replay_incr_blk(jd, &start);
+		start += length;
+		if (start >= jd->jd_blocks)
+			start -= jd->jd_blocks;
 
 		brelse(bh);
 	}
@@ -413,12 +414,13 @@ void gfs2_recover_func(struct work_struct *work)
 	ktime_t t_start, t_jlck, t_jhd, t_tlck, t_rep;
 	int ro = 0;
 	unsigned int pass;
-	int error;
+	int error = 0;
 	int jlocked = 0;
 
 	t_start = ktime_get();
-	if (sdp->sd_args.ar_spectator ||
-	    (jd->jd_jid != sdp->sd_lockstruct.ls_jid)) {
+	if (sdp->sd_args.ar_spectator)
+		goto fail;
+	if (jd->jd_jid != sdp->sd_lockstruct.ls_jid) {
 		fs_info(sdp, "jid=%u: Trying to acquire journal lock...\n",
 			jd->jd_jid);
 		jlocked = 1;
