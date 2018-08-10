@@ -2156,8 +2156,8 @@ static bool pci_bus_wait_crs(struct pci_bus *bus, int devfn, u32 *l,
 	return true;
 }
 
-bool pci_bus_read_dev_vendor_id(struct pci_bus *bus, int devfn, u32 *l,
-				int timeout)
+bool pci_bus_generic_read_dev_vendor_id(struct pci_bus *bus, int devfn, u32 *l,
+					int timeout)
 {
 	if (pci_bus_read_config_dword(bus, devfn, PCI_VENDOR_ID, l))
 		return false;
@@ -2171,6 +2171,24 @@ bool pci_bus_read_dev_vendor_id(struct pci_bus *bus, int devfn, u32 *l,
 		return pci_bus_wait_crs(bus, devfn, l, timeout);
 
 	return true;
+}
+
+bool pci_bus_read_dev_vendor_id(struct pci_bus *bus, int devfn, u32 *l,
+				int timeout)
+{
+#ifdef CONFIG_PCI_QUIRKS
+	struct pci_dev *bridge = bus->self;
+
+	/*
+	 * Certain IDT switches have an issue where they improperly trigger
+	 * ACS Source Validation errors on completions for config reads.
+	 */
+	if (bridge && bridge->vendor == PCI_VENDOR_ID_IDT &&
+	    bridge->device == 0x80b5)
+		return pci_idt_bus_quirk(bus, devfn, l, timeout);
+#endif
+
+	return pci_bus_generic_read_dev_vendor_id(bus, devfn, l, timeout);
 }
 EXPORT_SYMBOL(pci_bus_read_dev_vendor_id);
 
@@ -2203,6 +2221,25 @@ static struct pci_dev *pci_scan_device(struct pci_bus *bus, int devfn)
 	}
 
 	return dev;
+}
+
+static void pcie_report_downtraining(struct pci_dev *dev)
+{
+	if (!pci_is_pcie(dev))
+		return;
+
+	/* Look from the device up to avoid downstream ports with no devices */
+	if ((pci_pcie_type(dev) != PCI_EXP_TYPE_ENDPOINT) &&
+	    (pci_pcie_type(dev) != PCI_EXP_TYPE_LEG_END) &&
+	    (pci_pcie_type(dev) != PCI_EXP_TYPE_UPSTREAM))
+		return;
+
+	/* Multi-function PCIe devices share the same link/status */
+	if (PCI_FUNC(dev->devfn) != 0 || dev->is_virtfn)
+		return;
+
+	/* Print link status only if the device is constrained by the fabric */
+	__pcie_print_link_status(dev, false);
 }
 
 static void pci_init_capabilities(struct pci_dev *dev)
@@ -2239,6 +2276,8 @@ static void pci_init_capabilities(struct pci_dev *dev)
 
 	/* Advanced Error Reporting */
 	pci_aer_init(dev);
+
+	pcie_report_downtraining(dev);
 
 	if (pci_probe_reset_function(dev) == 0)
 		dev->reset_fn = 1;
