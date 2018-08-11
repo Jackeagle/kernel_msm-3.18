@@ -578,11 +578,11 @@ static inline int atomic64_add_unless(atomic64_t *v, long long a, long long u)
 
 	__asm__ __volatile__(
 	"1:	llockd  %0, [%2]	\n"
-	"	mov	%1, 1		\n"
 	"	brne	%L0, %L4, 2f	# continue to add since v != u \n"
 	"	breq.d	%H0, %H4, 3f	# return since v == u \n"
 	"	mov	%1, 0		\n"
 	"2:				\n"
+	"	mov	%1, 1		\n"
 	"	add.f   %L0, %L0, %L3	\n"
 	"	adc     %H0, %H0, %H3	\n"
 	"	scondd  %0, [%2]	\n"
