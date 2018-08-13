@@ -288,7 +288,7 @@ static int device_area_is_invalid(struct dm_target *ti, struct dm_dev *dev,
 	sector_t dev_size =
 		i_size_read(bdev->bd_inode) >> SECTOR_SHIFT;
 	unsigned short logical_block_size_sectors =
-		limits->logical_block_size >> SECTOR_SHIFT;
+		bdev_logical_block_size(bdev) >> SECTOR_SHIFT;
 	char b[BDEVNAME_SIZE];
 
 	/*
