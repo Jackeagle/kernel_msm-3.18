@@ -76,15 +76,6 @@ struct property *sym_get_choice_prop(struct symbol *sym)
 	return NULL;
 }
 
-struct property *sym_get_env_prop(struct symbol *sym)
-{
-	struct property *prop;
-
-	for_all_properties(sym, prop, P_ENV)
-		return prop;
-	return NULL;
-}
-
 static struct property *sym_get_default_prop(struct symbol *sym)
 {
 	struct property *prop;
@@ -1298,8 +1289,6 @@ const char *prop_get_type_name(enum prop_type type)
 	switch (type) {
 	case P_PROMPT:
 		return "prompt";
-	case P_ENV:
-		return "env";
 	case P_COMMENT:
 		return "comment";
 	case P_MENU:
