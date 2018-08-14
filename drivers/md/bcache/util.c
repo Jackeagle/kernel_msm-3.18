@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * random utiility code, for bcache but in theory not specific to bcache
  *
@@ -133,6 +134,7 @@ bool bch_is_zero(const char *p, size_t n)
 int bch_parse_uuid(const char *s, char *uuid)
 {
 	size_t i, j, x;
+
 	memset(uuid, 0, 16);
 
 	for (i = 0, j = 0;
@@ -200,7 +202,7 @@ uint64_t bch_next_delay(struct bch_ratelimit *d, uint64_t done)
 {
 	uint64_t now = local_clock();
 
-	d->next += div_u64(done * NSEC_PER_SEC, d->rate);
+	d->next += div_u64(done * NSEC_PER_SEC, atomic_long_read(&d->rate));
 
 	/* Bound the time.  Don't let us fall further than 2 seconds behind
 	 * (this prevents unnecessary backlog that would make it impossible
