@@ -779,6 +779,9 @@ struct fuse_conn {
 	/** Does the filesystem support copy_file_range? */
 	unsigned no_copy_file_range:1;
 
+	/* Delete dentries that have gone stale */
+	unsigned int delete_stale:1;
+
 	/** The number of requests waiting for completion */
 	atomic_t num_waiting;
 
