@@ -27,6 +27,8 @@
  * lock, the value PID + 1 is used as the APSS token when writing to the lock.
  */
 #define SPINLOCK_TOKEN_APPS 1
+/* SCLTE core PID=6 is the maximum value can be written into the hw-mutex */
+#define SPINLOCK_TOKEN_MAX  6
 
 static int is_hw_lock_type;
 static DEFINE_MUTEX(ops_init_lock);
@@ -240,6 +242,19 @@ static int __raw_remote_sfpb_spin_trylock(raw_remote_spinlock_t *lock)
 	writel_relaxed(SPINLOCK_TOKEN_APPS, lock);
 	smp_mb();
 	owner = readl_relaxed(lock);
+
+	/*
+	 * Safety check - guard against invalid mutex and if found,
+	 * assign mutex to APPS.
+	 */
+	if (owner > SPINLOCK_TOKEN_MAX) {
+		pr_warn("HW-spinlock-3 owner should be APSS but is %d\n",
+			readl_relaxed(lock));
+		writel_relaxed(0, lock);
+		/* Make sure updated value visible to others */
+		smp_mb();
+	}
+
 	hw_spinlocks[id] = owner;
 	return owner == SPINLOCK_TOKEN_APPS;
 }
