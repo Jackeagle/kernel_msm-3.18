@@ -2506,12 +2506,12 @@ sub process {
 			if ($realfile !~ /^MAINTAINERS/) {
 				my $last_binding_patch = $is_binding_patch;
 
-				$is_binding_patch = ($realfile =~ m@^(?:Documentation/devicetree/|include/dt-bindings/)@);
+				$is_binding_patch = () = $realfile =~ m@^(?:Documentation/devicetree/|include/dt-bindings/)@;
 
 				if (($last_binding_patch != -1) &&
 				    ($last_binding_patch ^ $is_binding_patch)) {
 					WARN("DT_SPLIT_BINDING_PATCH",
-					     "DT binding docs and includes should be a separate patch. See: Documentation/devicetree/bindings/submitting-patches.txt");
+					     "DT binding docs and includes should be a separate patch. See: Documentation/devicetree/bindings/submitting-patches.txt\n");
 				}
 			}
 
