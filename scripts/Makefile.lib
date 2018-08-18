@@ -151,8 +151,11 @@ __a_flags	= $(call flags,_a_flags)
 __cpp_flags     = $(call flags,_cpp_flags)
 endif
 
+c_includes	= $(wildcard $(srctree)/arch/$(SRCARCH)/include/asm/compiler_types.h)
+c_includes	+= $(srctree)/include/linux/compiler_types.h
+
 c_flags        = -Wp,-MD,$(depfile) $(NOSTDINC_FLAGS) $(LINUXINCLUDE)     \
-		 -include $(srctree)/include/linux/compiler_types.h       \
+		 $(addprefix -include ,$(c_includes))                     \
 		 $(__c_flags) $(modkern_cflags)                           \
 		 $(basename_flags) $(modname_flags)
 
