@@ -2503,23 +2503,15 @@ sub process {
 			}
 			$checklicenseline = 1;
 
-			if ($realfile !~ /MAINTAINERS/) {
-				my $mixed = 0;
-				if ($realfile =~ /(Documentation\/devicetree|include\/dt-bindings).*/) {
-					if ($is_binding_patch == 0) {
-						$mixed = 1;
-					}
-					$is_binding_patch = 1;
-				} else {
-					if ($is_binding_patch == 1) {
-						$mixed = 1;
-					}
-					$is_binding_patch = 0;
-				}
+			if ($realfile !~ /^MAINTAINERS/) {
+				my $last_binding_patch = $is_binding_patch;
 
-				if ($mixed == 1) {
+				$is_binding_patch = ($realfile =~ m@^(?:Documentation/devicetree/|include/dt-bindings/)@);
+
+				if (($last_binding_patch != -1) &&
+				    ($last_binding_patch ^ $is_binding_patch)) {
 					WARN("DT_SPLIT_BINDING_PATCH",
-					     "DT binding docs and includes should be a separate patch\n");
+					     "DT binding docs and includes should be a separate patch. See: Documentation/devicetree/bindings/submitting-patches.txt");
 				}
 			}
 
