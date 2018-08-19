@@ -2256,7 +2256,7 @@ SMB2_open(const unsigned int xid, struct cifs_open_parms *oparms, __le16 *path,
 	struct TCP_Server_Info *server;
 	struct cifs_tcon *tcon = oparms->tcon;
 	struct cifs_ses *ses = tcon->ses;
-	struct kvec iov[5]; /* make sure at least one for each open context */
+	struct kvec iov[6]; /* make sure at least one for each open context */
 	struct kvec rsp_iov = {NULL, 0};
 	int resp_buftype;
 	int rc = 0;
