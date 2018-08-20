@@ -965,6 +965,8 @@ static void hmm_devmem_free(struct page *page, void *data)
 {
 	struct hmm_devmem *devmem = data;
 
+	page->mapping = NULL;
+
 	devmem->ops->free(devmem, page);
 }
 
