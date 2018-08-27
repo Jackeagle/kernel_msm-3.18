@@ -4085,7 +4085,7 @@ const char *of_clk_get_parent_name(struct device_node *np, int index)
 		clk = of_clk_get_from_provider(&clkspec);
 		if (IS_ERR(clk)) {
 			if (clkspec.args_count == 0)
-				clk_name = clkspec.np->name;
+				clk_name = clkspec.np->full_name;
 			else
 				clk_name = NULL;
 		} else {
