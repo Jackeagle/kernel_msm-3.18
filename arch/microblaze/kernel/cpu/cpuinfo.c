@@ -89,7 +89,7 @@ static struct device_node *cpu;
 
 void __init setup_cpuinfo(void)
 {
-	cpu = (struct device_node *) of_find_node_by_type(NULL, "cpu");
+	cpu = of_get_cpu_node(0, NULL);
 	if (!cpu)
 		pr_err("You don't have cpu!!!\n");
 
@@ -117,6 +117,8 @@ void __init setup_cpuinfo(void)
 	if (cpuinfo.mmu_privins)
 		pr_warn("%s: Stream instructions enabled"
 			" - USERSPACE CAN LOCK THIS KERNEL!\n", __func__);
+
+	of_node_put(cpu);
 }
 
 void __init setup_cpuinfo_clk(void)
