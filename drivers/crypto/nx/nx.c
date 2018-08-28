@@ -775,8 +775,8 @@ void nx_crypto_ctx_aead_exit(struct crypto_aead *tfm)
 
 static int nx_probe(struct vio_dev *viodev, const struct vio_device_id *id)
 {
-	dev_dbg(&viodev->dev, "driver probed: %s resource id: 0x%x\n",
-		viodev->name, viodev->resource_id);
+	dev_dbg(&viodev->dev, "driver probed: resource id: 0x%x\n",
+		viodev->resource_id);
 
 	if (nx_driver.viodev) {
 		dev_err(&viodev->dev, "%s: Attempt to register more than one "
