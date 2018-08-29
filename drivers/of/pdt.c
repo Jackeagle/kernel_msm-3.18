@@ -131,20 +131,6 @@ static struct property * __init of_pdt_build_prop_list(phandle node)
 	return head;
 }
 
-static char * __init of_pdt_get_one_property(phandle node, const char *name)
-{
-	char *buf = "<NULL>";
-	int len;
-
-	len = of_pdt_prom_ops->getproplen(node, name);
-	if (len > 0) {
-		buf = prom_early_alloc(len);
-		len = of_pdt_prom_ops->getproperty(node, name, buf, len);
-	}
-
-	return buf;
-}
-
 static struct device_node * __init of_pdt_create_node(phandle node,
 						    struct device_node *parent)
 {
@@ -157,9 +143,6 @@ static struct device_node * __init of_pdt_create_node(phandle node,
 	of_node_init(dp);
 	of_pdt_incr_unique_id(dp);
 	dp->parent = parent;
-
-	dp->name = of_pdt_get_one_property(node, "name");
-	dp->type = of_pdt_get_one_property(node, "device_type");
 	dp->phandle = node;
 
 	dp->properties = of_pdt_build_prop_list(node);
