@@ -145,6 +145,7 @@ extern struct himax_ic_data *ic_data;
 extern void himax_ts_work(struct himax_ts_data *ts);
 extern enum hrtimer_restart himax_ts_timer_func(struct hrtimer *timer);
 extern int tp_rst_gpio;
+extern int probe_fail_flag;
 
 #ifdef HX_TP_PROC_DIAG
 extern uint8_t getDiagCommand(void);

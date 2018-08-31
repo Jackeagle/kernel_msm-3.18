@@ -695,6 +695,12 @@ int fb_notifier_callback(struct notifier_block *self,
 	int ERR = 1;
 
 	I(" %s\n", __func__);
+
+	if (probe_fail_flag) {
+		I("himax_probe Fail %d\n", probe_fail_flag);
+		return -ERR;
+	}
+
 	if (evdata && evdata->data && event
 	== FB_EVENT_BLANK && ts && ts->client) {
 		blank = evdata->data;

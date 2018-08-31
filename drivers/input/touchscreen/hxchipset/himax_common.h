@@ -52,7 +52,7 @@
 #ifdef CONFIG_OF
 #include <linux/of_gpio.h>
 #endif
-#define HIMAX_DRIVER_VER "0.3.1.0"
+#define HIMAX_DRIVER_VER "0.3.2.0"
 
 #define FLASH_DUMP_FILE "/data/user/Flash_Dump.bin"
 #define DIAG_COORDINATE_FILE "/sdcard/Coordinate_Dump.csv"
