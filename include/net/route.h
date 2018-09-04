@@ -197,8 +197,6 @@ extern int		ip_rt_dump(struct sk_buff *skb,  struct netlink_callback *cb);
 
 int ip_rt_register_notifier(struct notifier_block *nb);
 int ip_rt_unregister_notifier(struct notifier_block *nb);
-int ip_rt_register_pmtu_expiry_notifier(struct notifier_block *nb);
-int ip_rt_unregister_pmtu_expiry_notifier(struct notifier_block *nb);
 
 struct in_ifaddr;
 extern void fib_add_ifaddr(struct in_ifaddr *);

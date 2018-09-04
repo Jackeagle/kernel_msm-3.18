@@ -349,16 +349,11 @@ static void ip6_dst_ifdown(struct dst_entry *dst, struct net_device *dev,
 	}
 }
 
-/* define pmtu expiry notification chain */
-static ATOMIC_NOTIFIER_HEAD(pmtu_expiry_chain_v6);
-
 static bool rt6_check_expired(const struct rt6_info *rt)
 {
 	if (rt->rt6i_flags & RTF_EXPIRES) {
-		if (time_after(jiffies, rt->dst.expires)) {
-			atomic_notifier_call_chain(&pmtu_expiry_chain_v6, 0, (void *)&rt->rt6i_dst.addr);
+		if (time_after(jiffies, rt->dst.expires))
 			return true;
-		}
 	} else if (rt->dst.from) {
 		return rt6_check_expired((struct rt6_info *) rt->dst.from);
 	}
@@ -824,11 +819,8 @@ struct rt6_info *rt6_lookup(struct net *net, const struct in6_addr *daddr,
 	}
 
 	dst = fib6_rule_lookup(net, &fl6, flags, ip6_pol_route_lookup);
-	if (dst->error == 0) {
-		/* Check for PMTU expiry */
-		rt6_check_expired((struct rt6_info *)dst);
+	if (dst->error == 0)
 		return (struct rt6_info *) dst;
-	}
 
 	dst_release(dst);
 
@@ -2769,18 +2761,6 @@ int rt6_unregister_notifier(struct notifier_block *nb)
 	return atomic_notifier_chain_unregister(&ip6route_chain, nb);
 }
 EXPORT_SYMBOL(rt6_unregister_notifier);
-
-int rt6_register_pmtu_expiry_notifier(struct notifier_block *nb)
-{
-	return atomic_notifier_chain_register(&pmtu_expiry_chain_v6, nb);
-}
-EXPORT_SYMBOL(rt6_register_pmtu_expiry_notifier);
-
-int rt6_unregister_pmtu_expiry_notifier(struct notifier_block *nb)
-{
-	return atomic_notifier_chain_unregister(&pmtu_expiry_chain_v6, nb);
-}
-EXPORT_SYMBOL(rt6_unregister_pmtu_expiry_notifier);
 
 /*
  *	/proc

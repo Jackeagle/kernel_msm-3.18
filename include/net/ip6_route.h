@@ -157,8 +157,6 @@ extern void rt6_remove_prefsrc(struct inet6_ifaddr *ifp);
 
 int rt6_register_notifier(struct notifier_block *nb);
 int rt6_unregister_notifier(struct notifier_block *nb);
-int rt6_register_pmtu_expiry_notifier(struct notifier_block *nb);
-int rt6_unregister_pmtu_expiry_notifier(struct notifier_block *nb);
 
 /*
  *	Store a destination cache entry in a socket

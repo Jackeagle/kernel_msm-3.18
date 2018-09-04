@@ -57,7 +57,6 @@ struct fib_nh_exception {
 	unsigned long			fnhe_expires;
 	struct rtable __rcu		*fnhe_rth;
 	unsigned long			fnhe_stamp;
-	bool				fnhe_expiry_notified;
 };
 
 struct fnhe_hash_bucket {
