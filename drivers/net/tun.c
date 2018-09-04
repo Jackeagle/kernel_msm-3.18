@@ -1699,7 +1699,6 @@ static int tun_set_iff(struct net *net, struct file *file, struct ifreq *ifr)
 			TUN_USER_FEATURES;
 		dev->features = dev->hw_features;
 		dev->vlan_features = dev->features;
-		dev->priv_flags |= IFF_TUN_TAP;
 
 		INIT_LIST_HEAD(&tun->disabled);
 		err = tun_attach(tun, file);
