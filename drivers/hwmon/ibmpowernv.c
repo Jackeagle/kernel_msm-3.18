@@ -611,7 +611,7 @@ static int create_device_attrs(struct platform_device *pdev)
 		 * about the OPAL index and use a defaut value for the
 		 * hwmon attribute name
 		 */
-		attr_name = parse_opal_node_name(np->name, type, &opal_index);
+		attr_name = parse_opal_node_name(np->full_name, type, &opal_index);
 		if (IS_ERR(attr_name)) {
 			attr_name = "input";
 			opal_index = INVALID_INDEX;
