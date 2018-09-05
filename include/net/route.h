@@ -195,9 +195,6 @@ extern int		ip_rt_ioctl(struct net *, unsigned int cmd, void __user *arg);
 extern void		ip_rt_get_source(u8 *src, struct sk_buff *skb, struct rtable *rt);
 extern int		ip_rt_dump(struct sk_buff *skb,  struct netlink_callback *cb);
 
-int ip_rt_register_notifier(struct notifier_block *nb);
-int ip_rt_unregister_notifier(struct notifier_block *nb);
-
 struct in_ifaddr;
 extern void fib_add_ifaddr(struct in_ifaddr *);
 extern void fib_del_ifaddr(struct in_ifaddr *, struct in_ifaddr *);

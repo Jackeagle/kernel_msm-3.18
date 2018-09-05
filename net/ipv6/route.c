@@ -101,9 +101,6 @@ static struct rt6_info *rt6_get_route_info(struct net_device *dev,
 					   const struct in6_addr *gwaddr);
 #endif
 
-/* Define route change notification chain. */
-ATOMIC_NOTIFIER_HEAD(ip6route_chain);
-
 static u32 *ipv6_cow_metrics(struct dst_entry *dst, unsigned long old)
 {
 	struct rt6_info *rt = (struct rt6_info *) dst;
@@ -845,9 +842,6 @@ static int __ip6_ins_rt(struct rt6_info *rt, struct nl_info *info)
 	err = fib6_add(&table->tb6_root, rt, info);
 	write_unlock_bh(&table->tb6_lock);
 
-	if (!err)
-		atomic_notifier_call_chain(&ip6route_chain,
-						RTM_NEWROUTE, rt);
 	return err;
 }
 
@@ -1637,9 +1631,6 @@ static int __ip6_del_rt(struct rt6_info *rt, struct nl_info *info)
 	err = fib6_del(rt, info);
 	write_unlock_bh(&table->tb6_lock);
 
-	if (!err)
-		atomic_notifier_call_chain(&ip6route_chain,
-						RTM_DELROUTE, rt);
 out:
 	ip6_rt_put(rt);
 	return err;
@@ -2749,18 +2740,6 @@ static int ip6_route_dev_notify(struct notifier_block *this,
 
 	return NOTIFY_OK;
 }
-
-int rt6_register_notifier(struct notifier_block *nb)
-{
-	return atomic_notifier_chain_register(&ip6route_chain, nb);
-}
-EXPORT_SYMBOL(rt6_register_notifier);
-
-int rt6_unregister_notifier(struct notifier_block *nb)
-{
-	return atomic_notifier_chain_unregister(&ip6route_chain, nb);
-}
-EXPORT_SYMBOL(rt6_unregister_notifier);
 
 /*
  *	/proc
