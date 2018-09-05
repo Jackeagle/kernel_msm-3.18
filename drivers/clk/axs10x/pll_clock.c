@@ -238,7 +238,7 @@ static int axs10x_pll_clk_probe(struct platform_device *pdev)
 	if (IS_ERR(pll_clk->lock))
 		return PTR_ERR(pll_clk->lock);
 
-	init.name = dev->of_node->name;
+	init.name = dev->of_node->full_name;
 	init.ops = &axs10x_pll_ops;
 	parent_name = of_clk_get_parent_name(dev->of_node, 0);
 	init.parent_names = &parent_name;
