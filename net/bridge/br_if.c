@@ -27,10 +27,6 @@
 
 #include "br_private.h"
 
-/* Hook for external forwarding logic */
-br_port_dev_get_hook_t __rcu *br_port_dev_get_hook __read_mostly;
-EXPORT_SYMBOL_GPL(br_port_dev_get_hook);
-
 /*
  * Determine initial path cost based on speed.
  * using recommendations from 802.1d standard
@@ -473,19 +469,14 @@ void __net_exit br_net_exit(struct net *net)
 
 }
 
-/*
- * br_port_dev_get()
- *      If a skb is provided, and the br_port_dev_get_hook_t hook exists,
- *      use that to try and determine the egress port for that skb.
- *      If not, or no egress port could be determined, use the given addr
- *      to identify the port to which it is reachable
- *	returing a reference to the net device associated with that port.
+/* br_port_dev_get()
+ * Using the given addr, identify the port to which it is reachable,
+ * returing a reference to the net device associated with that port.
  *
  * NOTE: Return NULL if given dev is not a bridge or
  *       the mac has no associated port
  */
-struct net_device *br_port_dev_get(struct net_device *dev, unsigned char *addr,
-	struct sk_buff *skb)
+struct net_device *br_port_dev_get(struct net_device *dev, unsigned char *addr)
 {
 	struct net_bridge_fdb_entry *fdbe;
 	struct net_bridge *br;
@@ -495,36 +486,15 @@ struct net_device *br_port_dev_get(struct net_device *dev, unsigned char *addr,
 	if (!(dev->priv_flags & IFF_EBRIDGE))
 		return NULL;
 
-	rcu_read_lock();
-
-	/* If the hook exists and the skb isn't NULL, try and get the port */
-	if (skb) {
-		br_port_dev_get_hook_t *port_dev_get_hook;
-		port_dev_get_hook = rcu_dereference(br_port_dev_get_hook);
-		if (port_dev_get_hook) {
-			struct net_bridge_port *pdst =
-				__br_get(port_dev_get_hook, NULL, dev, skb);
-			if (pdst) {
-				dev_hold(pdst->dev);
-				netdev = pdst->dev;
-				goto out;
-			}
-		}
-	}
-
-	/*
-	 * Either there is no hook, or can't
-	 * determine the port to use - fall back to using FDB
-	 */
 	br = netdev_priv(dev);
 
 	/* Lookup the fdb entry and get reference to the port dev */
+	rcu_read_lock();
 	fdbe = __br_fdb_get(br, addr, 0);
 	if (fdbe && fdbe->dst) {
 		netdev = fdbe->dst->dev; /* port device */
 		dev_hold(netdev);
 	}
-out:
 	rcu_read_unlock();
 	return netdev;
 }
