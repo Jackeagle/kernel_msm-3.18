@@ -212,7 +212,6 @@ static inline int inet_is_reserved_local_port(int port)
 
 extern int sysctl_reserved_port_bind;
 extern int sysctl_ip_nonlocal_bind;
-extern int sysctl_ip_use_legacy_tos;
 
 /* From inetpeer.c */
 extern int inet_peer_threshold;

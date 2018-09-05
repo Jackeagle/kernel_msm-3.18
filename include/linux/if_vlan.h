@@ -84,11 +84,6 @@ static inline int is_vlan_dev(struct net_device *dev)
 
 #if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
 
-extern void __vlan_dev_update_accel_stats(struct net_device *dev,
-				    struct rtnl_link_stats64 *stats);
-
-extern u16 vlan_dev_get_egress_prio(struct net_device *dev, u32 skb_prio);
-
 extern struct net_device *__vlan_find_dev_deep(struct net_device *real_dev,
 					       __be16 vlan_proto, u16 vlan_id);
 extern struct net_device *vlan_dev_real_dev(const struct net_device *dev);
@@ -108,19 +103,6 @@ extern void vlan_vids_del_by_dev(struct net_device *dev,
 extern bool vlan_uses_dev(const struct net_device *dev);
 extern u16 vlan_dev_get_egress_qos_mask(struct net_device *dev, struct sk_buff *skb);
 #else
-static inline void __vlan_dev_update_accel_stats(struct net_device *dev,
-					   struct rtnl_link_stats64 *stats)
-{
-	return;
-}
-
-static inline u16 vlan_dev_get_egress_prio(struct net_device *dev,
-						u32 skb_prio)
-{
-	return 0;
-}
-
-
 static inline struct net_device *
 __vlan_find_dev_deep(struct net_device *real_dev,
 		     __be16 vlan_proto, u16 vlan_id)
