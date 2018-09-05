@@ -24,11 +24,7 @@
 br_should_route_hook_t __rcu *br_should_route_hook __read_mostly;
 EXPORT_SYMBOL(br_should_route_hook);
 
-/* Hook for external Multicast handler */
-br_multicast_handle_hook_t __rcu *br_multicast_handle_hook __read_mostly;
-EXPORT_SYMBOL_GPL(br_multicast_handle_hook);
-
-int br_pass_frame_up(struct sk_buff *skb)
+static int br_pass_frame_up(struct sk_buff *skb)
 {
 	struct net_device *indev, *brdev = BR_INPUT_SKB_CB(skb)->brdev;
 	struct net_bridge *br = netdev_priv(brdev);
@@ -59,7 +55,6 @@ int br_pass_frame_up(struct sk_buff *skb)
 	return NF_HOOK(NFPROTO_BRIDGE, NF_BR_LOCAL_IN, skb, indev, NULL,
 		       netif_receive_skb);
 }
-EXPORT_SYMBOL_GPL(br_pass_frame_up);
 
 /* note: already called with rcu_read_lock */
 int br_handle_frame_finish(struct sk_buff *skb)
@@ -102,11 +97,6 @@ int br_handle_frame_finish(struct sk_buff *skb)
 	if (is_broadcast_ether_addr(dest))
 		skb2 = skb;
 	else if (is_multicast_ether_addr(dest)) {
-		br_multicast_handle_hook_t *multicast_handle_hook =
-			rcu_dereference(br_multicast_handle_hook);
-		if (!__br_get(multicast_handle_hook, true, p, skb))
-			goto out;
-
 		mdst = br_mdb_get(br, skb, vid);
 		if (mdst || BR_INPUT_SKB_CB_MROUTERS_ONLY(skb)) {
 			if ((mdst && mdst->mglist) ||

@@ -16,8 +16,6 @@
 #include <linux/netdevice.h>
 #include <uapi/linux/if_bridge.h>
 
-struct net_bridge_port;
-
 extern void brioctl_set(int (*ioctl_hook)(struct net *, unsigned int, void __user *));
 extern struct net_device *br_port_dev_get(struct net_device *dev, unsigned char *addr);
 extern void br_refresh_fdb_entry(struct net_device *dev, const char *addr);
@@ -28,9 +26,5 @@ typedef int br_should_route_hook_t(struct sk_buff *skb);
 extern br_should_route_hook_t __rcu *br_should_route_hook;
 extern struct net_device *br_port_dev_get(struct net_device *dev,
 						unsigned char *addr);
-
-typedef int (br_multicast_handle_hook_t)(const struct net_bridge_port *src,
-		struct sk_buff *skb);
-extern br_multicast_handle_hook_t __rcu *br_multicast_handle_hook;
 
 #endif
