@@ -426,7 +426,6 @@ extern netdev_features_t br_features_recompute(struct net_bridge *br,
 	netdev_features_t features);
 
 /* br_input.c */
-int br_pass_frame_up(struct sk_buff *skb);
 extern int br_handle_frame_finish(struct sk_buff *skb);
 extern rx_handler_result_t br_handle_frame(struct sk_buff **pskb);
 
@@ -786,8 +785,5 @@ static inline int br_sysfs_renameif(struct net_bridge_port *p) { return 0; }
 static inline int br_sysfs_addbr(struct net_device *dev) { return 0; }
 static inline void br_sysfs_delbr(struct net_device *dev) { return; }
 #endif /* CONFIG_SYSFS */
-
-#define __br_get(__hook, __default, __args ...) \
-		(__hook ? (__hook(__args)) : (__default))
 
 #endif

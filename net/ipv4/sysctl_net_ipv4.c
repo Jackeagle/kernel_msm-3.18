@@ -836,13 +836,7 @@ static struct ctl_table ipv4_table[] = {
 		.extra1		= &tcp_use_userconfig_min,
 		.extra2		= &tcp_use_userconfig_max,
 	},
-	{
-		.procname       = "ip_use_legacy_tos",
-		.data           = &sysctl_ip_use_legacy_tos,
-		.maxlen         = sizeof(int),
-		.mode           = 0644,
-		.proc_handler   = proc_dointvec,
-	},
+
 	{ }
 };
 
