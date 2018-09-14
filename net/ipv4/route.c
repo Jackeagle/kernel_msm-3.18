@@ -663,7 +663,6 @@ static void update_or_create_fnhe(struct fib_nh *nh, __be32 daddr, __be32 gw,
 	}
 
 	fnhe->fnhe_stamp = jiffies;
-	fnhe->fnhe_expiry_notified = false;
 
 out_unlock:
 	spin_unlock_bh(&fnhe_lock);
@@ -1841,9 +1840,6 @@ int ip_route_input_noref(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 }
 EXPORT_SYMBOL(ip_route_input_noref);
 
-/* define pmtu expiry notification chain */
-static ATOMIC_NOTIFIER_HEAD(pmtu_expiry_chain);
-
 /* called with rcu_read_lock() */
 static struct rtable *__mkroute_output(const struct fib_result *res,
 				       const struct flowi4 *fl4, int orig_oif,
@@ -1901,19 +1897,9 @@ static struct rtable *__mkroute_output(const struct fib_result *res,
 		struct fib_nh *nh = &FIB_RES_NH(*res);
 
 		fnhe = find_exception(nh, fl4->daddr);
-		if (fnhe) {
+		if (fnhe)
 			prth = &fnhe->fnhe_rth;
-
-			/*
-			 * If it is first time after expiry, send notification to handlers
-			 */
-			if (time_after_eq(jiffies, fnhe->fnhe_expires) &&
-				fnhe->fnhe_expiry_notified == false) {
-
-				fnhe->fnhe_expiry_notified = true;
-				atomic_notifier_call_chain(&pmtu_expiry_chain, 0, (void *)&fl4->daddr);
-			}
-		} else {
+		else {
 			if (unlikely(fl4->flowi4_flags &
 				     FLOWI_FLAG_KNOWN_NH &&
 				     !(nh->nh_gw &&
@@ -2256,18 +2242,6 @@ struct rtable *ip_route_output_flow(struct net *net, struct flowi4 *flp4,
 	return rt;
 }
 EXPORT_SYMBOL_GPL(ip_route_output_flow);
-
-int ip_rt_register_pmtu_expiry_notifier(struct notifier_block *nb)
-{
-	return atomic_notifier_chain_register(&pmtu_expiry_chain, nb);
-}
-EXPORT_SYMBOL(ip_rt_register_pmtu_expiry_notifier);
-
-int ip_rt_unregister_pmtu_expiry_notifier(struct notifier_block *nb)
-{
-	return atomic_notifier_chain_unregister(&pmtu_expiry_chain, nb);
-}
-EXPORT_SYMBOL(ip_rt_unregister_pmtu_expiry_notifier);
 
 static int rt_fill_info(struct net *net,  __be32 dst, __be32 src,
 			struct flowi4 *fl4, struct sk_buff *skb, u32 portid,
