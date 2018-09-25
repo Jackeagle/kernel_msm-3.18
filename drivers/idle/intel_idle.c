@@ -116,7 +116,7 @@ static const struct idle_cpu *icpu;
 static struct cpuidle_device __percpu *intel_idle_cpuidle_devices;
 static int intel_idle(struct cpuidle_device *dev,
 			struct cpuidle_driver *drv, int index);
-static void intel_idle_s2idle(struct cpuidle_device *dev,
+static int intel_idle_s2idle(struct cpuidle_device *dev,
 			      struct cpuidle_driver *drv, int index);
 static int intel_idle_s2idle_and_check(struct cpuidle_device *dev,
 				       struct cpuidle_driver *drv, int index);
@@ -970,13 +970,15 @@ static __cpuidle int intel_idle(struct cpuidle_device *dev,
  *
  * @return 0 for success, no failure state
  */
-static void intel_idle_s2idle(struct cpuidle_device *dev,
+static int intel_idle_s2idle(struct cpuidle_device *dev,
 			     struct cpuidle_driver *drv, int index)
 {
 	unsigned long ecx = 1; /* break on interrupt flag */
 	unsigned long eax = flg2MWAIT(drv->states[index].flags);
 
 	mwait_idle_with_hints(eax, ecx);
+
+	return 0;
 }
 
 static int get_slpS0_count(u64* slp_s0_count)
