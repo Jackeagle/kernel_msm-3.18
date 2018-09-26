@@ -221,4 +221,6 @@ source "drivers/slimbus/Kconfig"
 
 source "drivers/gpu/drm/evdi/Kconfig"
 
+source "drivers/pkglist/Kconfig"
+
 endmenu
