@@ -1476,7 +1476,7 @@ static int dt_update_callback(struct notifier_block *nb,
 	switch (action) {
 	case OF_RECONFIG_UPDATE_PROPERTY:
 		if (of_node_is_type(update->dn, "cpu") &&
-		    !of_prop_cmp(update->prop->name, "ibm,associativity")) {
+		    !strcmp(update->prop->name, "ibm,associativity")) {
 			u32 core_id;
 			of_property_read_u32(update->dn, "reg", &core_id);
 			stage_topology_update(core_id);
