@@ -32,24 +32,7 @@ unsigned int of_pdt_unique_id __initdata;
 
 static char * __init of_pdt_build_full_name(struct device_node *dp)
 {
-	int len, ourlen, plen;
-	char *n;
-
-	dp->path_component_name = build_path_component(dp);
-
-	plen = strlen(dp->parent->full_name);
-	ourlen = strlen(dp->path_component_name);
-	len = ourlen + plen + 2;
-
-	n = prom_early_alloc(len);
-	strcpy(n, dp->parent->full_name);
-	if (!of_node_is_root(dp->parent)) {
-		strcpy(n + plen, "/");
-		plen++;
-	}
-	strcpy(n + plen, dp->path_component_name);
-
-	return n;
+	return build_path_component(dp);
 }
 
 #else /* CONFIG_SPARC */
@@ -181,6 +164,8 @@ static struct device_node * __init of_pdt_create_node(phandle node,
 
 	dp->properties = of_pdt_build_prop_list(node);
 
+	dp->full_name = of_pdt_build_full_name(dp);
+
 	irq_trans_init(dp);
 
 	return dp;
@@ -204,8 +189,6 @@ static struct device_node * __init of_pdt_build_tree(struct device_node *parent,
 			ret = dp;
 		prev_sibling = dp;
 
-		dp->full_name = of_pdt_build_full_name(dp);
-
 		dp->child = of_pdt_build_tree(dp, of_pdt_prom_ops->getchild(node));
 
 		if (of_pdt_build_more)
@@ -228,9 +211,6 @@ void __init of_pdt_build_devicetree(phandle root_node, struct of_pdt_ops *ops)
 	of_pdt_prom_ops = ops;
 
 	of_root = of_pdt_create_node(root_node, NULL);
-#if defined(CONFIG_SPARC)
-	of_root->path_component_name = "";
-#endif
 	of_root->full_name = "/";
 
 	of_root->child = of_pdt_build_tree(of_root,
