@@ -2072,7 +2072,7 @@ static int altr_edac_a10_probe(struct platform_device *pdev)
 		return PTR_ERR(edac->ecc_mgr_map);
 	}
 
-	edac->irq_chip.name = pdev->dev.of_node->name;
+	edac->irq_chip.name = pdev->dev.of_node->full_name;
 	edac->irq_chip.irq_mask = a10_eccmgr_irq_mask;
 	edac->irq_chip.irq_unmask = a10_eccmgr_irq_unmask;
 	edac->domain = irq_domain_add_linear(pdev->dev.of_node, 64,
