@@ -508,20 +508,20 @@ static int adc5_get_dt_channel_data(struct adc5_chip *adc,
 				    struct device_node *node,
 				    const struct adc5_data *data)
 {
-	const char *name = node->name, *channel_name;
+	const char *channel_name;
 	u32 chan, value, varr[2];
 	int ret;
 	struct device *dev = adc->dev;
 
 	ret = of_property_read_u32(node, "reg", &chan);
 	if (ret) {
-		dev_err(dev, "invalid channel number %s\n", name);
+		dev_err(dev, "invalid channel number %pOFn\n", node);
 		return ret;
 	}
 
 	if (chan > ADC5_PARALLEL_ISENSE_VBAT_IDATA ||
 	    !data->adc_chans[chan].datasheet_name) {
-		dev_err(dev, "%s invalid channel number %d\n", name, chan);
+		dev_err(dev, "%pOF invalid channel number %d\n", node, chan);
 		return -EINVAL;
 	}
 
@@ -616,7 +616,7 @@ static int adc5_get_dt_channel_data(struct adc5_chip *adc,
 	 */
 	prop->cal_val = ADC5_TIMER_CAL;
 
-	dev_dbg(dev, "%02x name %s\n", chan, name);
+	dev_dbg(dev, "%02x name %pOFn\n", chan, node);
 
 	return 0;
 }
