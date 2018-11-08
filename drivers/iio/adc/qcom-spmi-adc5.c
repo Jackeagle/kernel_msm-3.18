@@ -529,7 +529,7 @@ static int adc5_get_dt_channel_data(struct adc5_chip *adc,
 	prop->channel = chan;
 
 	channel_name = of_get_property(node,
-				"label", NULL) ? : node->name;
+				"label", NULL) ? : node->full_name;
 	if (!channel_name) {
 		pr_err("Invalid channel name\n");
 		return -EINVAL;
