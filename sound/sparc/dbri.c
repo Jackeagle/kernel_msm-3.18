@@ -2657,7 +2657,7 @@ static int dbri_probe(struct platform_device *op)
 
 	printk(KERN_INFO "audio%d at %p (irq %d) is DBRI(%c)+CS4215(%d)\n",
 	       dev, dbri->regs,
-	       dbri->irq, op->dev.of_node->name[9], dbri->mm.version);
+	       dbri->irq, op->dev.of_node->full_name[9], dbri->mm.version);
 	dev++;
 
 	return 0;
