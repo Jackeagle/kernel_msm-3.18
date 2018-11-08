@@ -345,7 +345,7 @@ static int rzn1_dt_node_to_map_one(struct pinctrl_dev *pctldev,
 
 	dev_dbg(ipctl->dev, "processing node %pOF\n", np);
 
-	grp = rzn1_pinctrl_find_group_by_name(ipctl, np->name);
+	grp = rzn1_pinctrl_find_group_by_name(ipctl, np->full_name);
 	if (!grp) {
 		dev_err(ipctl->dev, "unable to find group for node %pOF\n", np);
 
@@ -687,10 +687,10 @@ static int rzn1_pinctrl_parse_groups(struct device_node *np,
 	unsigned int i;
 	int size;
 
-	dev_dbg(ipctl->dev, "%s: %s\n", __func__, np->name);
+	dev_dbg(ipctl->dev, "%s: %pOFn\n", __func__, np);
 
 	/* Initialise group */
-	grp->name = np->name;
+	grp->name = np->full_name;
 
 	/*
 	 * The binding format is
@@ -761,14 +761,14 @@ static int rzn1_pinctrl_parse_functions(struct device_node *np,
 	func = &ipctl->functions[index];
 
 	/* Initialise function */
-	func->name = np->name;
+	func->name = np->full_name;
 	func->num_groups = rzn1_pinctrl_count_function_groups(np);
 	if (func->num_groups == 0) {
 		dev_err(ipctl->dev, "no groups defined in %pOF\n", np);
 		return -EINVAL;
 	}
 	dev_dbg(ipctl->dev, "function %s has %d groups\n",
-		np->name, func->num_groups);
+		func->name, func->num_groups);
 
 	func->groups = devm_kmalloc_array(ipctl->dev,
 					  func->num_groups, sizeof(char *),
@@ -777,7 +777,7 @@ static int rzn1_pinctrl_parse_functions(struct device_node *np,
 		return -ENOMEM;
 
 	if (of_property_count_u32_elems(np, RZN1_PINS_PROP) > 0) {
-		func->groups[i] = np->name;
+		func->groups[i] = np->full_name;
 		grp = &ipctl->groups[ipctl->ngroups];
 		grp->func = func->name;
 		ret = rzn1_pinctrl_parse_groups(np, grp, ipctl);
@@ -788,7 +788,7 @@ static int rzn1_pinctrl_parse_functions(struct device_node *np,
 	}
 
 	for_each_child_of_node(np, child) {
-		func->groups[i] = child->name;
+		func->groups[i] = child->full_name;
 		grp = &ipctl->groups[ipctl->ngroups];
 		grp->func = func->name;
 		ret = rzn1_pinctrl_parse_groups(child, grp, ipctl);
@@ -799,7 +799,7 @@ static int rzn1_pinctrl_parse_functions(struct device_node *np,
 	}
 
 	dev_dbg(ipctl->dev, "function %s parsed %u/%u groups\n",
-		np->name, i, func->num_groups);
+		func->name, i, func->num_groups);
 
 	return 0;
 }
