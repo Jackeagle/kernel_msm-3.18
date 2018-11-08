@@ -698,7 +698,7 @@ struct pwm_device *of_pwm_get(struct device_node *np, const char *con_id)
 		err = of_property_read_string_index(np, "pwm-names", index,
 						    &con_id);
 		if (err < 0)
-			con_id = np->name;
+			con_id = np->full_name;
 	}
 
 	pwm->label = con_id;
