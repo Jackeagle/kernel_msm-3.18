@@ -1967,17 +1967,22 @@ void init_new_task_load(struct task_struct *p, bool idle_task)
 	p->init_load_pct = 0;
 	rcu_assign_pointer(p->grp, NULL);
 	INIT_LIST_HEAD(&p->grp_list);
-	memset(&p->ravg, 0, sizeof(struct ravg));
 	p->cpu_cycles = 0;
 
+	if (idle_task) {
+		p->ravg = (struct ravg){
+			.curr_window_cpu = p->ravg.curr_window_cpu,
+			.prev_window_cpu = p->ravg.prev_window_cpu
+		};
+		return;
+	}
+
+	memset(&p->ravg, 0, sizeof(struct ravg));
 	p->ravg.curr_window_cpu = kcalloc(nr_cpu_ids, sizeof(u32), GFP_KERNEL);
 	p->ravg.prev_window_cpu = kcalloc(nr_cpu_ids, sizeof(u32), GFP_KERNEL);
 
 	/* Don't have much choice. CPU frequency would be bogus */
 	BUG_ON(!p->ravg.curr_window_cpu || !p->ravg.prev_window_cpu);
-
-	if (idle_task)
-		return;
 
 	if (current->init_load_pct)
 		init_load_pct = current->init_load_pct;
