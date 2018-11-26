@@ -4,7 +4,7 @@
 #include "tegra194-p2888.dtsi"
 
 / {
-	model = "NVIDIA Tegra194 P2972-0000 Development Board";
+	model = "NVIDIA Jetson AGX Xavier Development Kit";
 	compatible = "nvidia,p2972-0000", "nvidia,tegra194";
 
 	cbb {
@@ -12,5 +12,14 @@
 		sdhci@3400000 {
 			status = "okay";
 		};
+
+		pwm@c340000 {
+			status = "okay";
+		};
+	};
+
+	fan {
+		compatible = "pwm-fan";
+		pwms = <&pwm4 0 45334>;
 	};
 };
