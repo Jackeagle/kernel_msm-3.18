@@ -10370,6 +10370,7 @@ _scsih_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		case MPI26_MFGPAGE_DEVID_CFG_SEC_3916:
 			dev_info(&pdev->dev,
 			    "HBA is in Configurable Secure mode\n");
+			/* fall through */
 		case MPI26_MFGPAGE_DEVID_SAS3508:
 		case MPI26_MFGPAGE_DEVID_SAS3508_1:
 		case MPI26_MFGPAGE_DEVID_SAS3408:
