@@ -883,6 +883,10 @@ enum {
 	MLX5_CAP_UMR_FENCE_NONE		= 0x2,
 };
 
+enum {
+	MLX5_UCTX_CAP_RAW_TX = 1UL << 0,
+};
+
 struct mlx5_ifc_cmd_hca_cap_bits {
 	u8         reserved_at_0[0x30];
 	u8         vhca_id[0x10];
@@ -1043,7 +1047,8 @@ struct mlx5_ifc_cmd_hca_cap_bits {
 	u8         vector_calc[0x1];
 	u8         umr_ptr_rlky[0x1];
 	u8	   imaicl[0x1];
-	u8         reserved_at_232[0x4];
+	u8	   qp_packet_based[0x1];
+	u8         reserved_at_233[0x3];
 	u8         qkv[0x1];
 	u8         pkv[0x1];
 	u8         set_deth_sqpn[0x1];
@@ -1193,7 +1198,13 @@ struct mlx5_ifc_cmd_hca_cap_bits {
 	u8	   num_vhca_ports[0x8];
 	u8	   reserved_at_618[0x6];
 	u8	   sw_owner_id[0x1];
-	u8	   reserved_at_61f[0x1e1];
+	u8         reserved_at_61f[0x1];
+
+	u8         reserved_at_620[0x80];
+
+	u8         uctx_cap[0x20];
+
+	u8	   reserved_at_6c0[0x140];
 };
 
 enum mlx5_flow_destination_type {
@@ -2249,7 +2260,8 @@ struct mlx5_ifc_qpc_bits {
 	u8         st[0x8];
 	u8         reserved_at_10[0x3];
 	u8         pm_state[0x2];
-	u8         reserved_at_15[0x3];
+	u8         reserved_at_15[0x1];
+	u8         req_e2e_credit_mode[0x2];
 	u8         offload_type[0x4];
 	u8         end_padding_mode[0x2];
 	u8         reserved_at_1e[0x2];
@@ -9276,7 +9288,9 @@ struct mlx5_ifc_umem_bits {
 struct mlx5_ifc_uctx_bits {
 	u8         modify_field_select[0x40];
 
-	u8         reserved_at_40[0x1c0];
+	u8         cap[0x20];
+
+	u8         reserved_at_60[0x1a0];
 };
 
 struct mlx5_ifc_create_umem_in_bits {
