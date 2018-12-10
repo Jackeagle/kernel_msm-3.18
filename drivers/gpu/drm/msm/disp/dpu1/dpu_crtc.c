@@ -53,7 +53,7 @@ static inline int _dpu_crtc_get_mixer_width(struct dpu_crtc_state *cstate,
 	return mode->hdisplay / cstate->num_mixers;
 }
 
-static inline struct dpu_kms *_dpu_crtc_get_kms(struct drm_crtc *crtc)
+static struct dpu_kms *_dpu_crtc_get_kms(struct drm_crtc *crtc)
 {
 	struct msm_drm_private *priv = crtc->dev->dev_private;
 
@@ -702,7 +702,7 @@ static int _dpu_crtc_wait_for_frame_done(struct drm_crtc *crtc)
 	return rc;
 }
 
-void dpu_crtc_commit_kickoff(struct drm_crtc *crtc)
+void dpu_crtc_commit_kickoff(struct drm_crtc *crtc, bool async)
 {
 	struct drm_encoder *encoder;
 	struct drm_device *dev = crtc->dev;
@@ -731,27 +731,30 @@ void dpu_crtc_commit_kickoff(struct drm_crtc *crtc)
 		 * Encoder will flush/start now, unless it has a tx pending.
 		 * If so, it may delay and flush at an irq event (e.g. ppdone)
 		 */
-		dpu_encoder_prepare_for_kickoff(encoder, &params);
+		dpu_encoder_prepare_for_kickoff(encoder, &params, async);
 	}
 
-	/* wait for frame_event_done completion */
-	DPU_ATRACE_BEGIN("wait_for_frame_done_event");
-	ret = _dpu_crtc_wait_for_frame_done(crtc);
-	DPU_ATRACE_END("wait_for_frame_done_event");
-	if (ret) {
-		DPU_ERROR("crtc%d wait for frame done failed;frame_pending%d\n",
-				crtc->base.id,
-				atomic_read(&dpu_crtc->frame_pending));
-		goto end;
+
+	if (!async) {
+		/* wait for frame_event_done completion */
+		DPU_ATRACE_BEGIN("wait_for_frame_done_event");
+		ret = _dpu_crtc_wait_for_frame_done(crtc);
+		DPU_ATRACE_END("wait_for_frame_done_event");
+		if (ret) {
+			DPU_ERROR("crtc%d wait for frame done failed;frame_pending%d\n",
+					crtc->base.id,
+					atomic_read(&dpu_crtc->frame_pending));
+			goto end;
+		}
+
+		if (atomic_inc_return(&dpu_crtc->frame_pending) == 1) {
+			/* acquire bandwidth and other resources */
+			DPU_DEBUG("crtc%d first commit\n", crtc->base.id);
+		} else
+			DPU_DEBUG("crtc%d commit\n", crtc->base.id);
+
+		dpu_crtc->play_count++;
 	}
-
-	if (atomic_inc_return(&dpu_crtc->frame_pending) == 1) {
-		/* acquire bandwidth and other resources */
-		DPU_DEBUG("crtc%d first commit\n", crtc->base.id);
-	} else
-		DPU_DEBUG("crtc%d commit\n", crtc->base.id);
-
-	dpu_crtc->play_count++;
 
 	dpu_vbif_clear_errors(dpu_kms);
 
@@ -759,11 +762,12 @@ void dpu_crtc_commit_kickoff(struct drm_crtc *crtc)
 		if (encoder->crtc != crtc)
 			continue;
 
-		dpu_encoder_kickoff(encoder);
+		dpu_encoder_kickoff(encoder, async);
 	}
 
 end:
-	reinit_completion(&dpu_crtc->frame_done_comp);
+	if (!async)
+		reinit_completion(&dpu_crtc->frame_done_comp);
 	DPU_ATRACE_END("crtc_commit");
 }
 
@@ -816,35 +820,6 @@ static void _dpu_crtc_vblank_enable_no_lock(
 }
 
 /**
- * _dpu_crtc_set_suspend - notify crtc of suspend enable/disable
- * @crtc: Pointer to drm crtc object
- * @enable: true to enable suspend, false to indicate resume
- */
-static void _dpu_crtc_set_suspend(struct drm_crtc *crtc, bool enable)
-{
-	struct dpu_crtc *dpu_crtc = to_dpu_crtc(crtc);
-
-	DRM_DEBUG_KMS("crtc%d suspend = %d\n", crtc->base.id, enable);
-
-	mutex_lock(&dpu_crtc->crtc_lock);
-
-	/*
-	 * If the vblank is enabled, release a power reference on suspend
-	 * and take it back during resume (if it is still enabled).
-	 */
-	trace_dpu_crtc_set_suspend(DRMID(&dpu_crtc->base), enable, dpu_crtc);
-	if (dpu_crtc->suspend == enable)
-		DPU_DEBUG("crtc%d suspend already set to %d, ignoring update\n",
-				crtc->base.id, enable);
-	else if (dpu_crtc->enabled && dpu_crtc->vblank_requested) {
-		_dpu_crtc_vblank_enable_no_lock(dpu_crtc, !enable);
-	}
-
-	dpu_crtc->suspend = enable;
-	mutex_unlock(&dpu_crtc->crtc_lock);
-}
-
-/**
  * dpu_crtc_duplicate_state - state duplicate hook
  * @crtc: Pointer to drm crtc structure
  * @Returns: Pointer to new drm_crtc_state structure
@@ -871,43 +846,6 @@ static struct drm_crtc_state *dpu_crtc_duplicate_state(struct drm_crtc *crtc)
 	__drm_atomic_helper_crtc_duplicate_state(crtc, &cstate->base);
 
 	return &cstate->base;
-}
-
-/**
- * dpu_crtc_reset - reset hook for CRTCs
- * Resets the atomic state for @crtc by freeing the state pointer (which might
- * be NULL, e.g. at driver load time) and allocating a new empty state object.
- * @crtc: Pointer to drm crtc structure
- */
-static void dpu_crtc_reset(struct drm_crtc *crtc)
-{
-	struct dpu_crtc *dpu_crtc;
-	struct dpu_crtc_state *cstate;
-
-	if (!crtc) {
-		DPU_ERROR("invalid crtc\n");
-		return;
-	}
-
-	/* revert suspend actions, if necessary */
-	if (dpu_kms_is_suspend_state(crtc->dev))
-		_dpu_crtc_set_suspend(crtc, false);
-
-	/* remove previous state, if present */
-	if (crtc->state) {
-		dpu_crtc_destroy_state(crtc, crtc->state);
-		crtc->state = 0;
-	}
-
-	dpu_crtc = to_dpu_crtc(crtc);
-	cstate = kzalloc(sizeof(*cstate), GFP_KERNEL);
-	if (!cstate) {
-		DPU_ERROR("failed to allocate state\n");
-		return;
-	}
-
-	cstate->base.crtc = crtc;
-	crtc->state = &cstate->base;
 }
 
 static void dpu_crtc_handle_power_event(u32 event_type, void *arg)
@@ -951,9 +889,6 @@ static void dpu_crtc_disable(struct drm_crtc *crtc)
 
 	DRM_DEBUG_KMS("crtc%d\n", crtc->base.id);
 
-	if (dpu_kms_is_suspend_state(crtc->dev))
-		_dpu_crtc_set_suspend(crtc, true);
-
 	/* Disable/save vblank irq handling */
 	drm_crtc_vblank_off(crtc);
 
@@ -966,8 +901,7 @@ static void dpu_crtc_disable(struct drm_crtc *crtc)
 				atomic_read(&dpu_crtc->frame_pending));
 
 	trace_dpu_crtc_disable(DRMID(crtc), false, dpu_crtc);
-	if (dpu_crtc->enabled && !dpu_crtc->suspend &&
-			dpu_crtc->vblank_requested) {
+	if (dpu_crtc->enabled && dpu_crtc->vblank_requested) {
 		_dpu_crtc_vblank_enable_no_lock(dpu_crtc, false);
 	}
 	dpu_crtc->enabled = false;
@@ -1033,8 +967,7 @@ static void dpu_crtc_enable(struct drm_crtc *crtc,
 
 	mutex_lock(&dpu_crtc->crtc_lock);
 	trace_dpu_crtc_enable(DRMID(crtc), true, dpu_crtc);
-	if (!dpu_crtc->enabled && !dpu_crtc->suspend &&
-			dpu_crtc->vblank_requested) {
+	if (!dpu_crtc->enabled && dpu_crtc->vblank_requested) {
 		_dpu_crtc_vblank_enable_no_lock(dpu_crtc, true);
 	}
 	dpu_crtc->enabled = true;
@@ -1289,17 +1222,11 @@ end:
 
 int dpu_crtc_vblank(struct drm_crtc *crtc, bool en)
 {
-	struct dpu_crtc *dpu_crtc;
-
-	if (!crtc) {
-		DPU_ERROR("invalid crtc\n");
-		return -EINVAL;
-	}
-	dpu_crtc = to_dpu_crtc(crtc);
+	struct dpu_crtc *dpu_crtc = to_dpu_crtc(crtc);
 
 	mutex_lock(&dpu_crtc->crtc_lock);
 	trace_dpu_crtc_vblank(DRMID(&dpu_crtc->base), en, dpu_crtc);
-	if (dpu_crtc->enabled && !dpu_crtc->suspend) {
+	if (dpu_crtc->enabled) {
 		_dpu_crtc_vblank_enable_no_lock(dpu_crtc, en);
 	}
 	dpu_crtc->vblank_requested = en;
@@ -1539,7 +1466,7 @@ static const struct drm_crtc_funcs dpu_crtc_funcs = {
 	.set_config = drm_atomic_helper_set_config,
 	.destroy = dpu_crtc_destroy,
 	.page_flip = drm_atomic_helper_page_flip,
-	.reset = dpu_crtc_reset,
+	.reset = drm_atomic_helper_crtc_reset,
 	.atomic_duplicate_state = dpu_crtc_duplicate_state,
 	.atomic_destroy_state = dpu_crtc_destroy_state,
 	.late_register = dpu_crtc_late_register,
