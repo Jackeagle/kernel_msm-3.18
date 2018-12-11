@@ -357,6 +357,9 @@ struct printk_log {
 	u8 facility;		/* syslog facility */
 	u8 flags:5;		/* internal record flags */
 	u8 level:3;		/* syslog level */
+#ifdef CONFIG_PRINTK_FROM
+	u32 from_id;            /* thread id or processor id */
+#endif
 }
 #ifdef CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS
 __packed __aligned(4)
@@ -423,7 +426,11 @@ static u64 exclusive_console_stop_seq;
 static u64 clear_seq;
 static u32 clear_idx;
 
+#ifdef CONFIG_PRINTK_FROM
+#define PREFIX_MAX		48
+#else
 #define PREFIX_MAX		32
+#endif
 #define LOG_LINE_MAX		(1024 - PREFIX_MAX)
 
 #define LOG_LEVEL(v)		((v) & 0x07)
@@ -626,6 +633,12 @@ static int log_store(int facility, int level,
 		msg->ts_nsec = ts_nsec;
 	else
 		msg->ts_nsec = local_clock();
+#ifdef CONFIG_PRINTK_FROM
+	if (in_task())
+		msg->from_id = task_pid_nr(current);
+	else
+		msg->from_id = 0x80000000 + raw_smp_processor_id();
+#endif
 	memset(log_dict(msg) + dict_len, 0, pad_len);
 	msg->len = size;
 
@@ -689,12 +702,21 @@ static ssize_t msg_print_ext_header(char *buf, size_t size,
 				    struct printk_log *msg, u64 seq)
 {
 	u64 ts_usec = msg->ts_nsec;
+	char from[18];
+#ifdef CONFIG_PRINTK_FROM
+	u32 id = msg->from_id;
+
+	snprintf(from, sizeof(from), ",from=%c%u",
+		 id & 0x80000000 ? 'C' : 'T', id & ~0x80000000);
+#else
+	from[0] = '\0';
+#endif
 
 	do_div(ts_usec, 1000);
 
-	return scnprintf(buf, size, "%u,%llu,%llu,%c;",
-		       (msg->facility << 3) | msg->level, seq, ts_usec,
-		       msg->flags & LOG_CONT ? 'c' : '-');
+	return scnprintf(buf, size, "%u,%llu,%llu,%c%s;",
+			 (msg->facility << 3) | msg->level, seq, ts_usec,
+			 msg->flags & LOG_CONT ? 'c' : '-', from);
 }
 
 static ssize_t msg_print_ext_body(char *buf, size_t size,
@@ -1039,6 +1061,9 @@ void log_buf_vmcoreinfo_setup(void)
 	VMCOREINFO_OFFSET(printk_log, len);
 	VMCOREINFO_OFFSET(printk_log, text_len);
 	VMCOREINFO_OFFSET(printk_log, dict_len);
+#ifdef CONFIG_PRINTK_FROM
+	VMCOREINFO_OFFSET(printk_log, from_id);
+#endif
 }
 #endif
 
@@ -1237,9 +1262,20 @@ static size_t print_time(u64 ts, char *buf)
 {
 	unsigned long rem_nsec = do_div(ts, 1000000000);
 
-	return sprintf(buf, "[%5lu.%06lu] ",
+	return sprintf(buf, "[%5lu.%06lu]",
 		       (unsigned long)ts, rem_nsec / 1000);
 }
+
+#ifdef CONFIG_PRINTK_FROM
+static size_t print_from(u32 id, char *buf)
+{
+	char from[12];
+
+	snprintf(from, sizeof(from), "%c%u",
+		 id & 0x80000000 ? 'C' : 'T', id & ~0x80000000);
+	return sprintf(buf, "[%6s]", from);
+}
+#endif
 
 static size_t print_prefix(const struct printk_log *msg, bool syslog,
 			   bool time, char *buf)
@@ -1250,6 +1286,12 @@ static size_t print_prefix(const struct printk_log *msg, bool syslog,
 		len = print_syslog((msg->facility << 3) | msg->level, buf);
 	if (time)
 		len += print_time(msg->ts_nsec, buf + len);
+#ifdef CONFIG_PRINTK_FROM
+	len += print_from(msg->from_id, buf + len);
+#endif
+	if (IS_ENABLED(CONFIG_PRINTK_FROM) || time)
+		buf[len++] = ' ';
+	buf[len] = '\0'; /* For safety in case of accessed as a string. */
 	return len;
 }
 
