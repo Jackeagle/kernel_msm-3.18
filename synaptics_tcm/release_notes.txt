@@ -1,0 +1,583 @@
+v1.1 Aug 09, 2018 leon.tu@tw.synaptics.com
+   * Updates
+     - Add cleaning up of helper work
+     - Set MOSI to default state during RMI read
+     - Add option to do touch reset before downloading firmware
+     - Add zero-padding to touch config to ensure 64-bit boundary alignment when doing config download
+     - Add support for version 2 of config download implementation
+	 - Dynamically determine whether to update display configuration or not
+	 - Optimize hdl in the resume routine
+	 - Fix bugs of hdl
+   * Production test items
+     - Dynamic range test
+     - Doze dynamic range test
+     - LPWG dynamic range test
+     - Noise test
+     - Doze noise test
+     - LPWG noise test
+     - Open/short detector test
+     - PT11 test
+     - PT12 test
+     - PT13 test
+     - Reset open test
+     - Lockdown test
+     - TRX-TRX shorts test
+     - TRX-sensor opens test
+     - TRX-ground shorts test
+   * Main features
+     - I2C and SPI
+     - Interrupt mode and polling mode
+     - Predictive reading
+     - 2D touch reporting
+     - Low power wakeup gesture
+     - Startup reflash and runtime reflash
+     - Microbootloader mode flash programming
+     - ZeroFlash (host download of firmware and config)
+     - TouchComm device (/dev/tcm*)
+     - Concurrent operation between touch reporting and DS6 (through /dev/tcm*)
+     - Diagnostics interface
+     - Production tests
+     - Access to custom data (Lockdown, LCM, OEM)
+     - Default or custom touch report configuration
+     - Dual firmware support
+   * SynaToolkit (v1.0) tool functions
+     - Reflash
+     - Update config
+     - Program flash
+     - Custom data
+     - Send command
+     - Production test
+       > Doze dynamic range test
+       > Doze noise test
+     - Stream report
+       > Baseline report
+       > Doze delta report
+       > Doze raw report
+       > Doze baseline report
+       > Loze delta report
+       > Loze raw report
+       > Loze baseline report
+     - Write packet
+     - Read packet
+
+
+
+v1.0 Mar 09, 2018 scott.lin@tw.synaptics.com
+   * Updates
+     - Add early suspend mechanism
+     - Add preliminary support for doze mode tests
+     - Update display config by default during reflash through sysfs
+     - Add support for dual firmware
+     - Update retry mechanism for reading messages to handle INVALID status
+   * Production test items
+     - Dynamic range test
+     - Doze dynamic range test
+     - LPWG dynamic range test
+     - Noise test
+     - Doze noise test
+     - LPWG noise test
+     - Open/short detector test
+     - PT11 test
+     - PT12 test
+     - PT13 test
+     - Reset open test
+     - Lockdown test
+     - TRX-TRX shorts test
+     - TRX-sensor opens test
+     - TRX-ground shorts test
+   * Main features
+     - I2C and SPI
+     - Interrupt mode and polling mode
+     - Predictive reading
+     - 2D touch reporting
+     - Low power wakeup gesture
+     - Startup reflash and runtime reflash
+     - Microbootloader mode flash programming
+     - ZeroFlash (host download of firmware and config)
+     - TouchComm device (/dev/tcm*)
+     - Concurrent operation between touch reporting and DS6 (through /dev/tcm*)
+     - Diagnostics interface
+     - Production tests
+     - Access to custom data (Lockdown, LCM, OEM)
+     - Default or custom touch report configuration
+     - Dual firmware support
+   * SynaToolkit (v1.0) tool functions
+     - Reflash
+     - Update config
+     - Program flash
+     - Custom data
+     - Send command
+     - Production test
+       > Doze dynamic range test
+       > Doze noise test
+     - Stream report
+       > Baseline report
+       > Doze delta report
+       > Doze raw report
+       > Doze baseline report
+       > Loze delta report
+       > Loze raw report
+       > Loze baseline report
+     - Write packet
+     - Read packet
+
+
+
+v0.9.1 Jan 15, 2018 scott.lin@tw.synaptics.com
+   * Updates
+     - Update implementation of report notifier thread
+     - Fix bug in size of memory allocation for tcm_hcd->in buffer
+     - Set STATUS_OK response code for mode-switching commands after receiving
+       identify report
+
+
+
+v0.9 Jan 09, 2018 scott.lin@tw.synaptics.com
+   * Updates
+     - Update display config by default during reflash
+     - Add option to skip updating of watchdog in reset sequence
+     - Add retry mechanism for firmware and config download
+     - Add option to return command response code to caller when sending
+       commands
+     - Add definition of NOT_EXECUTED_IN_DEEP_SLEEP status code
+     - Update handling of host download after reset
+     - Replace open, horizontal short, and vertical short tests with PT11, PT12,
+       and PT13 tests
+     - Add retry mechanism for reading messages
+     - Add return value when erroring out from kobject_create_and_add
+     - Support ZeroFlash in polling mode
+   * Production test items
+     - Dynamic range test
+     - LPWG dynamic range test
+     - Noise test
+     - LPWG noise test
+     - Open/short detector test
+     - PT11 test
+     - PT12 test
+     - PT13 test
+     - Reset open test
+     - Lockdown test
+     - TRX-TRX shorts test
+     - TRX-sensor opens test
+     - TRX-ground shorts test
+   * Main features
+     - I2C and SPI
+     - Interrupt mode and polling mode
+     - Predictive reading
+     - 2D touch reporting
+     - Low power wakeup gesture
+     - Startup reflash and runtime reflash
+     - Microbootloader mode flash programming
+     - ZeroFlash (host download of firmware and config)
+     - TouchComm device (/dev/tcm*)
+     - Concurrent operation between touch reporting and DS6 (through /dev/tcm*)
+     - Diagnostics interface
+     - Production tests
+     - Access to custom data (Lockdown, LCM, OEM)
+     - Default or custom touch report configuration
+   * SynaToolkit (v0.9) tool functions
+     - Reflash
+     - Update config
+     - Program flash
+     - Custom data
+     - Send command
+     - Production test
+       > PT11 test
+       > PT12 test
+       > PT13 test
+     - Stream report
+     - Write packet
+     - Read packet
+
+
+
+v0.8 Dec 13, 2017 scott.lin@tw.synaptics.com
+   * Updates
+     - Disable IRQ during suspend
+     - Add ZeroFlash module for doing firmware and config download
+     - Replace wakelocks with wakeup sources
+     - Unlock reset_mutex when erroring out from helper task for sending reset
+       notification
+     - Add support for vertical short test
+     - Add support for horizontal short test
+     - Add support for open test
+     - Add delay after write packet if using continued writes
+     - Provide actual buffer size information to secure_memcpy
+     - Check return value of snprintf
+     - Remove redundant use of mutex_is_locked when dispatching report
+     - Update routine for enabling/disabling IRQ to allow use of
+       disable_irq_nosync
+     - Do reset if reflash fails
+   * Production test items
+     - Dynamic range test
+     - LPWG dynamic range test
+     - Noise test
+     - LPWG noise test
+     - Open/short detector test
+     - Open test
+     - Horizontal short test
+     - Vertical short test
+     - Reset open test
+     - Lockdown test
+     - TRX-TRX shorts test
+     - TRX-sensor opens test
+     - TRX-ground shorts test
+   * Main features
+     - I2C and SPI
+     - Interrupt mode and polling mode
+     - Predictive reading
+     - 2D touch reporting
+     - Low power wakeup gesture
+     - Startup reflash and runtime reflash
+     - Microbootloader mode flash programming
+     - ZeroFlash (host download of firmware and config)
+     - TouchComm device (/dev/tcm*)
+     - Concurrent operation between touch reporting and DS6 (through /dev/tcm*)
+     - Diagnostics interface
+     - Production tests
+     - Access to custom data (Lockdown, LCM, OEM)
+     - Default or custom touch report configuration
+   * SynaToolkit (v0.8) tool functions
+     - Reflash
+     - Update config
+     - Program flash
+     - Custom data
+     - Send command
+     - Production test
+       > Open test
+       > Horizontal short test
+       > Vertical short test
+     - Stream report
+     - Write packet
+     - Read packet
+
+
+
+v0.7 Nov 02, 2017 scott.lin@tw.synaptics.com
+   * Updates
+     - Add support for reporting gloved touch objects
+     - Update routine for enabling/disabling IRQ to give correct return value
+     - Update fields in dynamic config
+     - Update app info and add support for GET_DATA_LOCATION command
+     - Disable watchdog and spontaneous reset handling during reset open test
+     - Bypass suspend and resume routines based on setting of in_suspend flag
+     - Update noise test implementation
+     - Set up input device in reset callback
+     - Add helper task to send reset notification
+     - Use dedicated copy of report ID for asynchronous processing
+     - Replace INIT_COMPLETION with reinit_completion if kernel version >= 3.13
+     - Set up sysfs attributes for standard dynamic config entries
+     - Use macros when defining sysfs attributes
+   * Production test items
+     - Dynamic range test
+     - LPWG dynamic range test
+     - Noise test
+     - LPWG noise test
+     - Open/short detector test
+     - Reset open test
+     - Lockdown test
+     - TRX-TRX shorts test
+     - TRX-sensor opens test
+     - TRX-ground shorts test
+   * Main features
+     - I2C and SPI
+     - Interrupt mode and polling mode
+     - Predictive reading
+     - 2D touch reporting
+     - Low power wakeup gesture
+     - Startup reflash and runtime reflash
+     - Microbootloader mode flash programming
+     - TouchComm device (/dev/tcm*)
+     - Concurrent operation between touch reporting and DS6 (through /dev/tcm*)
+     - Diagnostics interface
+     - Production tests
+     - Access to custom data (Lockdown, LCM, OEM)
+     - Default or custom touch report configuration
+   * SynaToolkit (v0.7) tool functions
+     - Reflash
+     - Update config
+     - Program flash
+     - Custom data
+     - Send command
+     - Production test
+       > New noise test output format
+     - Stream report
+     - Write packet
+     - Read packet
+
+
+
+v0.6 Sep 27, 2017 scott.lin@tw.synaptics.com
+   * Updates
+     - Update fields in app info and boot info to use write block units instead
+       of word units
+     - Add option to run application firmware after detecting spontaneous reset
+       causing device to remain in bootloader mode
+     - Add helper mechanism to allow initiation of commands from interrupt
+       context
+     - Update test limit of reset open test
+     - Use macro as option for falling back on polling mode
+     - Use macros for buffer initialization and release
+     - Fix handling of empty reports when doing report streaming
+     - Update test limits of dynamic range test
+     - Add support for lower limits in dynamic range test
+     - Do reset at end of open/short detector test
+     - Update buffer allocation and buffer data length setting procedures
+     - Add support for concurrent operation between raw mode access of /dev/tcm*
+       device node and touch reporting
+     - Allow touch report configuration to be updated via /dev/tcm* device node
+     - Provide option to use default touch report configuration
+     - Traverse through touch report configuration to parse touch report and
+       retrieve touch data
+     - Add flag to indicate result of driver initialization
+     - Add mutex for reflash
+   * Production test items
+     - Dynamic range test
+     - LPWG dynamic range test
+     - Noise test
+     - LPWG noise test
+     - Open/short detector test
+     - Reset open test
+     - Lockdown test
+     - TRX-TRX shorts test
+     - TRX-sensor opens test
+     - TRX-ground shorts test
+   * Main features
+     - I2C and SPI
+     - Interrupt mode and polling mode
+     - Predictive reading
+     - 2D touch reporting
+     - Low power wakeup gesture
+     - Startup reflash and runtime reflash
+     - Microbootloader mode flash programming
+     - TouchComm device (/dev/tcm*)
+     - Concurrent operation between touch reporting and DS6 (through /dev/tcm*)
+     - Diagnostics interface
+     - Production tests
+     - Access to custom data (Lockdown, LCM, OEM)
+     - Default or custom touch report configuration
+   * SynaToolkit (v0.6) tool functions
+     - Reflash
+     - Update config
+     - Program flash
+     - Custom data
+     - Send command
+     - Production test
+     - Stream report
+       > New touch report output format
+     - Write packet
+     - Read packet
+
+
+
+v0.5 Sep 08, 2017 scott.lin@tw.synaptics.com
+   * Updates
+     - Use wakelock during reflash
+     - Replace run_app_firmware with reset at end of reflash
+     - Release touch objects after receiving identify report
+     - Add support for lockdown test
+     - Add support for reset open test
+     - Remove checking of command write PID in polling mode
+     - Change default SPI mode to mode 0
+     - Add reference configuration of touch reset
+     - Add support for open/short detector test
+     - Correct header format of production test output to match app info
+       structure
+     - Remove delay after mode-switching command
+     - Parse error code in error response packet
+     - Add display config CRC error status in boot info
+     - Fill single-byte payload in raw read with EOM
+     - Replace end address fields with length fields in app info and boot info
+     - Add fields in dynamic config
+   * Production test items
+     - Dynamic range test
+     - LPWG dynamic range test
+     - Noise test
+     - LPWG noise test
+     - Open/short detector test
+     - Reset open test
+     - Lockdown test
+     - TRX-TRX shorts test
+     - TRX-sensor opens test
+     - TRX-ground shorts test
+   * Main features
+     - I2C and SPI
+     - Interrupt mode and polling mode
+     - Predictive reading
+     - 2D touch reporting
+     - Low power wakeup gesture
+     - Startup reflash and runtime reflash
+     - Microbootloader mode flash programming
+     - TouchComm device (/dev/tcm*)
+     - Diagnostics interface
+     - Production tests
+     - Access to custom data (Lockdown, LCM, OEM)
+   * SynaToolkit (v0.5) tool functions
+     - Reflash
+     - Update config
+     - Program flash
+     - Custom data
+     - Send command
+     - Production test
+     - Stream report
+     - Write packet
+     - Read packet
+
+
+
+v0.4 Aug 25, 2017 scott.lin@tw.synaptics.com
+   * Updates
+     - Update condition for enabling watchdog after doing flash programming
+     - Remove reading of touch info
+     - Add retry mechanism for running application firmware
+     - Add handling of custom data partitions
+     - Add watchdog mechanism and hardware reset control
+     - Remove sleep commands from LPWG flows
+     - Replace platform_device_register with platform_device_alloc and
+       platform_device_add
+     - Add buffer locking mechanism
+     - Implement function for reading from flash
+     - Remove freeing of buffer pointed to by report buffer pointer
+     - Update field IDs of dynamic config
+     - Move fields from touch info to app info
+   * Production test items
+     - Dynamic range test
+     - LPWG dynamic range test
+     - Noise test
+     - LPWG noise test
+     - TRX-TRX shorts test
+     - TRX-sensor opens test
+     - TRX-ground shorts test
+   * Main features
+     - I2C and SPI
+     - Interrupt mode and polling mode
+     - Predictive reading
+     - 2D touch reporting
+     - Low power wakeup gesture
+     - Startup reflash and runtime reflash
+     - Microbootloader mode flash programming
+     - TouchComm device (/dev/tcm*)
+     - Diagnostics interface
+     - Production tests
+     - Access to custom data (Lockdown, LCM, OEM)
+   * SynaToolkit (v0.4) tool functions
+     - Reflash
+     - Update config
+     - Program flash
+     - Custom data
+     - Send command
+     - Production test
+     - Stream report
+     - Write packet
+     - Read packet
+
+
+
+v0.3 Jul 28, 2017 scott.lin@tw.synaptics.com
+   * Updates
+     - Handle empty reports properly when doing report streaming
+     - Add comparison of config ID during reflash
+     - User macros for logs
+     - Use unlikely macro when checking for invalid interrupt line status in ISR
+     - Add missing ifdef for type B protocol
+     - Pad chunk space with 0xffs instead of 0x00s
+     - Read touch info packet in response to identify report only if device
+       working in application firmware mode
+     - Fix handling of devices stuck in bootloader mode in reset sequence
+   * Production test items
+     - Dynamic range test
+     - LPWG dynamic range test
+     - Noise test
+     - LPWG noise test
+     - TRX-TRX shorts test
+     - TRX-sensor opens test
+     - TRX-ground shorts test
+   * Main features
+     - I2C and SPI
+     - Interrupt mode and polling mode
+     - Predictive reading
+     - 2D touch reporting
+     - Low power wakeup gesture
+     - Startup reflash and runtime reflash
+     - Microbootloader mode flash programming
+     - TouchComm device (/dev/tcm*)
+     - Diagnostics interface
+     - Production tests
+   * SynaToolkit (v0.3) tool functions
+     - Reflash
+     - Update config
+     - Program flash
+     - Send command
+     - Production test
+     - Stream report
+     - Write packet
+     - Read packet
+
+
+
+v0.2 Jul 10, 2017 scott.lin@tw.synaptics.com
+   * Updates
+     - Define minimum read length for predictive reading
+     - Add preliminary implementation of production tests
+     - Adjust size of payload copied from command response for info packet
+     - Update field IDs of dynamic config
+     - Disable and free IRQ if driver initialization errors out
+     - Check flash address and size of display config during reflash
+     - Update boot info with display config information
+     - Support flash programming using iHex file with data not aligned with
+       chunk-size boundary
+     - Fill single-byte payload in continued read with EOM
+     - Block command writes in ISR thread
+     - Fix cleaning up of driver during driver removal
+     - Add option to keep driver in system after failing to communicate with
+       device during initialization
+   * Production test items
+     - Dynamic range test
+     - LPWG dynamic range test
+     - Noise test
+     - LPWG noise test
+     - TRX-TRX shorts test
+     - TRX-sensor opens test
+     - TRX-ground shorts test
+   * Main features
+     - I2C and SPI
+     - Interrupt mode and polling mode
+     - Predictive reading
+     - 2D touch reporting
+     - Low power wakeup gesture
+     - Startup reflash and runtime reflash
+     - Microbootloader mode flash programming
+     - TouchComm device (/dev/tcm*)
+     - Diagnostics interface
+     - Production tests
+   * SynaToolkit (v0.2) tool functions
+     - Reflash
+     - Update config
+     - Program flash
+     - Send command
+     - Production test
+     - Stream report
+     - Write packet
+     - Read packet
+
+
+
+v0.1 Jun 15, 2017 scott.lin@tw.synaptics.com
+   * Main features
+     - I2C and SPI
+     - Interrupt mode and polling mode
+     - Predictive reading
+     - 2D touch reporting
+     - Low power wakeup gesture
+     - Startup reflash and runtime reflash
+     - Microbootloader mode flash programming
+     - TouchComm device (/dev/tcm*)
+     - Diagnostics interface
+   * SynaToolkit (v0.1) tool functions
+     - Reflash
+     - Update config
+     - Program flash
+     - Send command
+     - Stream report
+     - Write packet
+     - Read packet
