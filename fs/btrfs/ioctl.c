@@ -3942,12 +3942,10 @@ static int btrfs_remap_file_range_prep(struct file *file_in, loff_t pos_in,
 	u64 wb_len;
 	int ret;
 
+	if (btrfs_root_readonly(BTRFS_I(inode_out)->root))
+		return -EROFS;
+
 	if (!(remap_flags & REMAP_FILE_DEDUP)) {
-		struct btrfs_root *root_out = BTRFS_I(inode_out)->root;
-
-		if (btrfs_root_readonly(root_out))
-			return -EROFS;
-
 		if (file_in->f_path.mnt != file_out->f_path.mnt ||
 		    inode_in->i_sb != inode_out->i_sb)
 			return -EXDEV;
