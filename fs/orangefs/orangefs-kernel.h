@@ -229,6 +229,13 @@ struct orangefs_cached_xattr {
 	unsigned long timeout;
 };
 
+struct orangefs_write_range {
+	loff_t pos;
+	size_t len;
+	kuid_t uid;
+	kgid_t gid;
+};
+
 extern struct orangefs_stats orangefs_stats;
 
 /*
@@ -341,6 +348,7 @@ void fsid_key_table_finalize(void);
 /*
  * defined in inode.c
  */
+vm_fault_t orangefs_page_mkwrite(struct vm_fault *);
 struct inode *orangefs_new_inode(struct super_block *sb,
 			      struct inode *dir,
 			      int mode,
@@ -382,7 +390,7 @@ bool __is_daemon_in_service(void);
  * defined in file.c
  */
 ssize_t wait_for_direct_io(enum ORANGEFS_io_type, struct inode *, loff_t *,
-    struct iov_iter *, size_t, loff_t);
+    struct iov_iter *, size_t, loff_t, struct orangefs_write_range *);
 ssize_t do_readv_writev(enum ORANGEFS_io_type, struct file *, loff_t *,
     struct iov_iter *);
 
