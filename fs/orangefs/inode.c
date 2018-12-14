@@ -79,6 +79,170 @@ static int orangefs_writepage(struct page *page, struct writeback_control *wbc)
 	return ret;
 }
 
+struct orangefs_writepages {
+	loff_t off;
+	size_t len;
+	kuid_t uid;
+	kgid_t gid;
+	int maxpages;
+	int npages;
+	struct page **pages;
+	struct bio_vec *bv;
+};
+
+static int orangefs_writepages_work(struct orangefs_writepages *ow,
+    struct writeback_control *wbc)
+{
+	struct inode *inode = ow->pages[0]->mapping->host;
+	struct orangefs_write_range *wrp, wr;
+	struct iov_iter iter;
+	ssize_t ret;
+	size_t len;
+	loff_t off;
+	int i;
+
+	len = i_size_read(inode);
+	if (ow->off + ow->len > len)
+		ow->len = len - ow->off;
+	for (i = 0; i < ow->npages; i++) {
+		set_page_writeback(ow->pages[i]);
+		ow->bv[i].bv_page = ow->pages[i];
+		ow->bv[i].bv_len = min(page_offset(ow->pages[i]) + PAGE_SIZE,
+		    ow->off + ow->len) -
+		    max(ow->off, page_offset(ow->pages[i]));
+		if (i == 0)
+			ow->bv[i].bv_offset = ow->off -
+			    page_offset(ow->pages[i]);
+		else
+			ow->bv[i].bv_offset = 0;
+	}
+	iov_iter_bvec(&iter, WRITE, ow->bv, ow->npages, ow->len);
+
+	off = ow->off;
+	wr.uid = ow->uid;
+	wr.gid = ow->gid;
+	ret = wait_for_direct_io(ORANGEFS_IO_WRITE, inode, &off, &iter, ow->len,
+	    0, &wr);
+	if (ret < 0) {
+		for (i = 0; i < ow->npages; i++) {
+			SetPageError(ow->pages[i]);
+			mapping_set_error(ow->pages[i]->mapping, ret);
+			if (PagePrivate(ow->pages[i])) {
+				wrp = (struct orangefs_write_range *)
+				    page_private(ow->pages[i]);
+				ClearPagePrivate(ow->pages[i]);
+				put_page(ow->pages[i]);
+				kfree(wrp);
+			}
+			end_page_writeback(ow->pages[i]);
+			unlock_page(ow->pages[i]);
+		}
+	} else {
+		ret = 0;
+		for (i = 0; i < ow->npages; i++) {
+			if (PagePrivate(ow->pages[i])) {
+				wrp = (struct orangefs_write_range *)
+				    page_private(ow->pages[i]);
+				ClearPagePrivate(ow->pages[i]);
+				put_page(ow->pages[i]);
+				kfree(wrp);
+			}
+			end_page_writeback(ow->pages[i]);
+			unlock_page(ow->pages[i]);
+		}
+	}
+	return ret;
+}
+
+static int orangefs_writepages_callback(struct page *page,
+    struct writeback_control *wbc, void *data)
+{
+	struct orangefs_writepages *ow = data;
+	struct orangefs_write_range *wr;
+	int ret;
+
+	if (!PagePrivate(page)) {
+		unlock_page(page);
+		/* It's not private so there's nothing to write, right? */
+		printk("writepages_callback not private!\n");
+		BUG();
+		return 0;
+	}
+	wr = (struct orangefs_write_range *)page_private(page);
+
+	ret = -1;
+	if (ow->npages == 0) {
+		ow->off = wr->pos;
+		ow->len = wr->len;
+		ow->uid = wr->uid;
+		ow->gid = wr->gid;
+		ow->pages[ow->npages++] = page;
+		ret = 0;
+		goto done;
+	}
+	if (!uid_eq(ow->uid, wr->uid) || !gid_eq(ow->gid, wr->gid)) {
+		orangefs_writepages_work(ow, wbc);
+		ow->npages = 0;
+		ret = -1;
+		goto done;
+	}
+	if (ow->off + ow->len == wr->pos) {
+		ow->len += wr->len;
+		ow->pages[ow->npages++] = page;
+		ret = 0;
+		goto done;
+	}
+done:
+	if (ret == -1) {
+		if (ow->npages) {
+			orangefs_writepages_work(ow, wbc);
+			ow->npages = 0;
+		}
+		ret = orangefs_writepage_locked(page, wbc);
+		mapping_set_error(page->mapping, ret);
+		unlock_page(page);
+		end_page_writeback(page);
+	} else {
+		if (ow->npages == ow->maxpages) {
+			orangefs_writepages_work(ow, wbc);
+			ow->npages = 0;
+		}
+	}
+	return ret;
+}
+
+static int orangefs_writepages(struct address_space *mapping,
+    struct writeback_control *wbc)
+{
+	struct orangefs_writepages *ow;
+	struct blk_plug plug;
+	int ret;
+	ow = kzalloc(sizeof(struct orangefs_writepages), GFP_KERNEL);
+	if (!ow)
+		return -ENOMEM;
+	ow->maxpages = orangefs_bufmap_size_query()/PAGE_SIZE;
+	ow->pages = kcalloc(ow->maxpages, sizeof(struct page *), GFP_KERNEL);
+	if (!ow->pages) {
+		kfree(ow);
+		return -ENOMEM;
+	}
+	ow->bv = kcalloc(ow->maxpages, sizeof(struct bio_vec), GFP_KERNEL);
+	if (!ow->bv) {
+		kfree(ow->pages);
+		kfree(ow);
+		return -ENOMEM;
+	}
+	blk_start_plug(&plug);
+	ret = write_cache_pages(mapping, wbc, orangefs_writepages_callback, ow);
+	if (ow->npages)
+		ret = orangefs_writepages_work(ow, wbc);
+	blk_finish_plug(&plug);
+	kfree(ow->pages);
+	kfree(ow->bv);
+	kfree(ow);
+	return ret;
+}
+
 static int orangefs_readpage(struct file *file, struct page *page)
 {
 	struct inode *inode = page->mapping->host;
@@ -199,6 +363,7 @@ static void orangefs_invalidatepage(struct page *page,
 		set_page_private(page, 0);
 		ClearPagePrivate(page);
 		put_page(page);
+		return;
 	/* write range entirely within invalidate range (or equal) */
 	} else if (page_offset(page) + offset <= wr->pos &&
 	    wr->pos + wr->len <= page_offset(page) + offset + length) {
@@ -208,6 +373,7 @@ static void orangefs_invalidatepage(struct page *page,
 		put_page(page);
 		/* XXX is this right? only caller in fs */
 		cancel_dirty_page(page);
+		return;
 	/* invalidate range chops off end of write range */
 	} else if (wr->pos < page_offset(page) + offset &&
 	    wr->pos + wr->len <= page_offset(page) + offset + length &&
@@ -239,6 +405,7 @@ static void orangefs_invalidatepage(struct page *page,
 		 * should we just ignore this and write it out anyway?
 		 * it hardly makes sense
 		 */
+		return;
 	/* non-overlapping ranges */
 	} else {
 		/* WARN if they do overlap */
@@ -250,7 +417,15 @@ static void orangefs_invalidatepage(struct page *page,
 			printk("write range offset %llu length %lu\n",
 			    wr->pos, wr->len);
 		}
+		return;
 	}
+
+	/*
+	 * Above there are returns where wr is freed or where we WARN.
+	 * Thus the following runs if wr was modified above.
+	 */
+
+	orangefs_launder_page(page);
 }
 
 static int orangefs_releasepage(struct page *page, gfp_t foo)
@@ -403,6 +578,7 @@ out:
 static const struct address_space_operations orangefs_address_operations = {
 	.writepage = orangefs_writepage,
 	.readpage = orangefs_readpage,
+	.writepages = orangefs_writepages,
 	.set_page_dirty = __set_page_dirty_nobuffers,
 	.write_begin = orangefs_write_begin,
 	.write_end = orangefs_write_end,
