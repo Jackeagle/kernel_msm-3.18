@@ -93,7 +93,7 @@ const char *btrfs_decode_error(int errno)
 
 /*
  * __btrfs_handle_fs_error decodes expected errors from the caller and
- * invokes the approciate error response.
+ * invokes the appropriate error response.
  */
 __cold
 void __btrfs_handle_fs_error(struct btrfs_fs_info *fs_info, const char *function,
@@ -151,7 +151,7 @@ void __btrfs_handle_fs_error(struct btrfs_fs_info *fs_info, const char *function
 	 * although there is no way to update the progress. It would add the
 	 * risk of a deadlock, therefore the canceling is omitted. The only
 	 * penalty is that some I/O remains active until the procedure
-	 * completes. The next time when the filesystem is mounted writeable
+	 * completes. The next time when the filesystem is mounted writable
 	 * again, the device replace operation continues.
 	 */
 }
@@ -1848,7 +1848,7 @@ static int btrfs_remount(struct super_block *sb, int *flags, char *data)
 
 		if (!btrfs_check_rw_degradable(fs_info, NULL)) {
 			btrfs_warn(fs_info,
-				"too many missing devices, writeable remount is not allowed");
+		"too many missing devices, writable remount is not allowed");
 			ret = -EACCES;
 			goto restore;
 		}
@@ -1916,7 +1916,7 @@ restore:
 }
 
 /* Used to sort the devices by max_avail(descending sort) */
-static int btrfs_cmp_device_free_bytes(const void *dev_info1,
+static inline int btrfs_cmp_device_free_bytes(const void *dev_info1,
 				       const void *dev_info2)
 {
 	if (((struct btrfs_device_info *)dev_info1)->max_avail >
@@ -1945,8 +1945,8 @@ static inline void btrfs_descending_sort_devices(
  * The helper to calc the free space on the devices that can be used to store
  * file data.
  */
-static int btrfs_calc_avail_data_space(struct btrfs_fs_info *fs_info,
-				       u64 *free_bytes)
+static inline int btrfs_calc_avail_data_space(struct btrfs_fs_info *fs_info,
+					      u64 *free_bytes)
 {
 	struct btrfs_device_info *devices_info;
 	struct btrfs_fs_devices *fs_devices = fs_info->fs_devices;
@@ -2090,7 +2090,7 @@ static int btrfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	u64 total_free_data = 0;
 	u64 total_free_meta = 0;
 	int bits = dentry->d_sb->s_blocksize_bits;
-	__be32 *fsid = (__be32 *)fs_info->fsid;
+	__be32 *fsid = (__be32 *)fs_info->fs_devices->fsid;
 	unsigned factor = 1;
 	struct btrfs_block_rsv *block_rsv = &fs_info->global_block_rsv;
 	int ret;
@@ -2177,8 +2177,10 @@ static int btrfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_fsid.val[0] = be32_to_cpu(fsid[0]) ^ be32_to_cpu(fsid[2]);
 	buf->f_fsid.val[1] = be32_to_cpu(fsid[1]) ^ be32_to_cpu(fsid[3]);
 	/* Mask in the root object ID too, to disambiguate subvols */
-	buf->f_fsid.val[0] ^= BTRFS_I(d_inode(dentry))->root->objectid >> 32;
-	buf->f_fsid.val[1] ^= BTRFS_I(d_inode(dentry))->root->objectid;
+	buf->f_fsid.val[0] ^=
+		BTRFS_I(d_inode(dentry))->root->root_key.objectid >> 32;
+	buf->f_fsid.val[1] ^=
+		BTRFS_I(d_inode(dentry))->root->root_key.objectid;
 
 	return 0;
 }
@@ -2235,6 +2237,7 @@ static long btrfs_control_ioctl(struct file *file, unsigned int cmd,
 	vol = memdup_user((void __user *)arg, sizeof(*vol));
 	if (IS_ERR(vol))
 		return PTR_ERR(vol);
+	vol->name[BTRFS_PATH_NAME_MAX] = '\0';
 
 	switch (cmd) {
 	case BTRFS_IOC_SCAN_DEV:
@@ -2309,7 +2312,7 @@ static int btrfs_show_devname(struct seq_file *m, struct dentry *root)
 	 * device_list_mutex here as we only read the device data and the list
 	 * is protected by RCU.  Even if a device is deleted during the list
 	 * traversals, we'll get valid data, the freeing callback will wait at
-	 * least until until the rcu_read_unlock.
+	 * least until the rcu_read_unlock.
 	 */
 	rcu_read_lock();
 	cur_devices = fs_info->fs_devices;
