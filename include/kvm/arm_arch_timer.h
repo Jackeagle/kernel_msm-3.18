@@ -21,7 +21,6 @@
 
 #include <linux/clocksource.h>
 #include <linux/hrtimer.h>
-#include <linux/workqueue.h>
 
 struct arch_timer_context {
 	/* Registers: control register, timer value */
@@ -52,9 +51,6 @@ struct arch_timer_cpu {
 	/* Background timer used when the guest is not running */
 	struct hrtimer			bg_timer;
 
-	/* Work queued with the above timer expires */
-	struct work_struct		expired;
-
 	/* Physical timer emulation */
 	struct hrtimer			phys_timer;
 
@@ -79,9 +75,6 @@ int kvm_arm_timer_get_attr(struct kvm_vcpu *vcpu, struct kvm_device_attr *attr);
 int kvm_arm_timer_has_attr(struct kvm_vcpu *vcpu, struct kvm_device_attr *attr);
 
 bool kvm_timer_is_pending(struct kvm_vcpu *vcpu);
-
-void kvm_timer_schedule(struct kvm_vcpu *vcpu);
-void kvm_timer_unschedule(struct kvm_vcpu *vcpu);
 
 u64 kvm_phys_timer_read(void);
 
