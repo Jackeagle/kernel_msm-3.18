@@ -2276,7 +2276,7 @@ DECLARE_EVENT_CLASS(xfs_defer_pending_class,
 	),
 	TP_fast_assign(
 		__entry->dev = mp ? mp->m_super->s_dev : 0;
-		__entry->type = dfp->dfp_type->type;
+		__entry->type = dfp->dfp_type;
 		__entry->intent = dfp->dfp_intent;
 		__entry->committed = dfp->dfp_done != NULL;
 		__entry->nr = dfp->dfp_count;
@@ -2405,7 +2405,7 @@ DEFINE_BMAP_FREE_DEFERRED_EVENT(xfs_agfl_free_deferred);
 DECLARE_EVENT_CLASS(xfs_rmap_class,
 	TP_PROTO(struct xfs_mount *mp, xfs_agnumber_t agno,
 		 xfs_agblock_t agbno, xfs_extlen_t len, bool unwritten,
-		 struct xfs_owner_info *oinfo),
+		 const struct xfs_owner_info *oinfo),
 	TP_ARGS(mp, agno, agbno, len, unwritten, oinfo),
 	TP_STRUCT__entry(
 		__field(dev_t, dev)
@@ -2440,7 +2440,7 @@ DECLARE_EVENT_CLASS(xfs_rmap_class,
 DEFINE_EVENT(xfs_rmap_class, name, \
 	TP_PROTO(struct xfs_mount *mp, xfs_agnumber_t agno, \
 		 xfs_agblock_t agbno, xfs_extlen_t len, bool unwritten, \
-		 struct xfs_owner_info *oinfo), \
+		 const struct xfs_owner_info *oinfo), \
 	TP_ARGS(mp, agno, agbno, len, unwritten, oinfo))
 
 /* simple AG-based error/%ip tracepoint class */
