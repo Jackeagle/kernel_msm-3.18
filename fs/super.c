@@ -1527,7 +1527,7 @@ int vfs_get_tree(struct fs_context *fc)
 	if (ret)
 		goto err_sb;
 
-	if (!(fc->sb_flags & MS_KERNMOUNT)) {
+	if (!(fc->sb_flags & (MS_KERNMOUNT | MS_SUBMOUNT))) {
 		ret = security_sb_kern_mount(sb);
 		if (ret)
 			goto err_sb;
