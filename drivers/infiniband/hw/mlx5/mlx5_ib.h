@@ -36,6 +36,7 @@
 #include <linux/kernel.h>
 #include <linux/sched.h>
 #include <rdma/ib_verbs.h>
+#include <rdma/ib_umem.h>
 #include <rdma/ib_smi.h>
 #include <linux/mlx5/driver.h>
 #include <linux/mlx5/cq.h>
@@ -589,6 +590,12 @@ struct mlx5_ib_mr {
 	wait_queue_head_t       q_leaf_free;
 };
 
+static inline bool is_odp_mr(struct mlx5_ib_mr *mr)
+{
+	return IS_ENABLED(CONFIG_INFINIBAND_ON_DEMAND_PAGING) && mr->umem &&
+	       mr->umem->is_odp;
+}
+
 struct mlx5_ib_mw {
 	struct ib_mw		ibmw;
 	struct mlx5_core_mkey	mmkey;
@@ -911,7 +918,6 @@ struct mlx5_ib_dev {
 	/* Prevents soft lock on massive reg MRs */
 	struct mutex			slow_path_mutex;
 	int				fill_delay;
-#ifdef CONFIG_INFINIBAND_ON_DEMAND_PAGING
 	struct ib_odp_caps	odp_caps;
 	u64			odp_max_size;
 	struct mlx5_ib_pf_eq	odp_pf_eq;
@@ -923,7 +929,6 @@ struct mlx5_ib_dev {
 	struct srcu_struct      mr_srcu;
 	u32			null_mkey;
 	struct workqueue_struct *advise_mr_wq;
-#endif
 	struct mlx5_ib_flow_db	*flow_db;
 	/* protect resources needed as part of reset flow */
 	spinlock_t		reset_flow_resource_lock;
@@ -1215,6 +1220,9 @@ mlx5_ib_advise_mr_prefetch(struct ib_pd *pd,
 {
 	return -EOPNOTSUPP;
 }
+static inline void mlx5_ib_invalidate_range(struct ib_umem_odp *umem_odp,
+					    unsigned long start,
+					    unsigned long end){};
 #endif /* CONFIG_INFINIBAND_ON_DEMAND_PAGING */
 
 /* Needed for rep profile */
