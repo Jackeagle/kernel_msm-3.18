@@ -104,8 +104,6 @@ int erofs_register_workgroup(struct super_block *sb,
 	return err;
 }
 
-extern void erofs_workgroup_free_rcu(struct erofs_workgroup *grp);
-
 static void  __erofs_workgroup_free(struct erofs_workgroup *grp)
 {
 	atomic_long_dec(&erofs_global_shrink_cnt);
@@ -131,9 +129,9 @@ static void erofs_workgroup_unfreeze_final(struct erofs_workgroup *grp)
 	__erofs_workgroup_free(grp);
 }
 
-bool erofs_try_to_release_workgroup(struct erofs_sb_info *sbi,
-				    struct erofs_workgroup *grp,
-				    bool cleanup)
+static bool erofs_try_to_release_workgroup(struct erofs_sb_info *sbi,
+					   struct erofs_workgroup *grp,
+					   bool cleanup)
 {
 	/*
 	 * for managed cache enabled, the refcount of workgroups
@@ -172,9 +170,9 @@ bool erofs_try_to_release_workgroup(struct erofs_sb_info *sbi,
 
 #else
 /* for nocache case, no customized reclaim path at all */
-bool erofs_try_to_release_workgroup(struct erofs_sb_info *sbi,
-				    struct erofs_workgroup *grp,
-				    bool cleanup)
+static bool erofs_try_to_release_workgroup(struct erofs_sb_info *sbi,
+					   struct erofs_workgroup *grp,
+					   bool cleanup)
 {
 	int cnt = atomic_read(&grp->refcount);
 
