@@ -1654,7 +1654,9 @@ static blk_qc_t __split_and_process_bio(struct mapped_device *md,
 						   sectors[op_stat_group(bio_op(bio))], ci.sector_count);
 				part_stat_unlock();
 
+				bio_set_flag(bio, BIO_QUEUE_ENTERED);
 				bio_chain(b, bio);
+				trace_block_split(md->queue, b, bio->bi_iter.bi_sector);
 				ret = generic_make_request(bio);
 				break;
 			}
