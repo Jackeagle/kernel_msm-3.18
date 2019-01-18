@@ -1654,7 +1654,9 @@ static blk_qc_t __split_and_process_bio(struct mapped_device *md,
 						   sectors[op_stat_group(bio_op(bio))], ci.sector_count);
 				part_stat_unlock();
 
+				bio_set_flag(bio, BIO_QUEUE_ENTERED);
 				bio_chain(b, bio);
+				trace_block_split(md->queue, b, bio->bi_iter.bi_sector);
 				ret = generic_make_request(bio);
 				break;
 			}
@@ -1733,6 +1735,13 @@ static blk_qc_t dm_make_request(struct request_queue *q, struct bio *bio)
 	struct dm_table *map;
 
 	map = dm_get_live_table(md, &srcu_idx);
+
+	/*
+	 * Clear the bio-reentered-generic_make_request() flag,
+	 * will be set again as needed if bio needs to be split.
+	 */
+	if (bio_flagged(bio, BIO_QUEUE_ENTERED))
+		bio_clear_flag(bio, BIO_QUEUE_ENTERED);
 
 	/* if we're suspended, we have to queue this io for later */
 	if (unlikely(test_bit(DMF_BLOCK_IO_FOR_SUSPEND, &md->flags))) {
