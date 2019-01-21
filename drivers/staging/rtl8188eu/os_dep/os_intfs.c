@@ -141,8 +141,8 @@ static void loadparam(struct adapter *padapter, struct net_device *pnetdev)
 
 	GlobalDebugLevel = rtw_debug;
 
-	memcpy(registry_par->ssid.Ssid, "ANY", 3);
-	registry_par->ssid.SsidLength = 3;
+	memcpy(registry_par->ssid.ssid, "ANY", 3);
+	registry_par->ssid.ssid_length = 3;
 
 	registry_par->channel = (u8)rtw_channel;
 	registry_par->wireless_mode = (u8)rtw_wireless_mode;
@@ -198,8 +198,8 @@ static int rtw_net_set_mac_address(struct net_device *pnetdev, void *p)
 static struct net_device_stats *rtw_net_get_stats(struct net_device *pnetdev)
 {
 	struct adapter *padapter = (struct adapter *)rtw_netdev_priv(pnetdev);
-	struct xmit_priv *pxmitpriv = &(padapter->xmitpriv);
-	struct recv_priv *precvpriv = &(padapter->recvpriv);
+	struct xmit_priv *pxmitpriv = &padapter->xmitpriv;
+	struct recv_priv *precvpriv = &padapter->recvpriv;
 
 	padapter->stats.tx_packets = pxmitpriv->tx_pkts;
 	padapter->stats.rx_packets = precvpriv->rx_pkts;

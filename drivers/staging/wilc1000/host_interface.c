@@ -745,7 +745,7 @@ static s32 wilc_parse_network_info(u8 *msg_buffer,
 {
 	struct network_info *info;
 	struct ieee80211_mgmt *mgt;
-	u8 *wid_val, *msa, *ies;
+	u8 *wid_val, *ies;
 	u16 wid_len, rx_len, ies_len;
 	u8 msg_type;
 	size_t offset;
@@ -764,7 +764,6 @@ static s32 wilc_parse_network_info(u8 *msg_buffer,
 
 	info->rssi = wid_val[0];
 
-	msa = &wid_val[1];
 	mgt = (struct ieee80211_mgmt *)&wid_val[1];
 	rx_len = wid_len - 1;
 
@@ -1991,7 +1990,7 @@ int wilc_get_rssi(struct wilc_vif *vif, s8 *rssi_level)
 	return result;
 }
 
-int wilc_get_stats_async(struct wilc_vif *vif, struct rf_info *stats)
+static int wilc_get_stats_async(struct wilc_vif *vif, struct rf_info *stats)
 {
 	int result;
 	struct host_if_msg *msg;
