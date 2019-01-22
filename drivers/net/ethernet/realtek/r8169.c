@@ -229,7 +229,6 @@ static const struct pci_device_id rtl8169_pci_tbl[] = {
 
 MODULE_DEVICE_TABLE(pci, rtl8169_pci_tbl);
 
-static int use_dac = -1;
 static struct {
 	u32 msg_enable;
 } debug = { -1 };
@@ -639,6 +638,7 @@ struct rtl8169_private {
 	void __iomem *mmio_addr;	/* memory map physical address */
 	struct pci_dev *pci_dev;
 	struct net_device *dev;
+	struct phy_device *phydev;
 	struct napi_struct napi;
 	u32 msg_enable;
 	u16 mac_version;
@@ -679,7 +679,6 @@ struct rtl8169_private {
 	} wk;
 
 	unsigned supports_gmii:1;
-	struct mii_bus *mii_bus;
 	dma_addr_t counters_phys_addr;
 	struct rtl8169_counters *counters;
 	struct rtl8169_tc_offsets tc_offset;
@@ -704,8 +703,6 @@ struct rtl8169_private {
 
 MODULE_AUTHOR("Realtek and the Linux r8169 crew <netdev@vger.kernel.org>");
 MODULE_DESCRIPTION("RealTek RTL-8169 Gigabit Ethernet driver");
-module_param(use_dac, int, 0);
-MODULE_PARM_DESC(use_dac, "Enable PCI DAC. Unsafe on 32 bit PCI slot.");
 module_param_named(debug, debug.msg_enable, int, 0);
 MODULE_PARM_DESC(debug, "Debug verbosity level (0=none, ..., 16=all)");
 MODULE_SOFTDEP("pre: realtek");
@@ -743,6 +740,16 @@ static void rtl_lock_work(struct rtl8169_private *tp)
 static void rtl_unlock_work(struct rtl8169_private *tp)
 {
 	mutex_unlock(&tp->wk.mutex);
+}
+
+static void rtl_lock_config_regs(struct rtl8169_private *tp)
+{
+	RTL_W8(tp, Cfg9346, Cfg9346_Lock);
+}
+
+static void rtl_unlock_config_regs(struct rtl8169_private *tp)
+{
+	RTL_W8(tp, Cfg9346, Cfg9346_Unlock);
 }
 
 static void rtl_tx_performance_tweak(struct rtl8169_private *tp, u16 force)
@@ -1278,11 +1285,6 @@ static u8 rtl8168d_efuse_read(struct rtl8169_private *tp, int reg_addr)
 		RTL_R32(tp, EFUSEAR) & EFUSEAR_DATA_MASK : ~0;
 }
 
-static u16 rtl_get_events(struct rtl8169_private *tp)
-{
-	return RTL_R16(tp, IntrStatus);
-}
-
 static void rtl_ack_events(struct rtl8169_private *tp, u16 bits)
 {
 	RTL_W16(tp, IntrStatus, bits);
@@ -1313,7 +1315,7 @@ static void rtl8169_irq_mask_and_ack(struct rtl8169_private *tp)
 static void rtl_link_chg_patch(struct rtl8169_private *tp)
 {
 	struct net_device *dev = tp->dev;
-	struct phy_device *phydev = dev->phydev;
+	struct phy_device *phydev = tp->phydev;
 
 	if (!netif_running(dev))
 		return;
@@ -1431,7 +1433,7 @@ static void __rtl8169_set_wol(struct rtl8169_private *tp, u32 wolopts)
 	};
 	u8 options;
 
-	RTL_W8(tp, Cfg9346, Cfg9346_Unlock);
+	rtl_unlock_config_regs(tp);
 
 	switch (tp->mac_version) {
 	case RTL_GIGA_MAC_VER_34 ... RTL_GIGA_MAC_VER_38:
@@ -1479,7 +1481,7 @@ static void __rtl8169_set_wol(struct rtl8169_private *tp, u32 wolopts)
 		break;
 	}
 
-	RTL_W8(tp, Cfg9346, Cfg9346_Lock);
+	rtl_lock_config_regs(tp);
 
 	device_set_wakeup_enable(tp_to_dev(tp), wolopts);
 }
@@ -3994,24 +3996,24 @@ static void rtl8169_init_phy(struct net_device *dev, struct rtl8169_private *tp)
 	}
 
 	/* We may have called phy_speed_down before */
-	phy_speed_up(dev->phydev);
+	phy_speed_up(tp->phydev);
 
-	genphy_soft_reset(dev->phydev);
+	genphy_soft_reset(tp->phydev);
 
 	/* It was reported that several chips end up with 10MBit/Half on a
 	 * 1GBit link after resuming from S3. For whatever reason the PHY on
 	 * these chips doesn't properly start a renegotiation when soft-reset.
 	 * Explicitly requesting a renegotiation fixes this.
 	 */
-	if (dev->phydev->autoneg == AUTONEG_ENABLE)
-		phy_restart_aneg(dev->phydev);
+	if (tp->phydev->autoneg == AUTONEG_ENABLE)
+		phy_restart_aneg(tp->phydev);
 }
 
 static void rtl_rar_set(struct rtl8169_private *tp, u8 *addr)
 {
 	rtl_lock_work(tp);
 
-	RTL_W8(tp, Cfg9346, Cfg9346_Unlock);
+	rtl_unlock_config_regs(tp);
 
 	RTL_W32(tp, MAC4, addr[4] | addr[5] << 8);
 	RTL_R32(tp, MAC4);
@@ -4022,7 +4024,7 @@ static void rtl_rar_set(struct rtl8169_private *tp, u8 *addr)
 	if (tp->mac_version == RTL_GIGA_MAC_VER_34)
 		rtl_rar_exgmac_set(tp, addr);
 
-	RTL_W8(tp, Cfg9346, Cfg9346_Lock);
+	rtl_lock_config_regs(tp);
 
 	rtl_unlock_work(tp);
 }
@@ -4049,10 +4051,12 @@ static int rtl_set_mac_address(struct net_device *dev, void *p)
 
 static int rtl8169_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
+	struct rtl8169_private *tp = netdev_priv(dev);
+
 	if (!netif_running(dev))
 		return -ENODEV;
 
-	return phy_mii_ioctl(dev->phydev, ifr, cmd);
+	return phy_mii_ioctl(tp->phydev, ifr, cmd);
 }
 
 static void rtl_init_mdio_ops(struct rtl8169_private *tp)
@@ -4101,15 +4105,10 @@ static void rtl_wol_suspend_quirk(struct rtl8169_private *tp)
 
 static bool rtl_wol_pll_power_down(struct rtl8169_private *tp)
 {
-	struct phy_device *phydev;
-
 	if (!__rtl8169_get_wol(tp))
 		return false;
 
-	/* phydev may not be attached to netdevice */
-	phydev = mdiobus_get_phy(tp->mii_bus, 0);
-
-	phy_speed_down(phydev, false);
+	phy_speed_down(tp->phydev, false);
 	rtl_wol_suspend_quirk(tp);
 
 	return true;
@@ -4178,7 +4177,7 @@ static void r8168_pll_power_up(struct rtl8169_private *tp)
 		break;
 	}
 
-	phy_resume(tp->dev->phydev);
+	phy_resume(tp->phydev);
 	/* give MAC/PHY some time to resume */
 	msleep(20);
 }
@@ -4234,18 +4233,18 @@ static void rtl8169_init_ring_indexes(struct rtl8169_private *tp)
 static void rtl_hw_jumbo_enable(struct rtl8169_private *tp)
 {
 	if (tp->jumbo_ops.enable) {
-		RTL_W8(tp, Cfg9346, Cfg9346_Unlock);
+		rtl_unlock_config_regs(tp);
 		tp->jumbo_ops.enable(tp);
-		RTL_W8(tp, Cfg9346, Cfg9346_Lock);
+		rtl_lock_config_regs(tp);
 	}
 }
 
 static void rtl_hw_jumbo_disable(struct rtl8169_private *tp)
 {
 	if (tp->jumbo_ops.disable) {
-		RTL_W8(tp, Cfg9346, Cfg9346_Unlock);
+		rtl_unlock_config_regs(tp);
 		tp->jumbo_ops.disable(tp);
-		RTL_W8(tp, Cfg9346, Cfg9346_Lock);
+		rtl_lock_config_regs(tp);
 	}
 }
 
@@ -4566,13 +4565,13 @@ static void rtl_set_rx_mode(struct net_device *dev)
 
 static void rtl_hw_start(struct  rtl8169_private *tp)
 {
-	RTL_W8(tp, Cfg9346, Cfg9346_Unlock);
+	rtl_unlock_config_regs(tp);
 
 	tp->hw_start(tp);
 
 	rtl_set_rx_max_size(tp);
 	rtl_set_rx_tx_desc_registers(tp);
-	RTL_W8(tp, Cfg9346, Cfg9346_Lock);
+	rtl_lock_config_regs(tp);
 
 	/* Initially a 10 us delay. Turned it into a PCI commit. - FR */
 	RTL_R8(tp, IntrMask);
@@ -4696,18 +4695,10 @@ static void rtl_enable_clock_request(struct rtl8169_private *tp)
 				 PCI_EXP_LNKCTL_CLKREQ_EN);
 }
 
-static void rtl_pcie_state_l2l3_enable(struct rtl8169_private *tp, bool enable)
+static void rtl_pcie_state_l2l3_disable(struct rtl8169_private *tp)
 {
-	u8 data;
-
-	data = RTL_R8(tp, Config3);
-
-	if (enable)
-		data |= Rdy_to_L23;
-	else
-		data &= ~Rdy_to_L23;
-
-	RTL_W8(tp, Config3, data);
+	/* work around an issue when PCI reset occurs during L2/L3 state */
+	RTL_W8(tp, Config3, RTL_R8(tp, Config3) & ~Rdy_to_L23);
 }
 
 static void rtl_hw_aspm_clkreq_enable(struct rtl8169_private *tp, bool enable)
@@ -5028,7 +5019,7 @@ static void rtl_hw_start_8411(struct rtl8169_private *tp)
 	};
 
 	rtl_hw_start_8168f(tp);
-	rtl_pcie_state_l2l3_enable(tp, false);
+	rtl_pcie_state_l2l3_disable(tp);
 
 	rtl_ephy_init(tp, e_info_8168f_1, ARRAY_SIZE(e_info_8168f_1));
 
@@ -5062,7 +5053,7 @@ static void rtl_hw_start_8168g(struct rtl8169_private *tp)
 	rtl_w0w1_eri(tp, 0x2fc, ERIAR_MASK_0001, 0x01, 0x06, ERIAR_EXGMAC);
 	rtl_w0w1_eri(tp, 0x1b0, ERIAR_MASK_0011, 0x0000, 0x1000, ERIAR_EXGMAC);
 
-	rtl_pcie_state_l2l3_enable(tp, false);
+	rtl_pcie_state_l2l3_disable(tp);
 }
 
 static void rtl_hw_start_8168g_1(struct rtl8169_private *tp)
@@ -5168,7 +5159,7 @@ static void rtl_hw_start_8168h_1(struct rtl8169_private *tp)
 
 	rtl_w0w1_eri(tp, 0x1b0, ERIAR_MASK_0011, 0x0000, 0x1000, ERIAR_EXGMAC);
 
-	rtl_pcie_state_l2l3_enable(tp, false);
+	rtl_pcie_state_l2l3_disable(tp);
 
 	rtl_writephy(tp, 0x1f, 0x0c42);
 	rg_saw_cnt = (rtl_readphy(tp, 0x13) & 0x3fff);
@@ -5245,7 +5236,7 @@ static void rtl_hw_start_8168ep(struct rtl8169_private *tp)
 
 	RTL_W8(tp, DLLPR, RTL_R8(tp, DLLPR) & ~TX_10M_PS_EN);
 
-	rtl_pcie_state_l2l3_enable(tp, false);
+	rtl_pcie_state_l2l3_disable(tp);
 }
 
 static void rtl_hw_start_8168ep_1(struct rtl8169_private *tp)
@@ -5516,7 +5507,7 @@ static void rtl_hw_start_8105e_1(struct rtl8169_private *tp)
 
 	rtl_ephy_init(tp, e_info_8105e_1, ARRAY_SIZE(e_info_8105e_1));
 
-	rtl_pcie_state_l2l3_enable(tp, false);
+	rtl_pcie_state_l2l3_disable(tp);
 }
 
 static void rtl_hw_start_8105e_2(struct rtl8169_private *tp)
@@ -5551,7 +5542,7 @@ static void rtl_hw_start_8402(struct rtl8169_private *tp)
 	rtl_eri_write(tp, 0xb8, ERIAR_MASK_0011, 0x0000, ERIAR_EXGMAC);
 	rtl_w0w1_eri(tp, 0x0d4, ERIAR_MASK_0011, 0x0e00, 0xff00, ERIAR_EXGMAC);
 
-	rtl_pcie_state_l2l3_enable(tp, false);
+	rtl_pcie_state_l2l3_disable(tp);
 }
 
 static void rtl_hw_start_8106(struct rtl8169_private *tp)
@@ -5565,7 +5556,7 @@ static void rtl_hw_start_8106(struct rtl8169_private *tp)
 	RTL_W8(tp, MCU, RTL_R8(tp, MCU) | EN_NDP | EN_OOB_RESET);
 	RTL_W8(tp, DLLPR, RTL_R8(tp, DLLPR) & ~PFM_EN);
 
-	rtl_pcie_state_l2l3_enable(tp, false);
+	rtl_pcie_state_l2l3_disable(tp);
 	rtl_hw_aspm_clkreq_enable(tp, true);
 }
 
@@ -5665,11 +5656,6 @@ static inline void rtl8169_mark_to_asic(struct RxDesc *desc)
 	desc->opts1 = cpu_to_le32(DescOwn | eor | R8169_RX_BUF_SIZE);
 }
 
-static inline void *rtl8169_align(void *data)
-{
-	return (void *)ALIGN((long)data, 16);
-}
-
 static struct sk_buff *rtl8169_alloc_rx_data(struct rtl8169_private *tp,
 					     struct RxDesc *desc)
 {
@@ -5682,15 +5668,13 @@ static struct sk_buff *rtl8169_alloc_rx_data(struct rtl8169_private *tp,
 	if (!data)
 		return NULL;
 
-	if (rtl8169_align(data) != data) {
-		kfree(data);
-		data = kmalloc_node(R8169_RX_BUF_SIZE + 15, GFP_KERNEL, node);
-		if (!data)
-			return NULL;
+	/* Memory should be properly aligned, but better check. */
+	if (!IS_ALIGNED((unsigned long)data, 8)) {
+		netdev_err_once(tp->dev, "RX buffer not 8-byte-aligned\n");
+		goto err_out;
 	}
 
-	mapping = dma_map_single(d, rtl8169_align(data), R8169_RX_BUF_SIZE,
-				 DMA_FROM_DEVICE);
+	mapping = dma_map_single(d, data, R8169_RX_BUF_SIZE, DMA_FROM_DEVICE);
 	if (unlikely(dma_mapping_error(d, mapping))) {
 		if (net_ratelimit())
 			netif_err(tp, drv, tp->dev, "Failed to map RX DMA!\n");
@@ -6193,16 +6177,6 @@ static void rtl8169_pcierr_interrupt(struct net_device *dev)
 		PCI_STATUS_SIG_SYSTEM_ERROR | PCI_STATUS_REC_MASTER_ABORT |
 		PCI_STATUS_REC_TARGET_ABORT | PCI_STATUS_SIG_TARGET_ABORT));
 
-	/* The infamous DAC f*ckup only happens at boot time */
-	if ((tp->cp_cmd & PCIDAC) && !tp->cur_rx) {
-		netif_info(tp, intr, dev, "disabling PCI DAC\n");
-		tp->cp_cmd &= ~PCIDAC;
-		RTL_W16(tp, CPlusCmd, tp->cp_cmd);
-		dev->features &= ~NETIF_F_HIGHDMA;
-	}
-
-	rtl8169_hw_reset(tp);
-
 	rtl_schedule_task(tp, RTL_FLAG_TASK_RESET_PENDING);
 }
 
@@ -6298,7 +6272,6 @@ static struct sk_buff *rtl8169_try_rx_copy(void *data,
 	struct sk_buff *skb;
 	struct device *d = tp_to_dev(tp);
 
-	data = rtl8169_align(data);
 	dma_sync_single_for_cpu(d, addr, pkt_size, DMA_FROM_DEVICE);
 	prefetch(data);
 	skb = napi_alloc_skb(&tp->napi, pkt_size);
@@ -6409,7 +6382,7 @@ release_descriptor:
 static irqreturn_t rtl8169_interrupt(int irq, void *dev_instance)
 {
 	struct rtl8169_private *tp = dev_instance;
-	u16 status = rtl_get_events(tp);
+	u16 status = RTL_R16(tp, IntrStatus);
 	u16 irq_mask = RTL_R16(tp, IntrMask);
 
 	if (status == 0xffff || !(status & irq_mask))
@@ -6420,8 +6393,8 @@ static irqreturn_t rtl8169_interrupt(int irq, void *dev_instance)
 		goto out;
 	}
 
-	if (status & LinkChg && tp->dev->phydev)
-		phy_mac_interrupt(tp->dev->phydev);
+	if (status & LinkChg)
+		phy_mac_interrupt(tp->phydev);
 
 	if (unlikely(status & RxFIFOOver &&
 	    tp->mac_version == RTL_GIGA_MAC_VER_11)) {
@@ -6512,12 +6485,12 @@ static void r8169_phylink_handler(struct net_device *ndev)
 	}
 
 	if (net_ratelimit())
-		phy_print_status(ndev->phydev);
+		phy_print_status(tp->phydev);
 }
 
 static int r8169_phy_connect(struct rtl8169_private *tp)
 {
-	struct phy_device *phydev = mdiobus_get_phy(tp->mii_bus, 0);
+	struct phy_device *phydev = tp->phydev;
 	phy_interface_t phy_mode;
 	int ret;
 
@@ -6544,7 +6517,7 @@ static void rtl8169_down(struct net_device *dev)
 {
 	struct rtl8169_private *tp = netdev_priv(dev);
 
-	phy_stop(dev->phydev);
+	phy_stop(tp->phydev);
 
 	napi_disable(&tp->napi);
 	netif_stop_queue(dev);
@@ -6586,7 +6559,7 @@ static int rtl8169_close(struct net_device *dev)
 
 	cancel_work_sync(&tp->wk.work);
 
-	phy_disconnect(dev->phydev);
+	phy_disconnect(tp->phydev);
 
 	pci_free_irq(pdev, 0, tp);
 
@@ -6637,10 +6610,6 @@ static int rtl_open(struct net_device *dev)
 	if (retval < 0)
 		goto err_free_rx_1;
 
-	INIT_WORK(&tp->wk.work, rtl_task);
-
-	smp_mb();
-
 	rtl_request_firmware(tp);
 
 	retval = pci_request_irq(pdev, 0, rtl8169_interrupt, NULL, tp,
@@ -6667,7 +6636,7 @@ static int rtl_open(struct net_device *dev)
 	if (!rtl8169_init_counter_offsets(tp))
 		netif_warn(tp, hw, dev, "counter reset/update failed\n");
 
-	phy_start(dev->phydev);
+	phy_start(tp->phydev);
 	netif_start_queue(dev);
 
 	rtl_unlock_work(tp);
@@ -6756,7 +6725,7 @@ static void rtl8169_net_suspend(struct net_device *dev)
 	if (!netif_running(dev))
 		return;
 
-	phy_stop(dev->phydev);
+	phy_stop(tp->phydev);
 	netif_device_detach(dev);
 
 	rtl_lock_work(tp);
@@ -6791,14 +6760,13 @@ static void __rtl8169_resume(struct net_device *dev)
 	rtl_pll_power_up(tp);
 	rtl8169_init_phy(dev, tp);
 
-	phy_start(tp->dev->phydev);
+	phy_start(tp->phydev);
 
 	rtl_lock_work(tp);
 	napi_enable(&tp->napi);
 	set_bit(RTL_FLAG_TASK_ENABLED, tp->wk.flags);
+	rtl_reset_work(tp);
 	rtl_unlock_work(tp);
-
-	rtl_schedule_task(tp, RTL_FLAG_TASK_RESET_PENDING);
 }
 
 static int rtl8169_resume(struct device *device)
@@ -6935,7 +6903,7 @@ static void rtl_remove_one(struct pci_dev *pdev)
 	netif_napi_del(&tp->napi);
 
 	unregister_netdev(dev);
-	mdiobus_unregister(tp->mii_bus);
+	mdiobus_unregister(tp->phydev->mdio.bus);
 
 	rtl_release_firmware(tp);
 
@@ -6995,9 +6963,9 @@ static int rtl_alloc_irq(struct rtl8169_private *tp)
 	unsigned int flags;
 
 	if (tp->mac_version <= RTL_GIGA_MAC_VER_06) {
-		RTL_W8(tp, Cfg9346, Cfg9346_Unlock);
+		rtl_unlock_config_regs(tp);
 		RTL_W8(tp, Config2, RTL_R8(tp, Config2) & ~MSIEnable);
-		RTL_W8(tp, Cfg9346, Cfg9346_Lock);
+		rtl_lock_config_regs(tp);
 		flags = PCI_IRQ_LEGACY;
 	} else {
 		flags = PCI_IRQ_ALL_TYPES;
@@ -7042,7 +7010,6 @@ static int r8169_mdio_write_reg(struct mii_bus *mii_bus, int phyaddr,
 static int r8169_mdio_register(struct rtl8169_private *tp)
 {
 	struct pci_dev *pdev = tp->pci_dev;
-	struct phy_device *phydev;
 	struct mii_bus *new_bus;
 	int ret;
 
@@ -7064,16 +7031,14 @@ static int r8169_mdio_register(struct rtl8169_private *tp)
 	if (ret)
 		return ret;
 
-	phydev = mdiobus_get_phy(new_bus, 0);
-	if (!phydev) {
+	tp->phydev = mdiobus_get_phy(new_bus, 0);
+	if (!tp->phydev) {
 		mdiobus_unregister(new_bus);
 		return -ENODEV;
 	}
 
 	/* PHY will be woken up in rtl_open() */
-	phy_suspend(phydev);
-
-	tp->mii_bus = new_bus;
+	phy_suspend(tp->phydev);
 
 	return 0;
 }
@@ -7171,6 +7136,32 @@ static void rtl_disable_clk(void *data)
 	clk_disable_unprepare(data);
 }
 
+static int rtl_get_ether_clk(struct rtl8169_private *tp)
+{
+	struct device *d = tp_to_dev(tp);
+	struct clk *clk;
+	int rc;
+
+	clk = devm_clk_get(d, "ether_clk");
+	if (IS_ERR(clk)) {
+		rc = PTR_ERR(clk);
+		if (rc == -ENOENT)
+			/* clk-core allows NULL (for suspend / resume) */
+			rc = 0;
+		else if (rc != -EPROBE_DEFER)
+			dev_err(d, "failed to get clk: %d\n", rc);
+	} else {
+		tp->clk = clk;
+		rc = clk_prepare_enable(clk);
+		if (rc)
+			dev_err(d, "failed to enable clk: %d\n", rc);
+		else
+			rc = devm_add_action_or_reset(d, rtl_disable_clk, clk);
+	}
+
+	return rc;
+}
+
 static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	const struct rtl_cfg_info *cfg = rtl_cfg_infos + ent->driver_data;
@@ -7192,30 +7183,9 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	tp->supports_gmii = cfg->has_gmii;
 
 	/* Get the *optional* external "ether_clk" used on some boards */
-	tp->clk = devm_clk_get(&pdev->dev, "ether_clk");
-	if (IS_ERR(tp->clk)) {
-		rc = PTR_ERR(tp->clk);
-		if (rc == -ENOENT) {
-			/* clk-core allows NULL (for suspend / resume) */
-			tp->clk = NULL;
-		} else if (rc == -EPROBE_DEFER) {
-			return rc;
-		} else {
-			dev_err(&pdev->dev, "failed to get clk: %d\n", rc);
-			return rc;
-		}
-	} else {
-		rc = clk_prepare_enable(tp->clk);
-		if (rc) {
-			dev_err(&pdev->dev, "failed to enable clk: %d\n", rc);
-			return rc;
-		}
-
-		rc = devm_add_action_or_reset(&pdev->dev, rtl_disable_clk,
-					      tp->clk);
-		if (rc)
-			return rc;
-	}
+	rc = rtl_get_ether_clk(tp);
+	if (rc)
+		return rc;
 
 	/* enable device (incl. PCI PM wakeup and hotplug setup) */
 	rc = pcim_enable_device(pdev);
@@ -7260,13 +7230,8 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	tp->cp_cmd = RTL_R16(tp, CPlusCmd);
 
-	if (sizeof(dma_addr_t) > 4 && (use_dac == 1 || (use_dac == -1 &&
-	    tp->mac_version >= RTL_GIGA_MAC_VER_18)) &&
+	if (sizeof(dma_addr_t) > 4 && tp->mac_version >= RTL_GIGA_MAC_VER_18 &&
 	    !dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64))) {
-
-		/* CPlusCmd Dual Access Cycle is only needed for non-PCIe */
-		if (!pci_is_pcie(pdev))
-			tp->cp_cmd |= PCIDAC;
 		dev->features |= NETIF_F_HIGHDMA;
 	} else {
 		rc = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
@@ -7300,6 +7265,7 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	tp->saved_wolopts = __rtl8169_get_wol(tp);
 
 	mutex_init(&tp->wk.mutex);
+	INIT_WORK(&tp->wk.work, rtl_task);
 	u64_stats_init(&tp->rx_stats.syncp);
 	u64_stats_init(&tp->tx_stats.syncp);
 
@@ -7406,7 +7372,7 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	return 0;
 
 err_mdio_unregister:
-	mdiobus_unregister(tp->mii_bus);
+	mdiobus_unregister(tp->phydev->mdio.bus);
 	return rc;
 }
 
