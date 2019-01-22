@@ -183,18 +183,15 @@ static struct ib_device *__ib_device_get_by_name(const char *name)
 
 int ib_device_rename(struct ib_device *ibdev, const char *name)
 {
-	struct ib_device *device;
 	int ret = 0;
 
 	if (!strcmp(name, dev_name(&ibdev->dev)))
 		return ret;
 
 	mutex_lock(&device_mutex);
-	list_for_each_entry(device, &device_list, core_list) {
-		if (!strcmp(name, dev_name(&device->dev))) {
-			ret = -EEXIST;
-			goto out;
-		}
+	if (__ib_device_get_by_name(name)) {
+		ret = -EEXIST;
+		goto out;
 	}
 
 	ret = device_rename(&ibdev->dev, name);
@@ -295,8 +292,6 @@ struct ib_device *ib_alloc_device(size_t size)
 
 	device->dev.class = &ib_class;
 	device_initialize(&device->dev);
-
-	dev_set_drvdata(&device->dev, device);
 
 	INIT_LIST_HEAD(&device->event_handler_list);
 	spin_lock_init(&device->event_handler_lock);
@@ -574,9 +569,7 @@ port_cleanup:
  * callback for each device that is added. @device must be allocated
  * with ib_alloc_device().
  */
-int ib_register_device(struct ib_device *device, const char *name,
-		       int (*port_callback)(struct ib_device *, u8,
-					    struct kobject *))
+int ib_register_device(struct ib_device *device, const char *name)
 {
 	int ret;
 	struct ib_client *client;
@@ -606,14 +599,9 @@ int ib_register_device(struct ib_device *device, const char *name,
 
 	device->index = __dev_new_index();
 
-	ret = ib_device_register_rdmacg(device);
-	if (ret) {
-		dev_warn(&device->dev,
-			 "Couldn't register device with rdma cgroup\n");
-		goto dev_cleanup;
-	}
+	ib_device_register_rdmacg(device);
 
-	ret = ib_device_register_sysfs(device, port_callback);
+	ret = ib_device_register_sysfs(device);
 	if (ret) {
 		dev_warn(&device->dev,
 			 "Couldn't register device with driver model\n");
@@ -634,7 +622,6 @@ int ib_register_device(struct ib_device *device, const char *name,
 
 cg_cleanup:
 	ib_device_unregister_rdmacg(device);
-dev_cleanup:
 	cleanup_device(device);
 out:
 	mutex_unlock(&device_mutex);
@@ -1283,6 +1270,7 @@ void ib_set_device_ops(struct ib_device *dev, const struct ib_device_ops *ops)
 	SET_DEVICE_OP(dev_ops, get_vector_affinity);
 	SET_DEVICE_OP(dev_ops, get_vf_config);
 	SET_DEVICE_OP(dev_ops, get_vf_stats);
+	SET_DEVICE_OP(dev_ops, init_port);
 	SET_DEVICE_OP(dev_ops, map_mr_sg);
 	SET_DEVICE_OP(dev_ops, map_phys_fmr);
 	SET_DEVICE_OP(dev_ops, mmap);

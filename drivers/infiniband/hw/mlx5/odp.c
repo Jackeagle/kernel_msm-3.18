@@ -103,7 +103,7 @@ static int check_parent(struct ib_umem_odp *odp,
 
 struct ib_ucontext_per_mm *mr_to_per_mm(struct mlx5_ib_mr *mr)
 {
-	if (WARN_ON(!mr || !mr->umem || !mr->umem->is_odp))
+	if (WARN_ON(!mr || !is_odp_mr(mr)))
 		return NULL;
 
 	return to_ib_umem_odp(mr->umem)->per_mm;
@@ -492,13 +492,13 @@ next_mr:
 }
 
 struct mlx5_ib_mr *mlx5_ib_alloc_implicit_mr(struct mlx5_ib_pd *pd,
+					     struct ib_udata *udata,
 					     int access_flags)
 {
-	struct ib_ucontext *ctx = pd->ibpd.uobject->context;
 	struct mlx5_ib_mr *imr;
 	struct ib_umem *umem;
 
-	umem = ib_umem_get(ctx, 0, 0, IB_ACCESS_ON_DEMAND, 0);
+	umem = ib_umem_get(udata, 0, 0, IB_ACCESS_ON_DEMAND, 0);
 	if (IS_ERR(umem))
 		return ERR_CAST(umem);
 
@@ -739,12 +739,12 @@ next_mr:
 			goto srcu_unlock;
 		}
 
-		if (prefetch && !mr->umem->is_odp) {
+		if (prefetch && !is_odp_mr(mr)) {
 			ret = -EINVAL;
 			goto srcu_unlock;
 		}
 
-		if (!mr->umem->is_odp) {
+		if (!is_odp_mr(mr)) {
 			mlx5_ib_dbg(dev, "skipping non ODP MR (lkey=0x%06x) in page fault handler.\n",
 				    key);
 			if (bytes_mapped)
