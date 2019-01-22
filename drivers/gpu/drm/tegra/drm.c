@@ -93,7 +93,7 @@ static int tegra_drm_load(struct drm_device *drm, unsigned long flags)
 
 	if (iommu_present(&platform_bus_type)) {
 		u64 carveout_start, carveout_end, gem_start, gem_end;
-		struct iommu_domain_geometry *geometry;
+		dma_addr_t start, end;
 		unsigned long order;
 
 		tegra->domain = iommu_domain_alloc(&platform_bus_type);
@@ -106,11 +106,21 @@ static int tegra_drm_load(struct drm_device *drm, unsigned long flags)
 		if (err < 0)
 			goto domain;
 
-		geometry = &tegra->domain->geometry;
-		gem_start = geometry->aperture_start;
-		gem_end = geometry->aperture_end - CARVEOUT_SZ;
+		start = tegra->domain->geometry.aperture_start;
+		end = tegra->domain->geometry.aperture_end;
+
+		/*
+		 * The ARM SMMU driver only sets up the geometry after the
+		 * domain has been attached to a device. In that case, make
+		 * sure to fallback to a reasonable default.
+		 */
+		if (start == 0 && end == 0)
+			end = 0xffffffff;
+
+		gem_start = start;
+		gem_end = end - CARVEOUT_SZ;
 		carveout_start = gem_end + 1;
-		carveout_end = geometry->aperture_end;
+		carveout_end = end;
 
 		order = __ffs(tegra->domain->pgsize_bitmap);
 		init_iova_domain(&tegra->carveout.domain, 1UL << order,
