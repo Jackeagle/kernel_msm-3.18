@@ -14,6 +14,7 @@
 #include <linux/perf_event.h>
 #include <linux/percpu-defs.h>
 #include <linux/slab.h>
+#include <linux/stringhash.h>
 #include <linux/types.h>
 #include <linux/workqueue.h>
 
@@ -43,8 +44,18 @@ static const struct attribute_group etm_pmu_format_group = {
 	.attrs  = etm_config_formats_attr,
 };
 
+static struct attribute *etm_config_sinks_attr[] = {
+	NULL,
+};
+
+static const struct attribute_group etm_pmu_sinks_group = {
+	.name   = "sinks",
+	.attrs  = etm_config_sinks_attr,
+};
+
 static const struct attribute_group *etm_pmu_attr_groups[] = {
 	&etm_pmu_format_group,
+	&etm_pmu_sinks_group,
 	NULL,
 };
 
@@ -477,6 +488,71 @@ int etm_perf_symlink(struct coresight_device *csdev, bool link)
 	}
 
 	return 0;
+}
+
+static ssize_t etm_perf_sink_name_show(struct device *dev,
+				       struct device_attribute *dattr,
+				       char *buf)
+{
+	/* See function coresight_get_sink_by_id() to know where this is used */
+	u32 hash = hashlen_hash(hashlen_string(NULL, dattr->attr.name));
+
+	return scnprintf(buf, PAGE_SIZE, "%x\n", hash);
+}
+
+int etm_perf_add_symlink_sink(struct coresight_device *csdev)
+{
+	int ret;
+	struct device *pmu_dev = etm_pmu.dev;
+	struct device *pdev = csdev->dev.parent;
+	struct device_attribute *dattr;
+
+	if (csdev->type != CORESIGHT_DEV_TYPE_SINK &&
+	    csdev->type != CORESIGHT_DEV_TYPE_LINKSINK)
+		return -EINVAL;
+
+	if (csdev->dattr != NULL)
+		return -EINVAL;
+
+	if (!etm_perf_up)
+		return -EPROBE_DEFER;
+
+	dattr = kzalloc(sizeof(*dattr), GFP_KERNEL);
+	dattr->attr.name = kstrdup(dev_name(pdev), GFP_KERNEL);
+	dattr->attr.mode = 0444;
+	dattr->show = etm_perf_sink_name_show;
+	csdev->dattr = dattr;
+
+	ret = sysfs_add_file_to_group(&pmu_dev->kobj,
+				      &dattr->attr, "sinks");
+
+	if (!ret)
+		return 0;
+
+	csdev->dattr = NULL;
+	kfree(dattr->attr.name);
+	kfree(dattr);
+
+	return ret;
+}
+
+void etm_perf_del_symlink_sink(struct coresight_device *csdev)
+{
+	struct device *pmu_dev = etm_pmu.dev;
+	struct device_attribute *dattr = csdev->dattr;
+
+	if (csdev->type != CORESIGHT_DEV_TYPE_SINK &&
+	    csdev->type != CORESIGHT_DEV_TYPE_LINKSINK)
+		return;
+
+	if (!dattr)
+		return;
+
+	sysfs_remove_file_from_group(&pmu_dev->kobj,
+				     &dattr->attr, "sinks");
+	csdev->dattr = NULL;
+	kfree(dattr->attr.name);
+	kfree(dattr);
 }
 
 static int __init etm_perf_init(void)
