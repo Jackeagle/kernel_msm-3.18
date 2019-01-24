@@ -1761,7 +1761,7 @@ smb2_is_status_pending(char *buf, struct TCP_Server_Info *server, int length)
 	if (shdr->Status != STATUS_PENDING)
 		return false;
 
-	if (!length) {
+	if (shdr->CreditRequest) {
 		spin_lock(&server->req_lock);
 		server->credits += le16_to_cpu(shdr->CreditRequest);
 		spin_unlock(&server->req_lock);
