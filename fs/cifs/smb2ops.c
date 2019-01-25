@@ -866,7 +866,11 @@ smb2_query_eas(const unsigned int xid, struct cifs_tcon *tcon,
 				      FILE_READ_EA,
 				      FILE_FULL_EA_INFORMATION,
 				      SMB2_O_INFO_FILE,
-				      SMB2_MAX_EA_BUF,
+				      CIFSMaxBufSize - 4 -
+				      SMB2_TRANSFORM_HEADER_SIZE -
+				      MAX_SMB2_CREATE_RESPONSE_SIZE -
+				      72 - /* query info response */
+				      MAX_SMB2_CLOSE_RESPONSE_SIZE,
 				      &rsp_iov, &buftype, cifs_sb);
 	if (rc) {
 		/*
