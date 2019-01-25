@@ -112,7 +112,8 @@ smb2_add_credits(struct TCP_Server_Info *server,
 		cifs_dbg(FYI, "trying to put %d credits from the old server instance %d\n",
 			 add, instance);
 
-	if (server->tcpStatus == CifsNeedReconnect)
+	if (server->tcpStatus == CifsNeedReconnect
+	    || server->tcpStatus == CifsExiting)
 		return;
 
 	switch (rc) {
