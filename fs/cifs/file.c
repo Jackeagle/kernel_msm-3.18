@@ -2748,10 +2748,14 @@ cifs_write_from_iter(loff_t offset, size_t len, struct iov_iter *from,
 
 		rc = adjust_credits(server, &wdata->credits, wdata->bytes);
 
-		if (!rc && (!wdata->cfile->invalidHandle ||
-		    !(rc = cifs_reopen_file(wdata->cfile, false))))
-			rc = server->ops->async_writev(wdata,
+		if (!rc) {
+			if (wdata->cfile->invalidHandle)
+				rc = cifs_reopen_file(wdata->cfile, false);
+
+			if (!rc)
+				rc = server->ops->async_writev(wdata,
 					cifs_uncached_writedata_release);
+		}
 
 		if (rc) {
 			add_credits_and_wake_if(server, &wdata->credits, 0);
@@ -3431,9 +3435,13 @@ cifs_send_async_read(loff_t offset, size_t len, struct cifsFileInfo *open_file,
 
 		rc = adjust_credits(server, &rdata->credits, rdata->bytes);
 
-		if (!rc && (!rdata->cfile->invalidHandle ||
-		    !(rc = cifs_reopen_file(rdata->cfile, true))))
-			rc = server->ops->async_readv(rdata);
+		if (!rc) {
+			if (rdata->cfile->invalidHandle)
+				rc = cifs_reopen_file(rdata->cfile, true);
+
+			if (!rc)
+				rc = server->ops->async_readv(rdata);
+		}
 
 		if (rc) {
 			add_credits_and_wake_if(server, &rdata->credits, 0);
@@ -4176,9 +4184,13 @@ static int cifs_readpages(struct file *file, struct address_space *mapping,
 
 		rc = adjust_credits(server, &rdata->credits, rdata->bytes);
 
-		if (!rc && (!rdata->cfile->invalidHandle ||
-		    !(rc = cifs_reopen_file(rdata->cfile, true))))
-			rc = server->ops->async_readv(rdata);
+		if (!rc) {
+			if (rdata->cfile->invalidHandle)
+				rc = cifs_reopen_file(rdata->cfile, true);
+
+			if (!rc)
+				rc = server->ops->async_readv(rdata);
+		}
 
 		if (rc) {
 			add_credits_and_wake_if(server, &rdata->credits, 0);
