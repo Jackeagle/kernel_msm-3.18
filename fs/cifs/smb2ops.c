@@ -67,10 +67,13 @@ change_conf(struct TCP_Server_Info *server)
 }
 
 static void
-smb2_add_credits(struct TCP_Server_Info *server, const unsigned int add,
-		 const int optype)
+smb2_add_credits(struct TCP_Server_Info *server,
+		 const struct cifs_credits *credits, const int optype)
 {
 	int *val, rc = -1;
+	unsigned int add = credits->value;
+	unsigned int instance = credits->instance;
+	bool reconnect_detected = false;
 
 	spin_lock(&server->req_lock);
 	val = server->ops->get_credits_field(server, optype);
@@ -79,8 +82,11 @@ smb2_add_credits(struct TCP_Server_Info *server, const unsigned int add,
 	if (((optype & CIFS_OP_MASK) == CIFS_NEG_OP) && (*val != 0))
 		trace_smb3_reconnect_with_invalid_credits(server->CurrentMid,
 			server->hostname, *val);
+	if ((instance == 0) || (instance == server->reconnect_instance))
+		*val += add;
+	else
+		reconnect_detected = true;
 
-	*val += add;
 	if (*val > 65000) {
 		*val = 65000; /* Don't get near 64K credits, avoid srv bugs */
 		printk_once(KERN_WARNING "server overflowed SMB3 credits\n");
@@ -102,7 +108,12 @@ smb2_add_credits(struct TCP_Server_Info *server, const unsigned int add,
 	spin_unlock(&server->req_lock);
 	wake_up(&server->request_q);
 
-	if (server->tcpStatus == CifsNeedReconnect)
+	if (reconnect_detected)
+		cifs_dbg(FYI, "trying to put %d credits from the old server instance %d\n",
+			 add, instance);
+
+	if (server->tcpStatus == CifsNeedReconnect
+	    || server->tcpStatus == CifsExiting)
 		return;
 
 	switch (rc) {
@@ -163,7 +174,7 @@ smb2_get_credits(struct mid_q_entry *mid)
 
 static int
 smb2_wait_mtu_credits(struct TCP_Server_Info *server, unsigned int size,
-		      unsigned int *num, unsigned int *credits)
+		      unsigned int *num, struct cifs_credits *credits)
 {
 	int rc = 0;
 	unsigned int scredits;
@@ -189,7 +200,8 @@ smb2_wait_mtu_credits(struct TCP_Server_Info *server, unsigned int size,
 			/* can deadlock with reopen */
 			if (scredits <= 8) {
 				*num = SMB2_MAX_BUFFER_SIZE;
-				*credits = 0;
+				credits->value = 0;
+				credits->instance = 0;
 				break;
 			}
 
@@ -198,8 +210,10 @@ smb2_wait_mtu_credits(struct TCP_Server_Info *server, unsigned int size,
 			*num = min_t(unsigned int, size,
 				     scredits * SMB2_MAX_BUFFER_SIZE);
 
-			*credits = DIV_ROUND_UP(*num, SMB2_MAX_BUFFER_SIZE);
-			server->credits -= *credits;
+			credits->value =
+				DIV_ROUND_UP(*num, SMB2_MAX_BUFFER_SIZE);
+			credits->instance = server->reconnect_instance;
+			server->credits -= credits->value;
 			server->in_flight++;
 			break;
 		}
@@ -208,6 +222,37 @@ smb2_wait_mtu_credits(struct TCP_Server_Info *server, unsigned int size,
 	return rc;
 }
 
+static int
+smb2_adjust_credits(struct TCP_Server_Info *server,
+		    struct cifs_credits *credits,
+		    const unsigned int payload_size)
+{
+	int new_val = DIV_ROUND_UP(payload_size, SMB2_MAX_BUFFER_SIZE);
+
+	if (!credits->value || credits->value == new_val)
+		return 0;
+
+	if (credits->value < new_val) {
+		WARN_ONCE(1, "request has less credits (%d) than required (%d)",
+			  credits->value, new_val);
+		return -ENOTSUPP;
+	}
+
+	spin_lock(&server->req_lock);
+
+	if (server->reconnect_instance != credits->instance) {
+		spin_unlock(&server->req_lock);
+		cifs_dbg(VFS, "trying to return %d credits to old session\n",
+			 credits->value - new_val);
+		return -EAGAIN;
+	}
+
+	server->credits += credits->value - new_val;
+	spin_unlock(&server->req_lock);
+	wake_up(&server->request_q);
+	credits->value = new_val;
+	return 0;
+}
 static __u64
 smb2_get_next_mid(struct TCP_Server_Info *server)
 {
@@ -866,7 +911,11 @@ smb2_query_eas(const unsigned int xid, struct cifs_tcon *tcon,
 				      FILE_READ_EA,
 				      FILE_FULL_EA_INFORMATION,
 				      SMB2_O_INFO_FILE,
-				      SMB2_MAX_EA_BUF,
+				      CIFSMaxBufSize - 4 -
+				      SMB2_TRANSFORM_HEADER_SIZE -
+				      MAX_SMB2_CREATE_RESPONSE_SIZE -
+				      72 - /* query info response */
+				      MAX_SMB2_CLOSE_RESPONSE_SIZE,
 				      &rsp_iov, &buftype, cifs_sb);
 	if (rc) {
 		/*
@@ -1758,7 +1807,7 @@ smb2_is_status_pending(char *buf, struct TCP_Server_Info *server, int length)
 	if (shdr->Status != STATUS_PENDING)
 		return false;
 
-	if (!length) {
+	if (shdr->CreditRequest) {
 		spin_lock(&server->req_lock);
 		server->credits += le16_to_cpu(shdr->CreditRequest);
 		spin_unlock(&server->req_lock);
@@ -3213,10 +3262,10 @@ handle_read_data(struct TCP_Server_Info *server, struct mid_q_entry *mid,
 
 	/* set up first two iov to get credits */
 	rdata->iov[0].iov_base = buf;
-	rdata->iov[0].iov_len = 4;
-	rdata->iov[1].iov_base = buf + 4;
+	rdata->iov[0].iov_len = 0;
+	rdata->iov[1].iov_base = buf;
 	rdata->iov[1].iov_len =
-		min_t(unsigned int, buf_len, server->vals->read_rsp_size) - 4;
+		min_t(unsigned int, buf_len, server->vals->read_rsp_size);
 	cifs_dbg(FYI, "0: iov_base=%p iov_len=%zu\n",
 		 rdata->iov[0].iov_base, rdata->iov[0].iov_len);
 	cifs_dbg(FYI, "1: iov_base=%p iov_len=%zu\n",
@@ -3633,6 +3682,7 @@ struct smb_version_operations smb21_operations = {
 	.get_credits_field = smb2_get_credits_field,
 	.get_credits = smb2_get_credits,
 	.wait_mtu_credits = smb2_wait_mtu_credits,
+	.adjust_credits = smb2_adjust_credits,
 	.get_next_mid = smb2_get_next_mid,
 	.read_data_offset = smb2_read_data_offset,
 	.read_data_length = smb2_read_data_length,
@@ -3729,6 +3779,7 @@ struct smb_version_operations smb30_operations = {
 	.get_credits_field = smb2_get_credits_field,
 	.get_credits = smb2_get_credits,
 	.wait_mtu_credits = smb2_wait_mtu_credits,
+	.adjust_credits = smb2_adjust_credits,
 	.get_next_mid = smb2_get_next_mid,
 	.read_data_offset = smb2_read_data_offset,
 	.read_data_length = smb2_read_data_length,
@@ -3834,6 +3885,7 @@ struct smb_version_operations smb311_operations = {
 	.get_credits_field = smb2_get_credits_field,
 	.get_credits = smb2_get_credits,
 	.wait_mtu_credits = smb2_wait_mtu_credits,
+	.adjust_credits = smb2_adjust_credits,
 	.get_next_mid = smb2_get_next_mid,
 	.read_data_offset = smb2_read_data_offset,
 	.read_data_length = smb2_read_data_length,

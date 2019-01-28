@@ -2924,14 +2924,16 @@ smb2_echo_callback(struct mid_q_entry *mid)
 {
 	struct TCP_Server_Info *server = mid->callback_data;
 	struct smb2_echo_rsp *rsp = (struct smb2_echo_rsp *)mid->resp_buf;
-	unsigned int credits_received = 0;
+	struct cifs_credits credits = { .value = 0, .instance = 0 };
 
 	if (mid->mid_state == MID_RESPONSE_RECEIVED
-	    || mid->mid_state == MID_RESPONSE_MALFORMED)
-		credits_received = le16_to_cpu(rsp->sync_hdr.CreditRequest);
+	    || mid->mid_state == MID_RESPONSE_MALFORMED) {
+		credits.value = le16_to_cpu(rsp->sync_hdr.CreditRequest);
+		credits.instance = server->reconnect_instance;
+	}
 
 	DeleteMidQEntry(mid);
-	add_credits(server, credits_received, CIFS_ECHO_OP);
+	add_credits(server, &credits, CIFS_ECHO_OP);
 }
 
 void smb2_reconnect_server(struct work_struct *work)
@@ -3023,7 +3025,7 @@ SMB2_echo(struct TCP_Server_Info *server)
 	iov[0].iov_base = (char *)req;
 
 	rc = cifs_call_async(server, &rqst, NULL, smb2_echo_callback, NULL,
-			     server, CIFS_ECHO_OP);
+			     server, CIFS_ECHO_OP, NULL);
 	if (rc)
 		cifs_dbg(FYI, "Echo request failed: %d\n", rc);
 
@@ -3184,7 +3186,7 @@ smb2_readv_callback(struct mid_q_entry *mid)
 	struct TCP_Server_Info *server = tcon->ses->server;
 	struct smb2_sync_hdr *shdr =
 				(struct smb2_sync_hdr *)rdata->iov[0].iov_base;
-	unsigned int credits_received = 0;
+	struct cifs_credits credits = { .value = 0, .instance = 0 };
 	struct smb_rqst rqst = { .rq_iov = rdata->iov,
 				 .rq_nvec = 2,
 				 .rq_pages = rdata->pages,
@@ -3199,7 +3201,8 @@ smb2_readv_callback(struct mid_q_entry *mid)
 
 	switch (mid->mid_state) {
 	case MID_RESPONSE_RECEIVED:
-		credits_received = le16_to_cpu(shdr->CreditRequest);
+		credits.value = le16_to_cpu(shdr->CreditRequest);
+		credits.instance = server->reconnect_instance;
 		/* result already set, check signature */
 		if (server->sign && !mid->decrypted) {
 			int rc;
@@ -3224,11 +3227,11 @@ smb2_readv_callback(struct mid_q_entry *mid)
 		cifs_stats_bytes_read(tcon, rdata->got_bytes);
 		break;
 	case MID_RESPONSE_MALFORMED:
-		credits_received = le16_to_cpu(shdr->CreditRequest);
+		credits.value = le16_to_cpu(shdr->CreditRequest);
+		credits.instance = server->reconnect_instance;
 		/* fall through */
 	default:
-		if (rdata->result != -ENODATA)
-			rdata->result = -EIO;
+		rdata->result = -EIO;
 	}
 #ifdef CONFIG_CIFS_SMB_DIRECT
 	/*
@@ -3241,12 +3244,21 @@ smb2_readv_callback(struct mid_q_entry *mid)
 		rdata->mr = NULL;
 	}
 #endif
-	if (rdata->result)
+	if (rdata->result && rdata->result != -ENODATA) {
 		cifs_stats_fail_inc(tcon, SMB2_READ_HE);
+		trace_smb3_read_err(0 /* xid */,
+				    rdata->cfile->fid.persistent_fid,
+				    tcon->tid, tcon->ses->Suid, rdata->offset,
+				    rdata->bytes, rdata->result);
+	} else
+		trace_smb3_read_done(0 /* xid */,
+				     rdata->cfile->fid.persistent_fid,
+				     tcon->tid, tcon->ses->Suid,
+				     rdata->offset, rdata->got_bytes);
 
 	queue_work(cifsiod_wq, &rdata->work);
 	DeleteMidQEntry(mid);
-	add_credits(server, credits_received, 0);
+	add_credits(server, &credits, 0);
 }
 
 /* smb2_async_readv - send an async read, and set up mid to handle result */
@@ -3276,17 +3288,8 @@ smb2_async_readv(struct cifs_readdata *rdata)
 
 	rc = smb2_new_read_req(
 		(void **) &buf, &total_len, &io_parms, rdata, 0, 0);
-	if (rc) {
-		if (rc == -EAGAIN && rdata->credits) {
-			/* credits was reset by reconnect */
-			rdata->credits = 0;
-			/* reduce in_flight value since we won't send the req */
-			spin_lock(&server->req_lock);
-			server->in_flight--;
-			spin_unlock(&server->req_lock);
-		}
+	if (rc)
 		return rc;
-	}
 
 	if (smb3_encryption_required(io_parms.tcon))
 		flags |= CIFS_TRANSFORM_REQ;
@@ -3296,35 +3299,34 @@ smb2_async_readv(struct cifs_readdata *rdata)
 
 	shdr = (struct smb2_sync_hdr *)buf;
 
-	if (rdata->credits) {
+	if (rdata->credits.value > 0) {
 		shdr->CreditCharge = cpu_to_le16(DIV_ROUND_UP(rdata->bytes,
 						SMB2_MAX_BUFFER_SIZE));
 		shdr->CreditRequest =
 			cpu_to_le16(le16_to_cpu(shdr->CreditCharge) + 1);
-		spin_lock(&server->req_lock);
-		server->credits += rdata->credits -
-						le16_to_cpu(shdr->CreditCharge);
-		spin_unlock(&server->req_lock);
-		wake_up(&server->request_q);
-		rdata->credits = le16_to_cpu(shdr->CreditCharge);
+
+		rc = adjust_credits(server, &rdata->credits, rdata->bytes);
+		if (rc)
+			goto async_readv_out;
+
 		flags |= CIFS_HAS_CREDITS;
 	}
 
 	kref_get(&rdata->refcount);
 	rc = cifs_call_async(io_parms.tcon->ses->server, &rqst,
 			     cifs_readv_receive, smb2_readv_callback,
-			     smb3_handle_read_data, rdata, flags);
+			     smb3_handle_read_data, rdata, flags,
+			     &rdata->credits);
 	if (rc) {
 		kref_put(&rdata->refcount, cifs_readdata_release);
 		cifs_stats_fail_inc(io_parms.tcon, SMB2_READ_HE);
-		trace_smb3_read_err(rc, 0 /* xid */, io_parms.persistent_fid,
-				   io_parms.tcon->tid, io_parms.tcon->ses->Suid,
-				   io_parms.offset, io_parms.length);
-	} else
-		trace_smb3_read_done(0 /* xid */, io_parms.persistent_fid,
-				   io_parms.tcon->tid, io_parms.tcon->ses->Suid,
-				   io_parms.offset, io_parms.length);
+		trace_smb3_read_err(0 /* xid */, io_parms.persistent_fid,
+				    io_parms.tcon->tid,
+				    io_parms.tcon->ses->Suid,
+				    io_parms.offset, io_parms.length, rc);
+	}
 
+async_readv_out:
 	cifs_small_buf_release(buf);
 	return rc;
 }
@@ -3367,10 +3369,11 @@ SMB2_read(const unsigned int xid, struct cifs_io_parms *io_parms,
 		if (rc != -ENODATA) {
 			cifs_stats_fail_inc(io_parms->tcon, SMB2_READ_HE);
 			cifs_dbg(VFS, "Send error in read = %d\n", rc);
+			trace_smb3_read_err(xid, req->PersistentFileId,
+					    io_parms->tcon->tid, ses->Suid,
+					    io_parms->offset, io_parms->length,
+					    rc);
 		}
-		trace_smb3_read_err(rc, xid, req->PersistentFileId,
-				    io_parms->tcon->tid, ses->Suid,
-				    io_parms->offset, io_parms->length);
 		free_rsp_buf(resp_buftype, rsp_iov.iov_base);
 		return rc == -ENODATA ? 0 : rc;
 	} else
@@ -3409,14 +3412,16 @@ smb2_writev_callback(struct mid_q_entry *mid)
 {
 	struct cifs_writedata *wdata = mid->callback_data;
 	struct cifs_tcon *tcon = tlink_tcon(wdata->cfile->tlink);
+	struct TCP_Server_Info *server = tcon->ses->server;
 	unsigned int written;
 	struct smb2_write_rsp *rsp = (struct smb2_write_rsp *)mid->resp_buf;
-	unsigned int credits_received = 0;
+	struct cifs_credits credits = { .value = 0, .instance = 0 };
 
 	switch (mid->mid_state) {
 	case MID_RESPONSE_RECEIVED:
-		credits_received = le16_to_cpu(rsp->sync_hdr.CreditRequest);
-		wdata->result = smb2_check_receive(mid, tcon->ses->server, 0);
+		credits.value = le16_to_cpu(rsp->sync_hdr.CreditRequest);
+		credits.instance = server->reconnect_instance;
+		wdata->result = smb2_check_receive(mid, server, 0);
 		if (wdata->result != 0)
 			break;
 
@@ -3440,7 +3445,8 @@ smb2_writev_callback(struct mid_q_entry *mid)
 		wdata->result = -EAGAIN;
 		break;
 	case MID_RESPONSE_MALFORMED:
-		credits_received = le16_to_cpu(rsp->sync_hdr.CreditRequest);
+		credits.value = le16_to_cpu(rsp->sync_hdr.CreditRequest);
+		credits.instance = server->reconnect_instance;
 		/* fall through */
 	default:
 		wdata->result = -EIO;
@@ -3459,12 +3465,21 @@ smb2_writev_callback(struct mid_q_entry *mid)
 		wdata->mr = NULL;
 	}
 #endif
-	if (wdata->result)
+	if (wdata->result) {
 		cifs_stats_fail_inc(tcon, SMB2_WRITE_HE);
+		trace_smb3_write_err(0 /* no xid */,
+				     wdata->cfile->fid.persistent_fid,
+				     tcon->tid, tcon->ses->Suid, wdata->offset,
+				     wdata->bytes, wdata->result);
+	} else
+		trace_smb3_write_done(0 /* no xid */,
+				      wdata->cfile->fid.persistent_fid,
+				      tcon->tid, tcon->ses->Suid,
+				      wdata->offset, wdata->bytes);
 
 	queue_work(cifsiod_wq, &wdata->work);
 	DeleteMidQEntry(mid);
-	add_credits(tcon->ses->server, credits_received, 0);
+	add_credits(server, &credits, 0);
 }
 
 /* smb2_async_writev - send an async write, and set up mid to handle result */
@@ -3482,17 +3497,8 @@ smb2_async_writev(struct cifs_writedata *wdata,
 	unsigned int total_len;
 
 	rc = smb2_plain_req_init(SMB2_WRITE, tcon, (void **) &req, &total_len);
-	if (rc) {
-		if (rc == -EAGAIN && wdata->credits) {
-			/* credits was reset by reconnect */
-			wdata->credits = 0;
-			/* reduce in_flight value since we won't send the req */
-			spin_lock(&server->req_lock);
-			server->in_flight--;
-			spin_unlock(&server->req_lock);
-		}
-		goto async_writev_out;
-	}
+	if (rc)
+		return rc;
 
 	if (smb3_encryption_required(tcon))
 		flags |= CIFS_TRANSFORM_REQ;
@@ -3578,23 +3584,22 @@ smb2_async_writev(struct cifs_writedata *wdata,
 	req->Length = cpu_to_le32(wdata->bytes);
 #endif
 
-	if (wdata->credits) {
+	if (wdata->credits.value > 0) {
 		shdr->CreditCharge = cpu_to_le16(DIV_ROUND_UP(wdata->bytes,
 						    SMB2_MAX_BUFFER_SIZE));
 		shdr->CreditRequest =
 			cpu_to_le16(le16_to_cpu(shdr->CreditCharge) + 1);
-		spin_lock(&server->req_lock);
-		server->credits += wdata->credits -
-						le16_to_cpu(shdr->CreditCharge);
-		spin_unlock(&server->req_lock);
-		wake_up(&server->request_q);
-		wdata->credits = le16_to_cpu(shdr->CreditCharge);
+
+		rc = adjust_credits(server, &wdata->credits, wdata->bytes);
+		if (rc)
+			goto async_writev_out;
+
 		flags |= CIFS_HAS_CREDITS;
 	}
 
 	kref_get(&wdata->refcount);
 	rc = cifs_call_async(server, &rqst, NULL, smb2_writev_callback, NULL,
-			     wdata, flags);
+			     wdata, flags, &wdata->credits);
 
 	if (rc) {
 		trace_smb3_write_err(0 /* no xid */, req->PersistentFileId,
@@ -3602,10 +3607,7 @@ smb2_async_writev(struct cifs_writedata *wdata,
 				     wdata->bytes, rc);
 		kref_put(&wdata->refcount, release);
 		cifs_stats_fail_inc(tcon, SMB2_WRITE_HE);
-	} else
-		trace_smb3_write_done(0 /* no xid */, req->PersistentFileId,
-				     tcon->tid, tcon->ses->Suid, wdata->offset,
-				     wdata->bytes);
+	}
 
 async_writev_out:
 	cifs_small_buf_release(req);
@@ -3831,8 +3833,8 @@ SMB2_query_directory(const unsigned int xid, struct cifs_tcon *tcon,
 		    rsp->sync_hdr.Status == STATUS_NO_MORE_FILES) {
 			srch_inf->endOfSearch = true;
 			rc = 0;
-		}
-		cifs_stats_fail_inc(tcon, SMB2_QUERY_DIRECTORY_HE);
+		} else
+			cifs_stats_fail_inc(tcon, SMB2_QUERY_DIRECTORY_HE);
 		goto qdir_exit;
 	}
 
