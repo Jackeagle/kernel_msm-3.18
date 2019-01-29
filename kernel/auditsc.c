@@ -1358,6 +1358,9 @@ static void audit_log_exit(void)
 			audit_log_cap(ab, "pi", &axs->new_pcap.inheritable);
 			audit_log_cap(ab, "pe", &axs->new_pcap.effective);
 			audit_log_cap(ab, "pa", &axs->new_pcap.ambient);
+			audit_log_format(ab, " frootid=%d",
+					 from_kuid(&init_user_ns,
+						   axs->fcap.rootid));
 			break; }
 
 		}
@@ -1444,6 +1447,9 @@ void __audit_free(struct task_struct *tsk)
 	if (!context)
 		return;
 
+	if (!list_empty(&context->killed_trees))
+		audit_kill_trees(context);
+
 	/* We are called either by do_exit() or the fork() error handling code;
 	 * in the former case tsk == current and in the latter tsk is a
 	 * random task_struct that doesn't doesn't have any meaningful data we
@@ -1459,9 +1465,6 @@ void __audit_free(struct task_struct *tsk)
 		if (context->current_state == AUDIT_RECORD_CONTEXT)
 			audit_log_exit();
 	}
-
-	if (!list_empty(&context->killed_trees))
-		audit_kill_trees(&context->killed_trees);
 
 	audit_set_context(tsk, NULL);
 	audit_free_context(context);
@@ -1537,6 +1540,9 @@ void __audit_syscall_exit(int success, long return_code)
 	if (!context)
 		return;
 
+	if (!list_empty(&context->killed_trees))
+		audit_kill_trees(context);
+
 	if (!context->dummy && context->in_syscall) {
 		if (success)
 			context->return_valid = AUDITSC_SUCCESS;
@@ -1570,9 +1576,6 @@ void __audit_syscall_exit(int success, long return_code)
 
 	context->in_syscall = 0;
 	context->prio = context->state == AUDIT_RECORD_CONTEXT ? ~0ULL : 0;
-
-	if (!list_empty(&context->killed_trees))
-		audit_kill_trees(&context->killed_trees);
 
 	audit_free_names(context);
 	unroll_tree_refs(context, NULL, 0);
@@ -1763,9 +1766,30 @@ void __audit_inode(struct filename *name, const struct dentry *dentry,
 	struct inode *inode = d_backing_inode(dentry);
 	struct audit_names *n;
 	bool parent = flags & AUDIT_INODE_PARENT;
+	struct audit_entry *e;
+	struct list_head *list = &audit_filter_list[AUDIT_FILTER_FS];
+	int i;
 
 	if (!context->in_syscall)
 		return;
+
+	rcu_read_lock();
+	if (!list_empty(list)) {
+		list_for_each_entry_rcu(e, list, list) {
+			for (i = 0; i < e->rule.field_count; i++) {
+				struct audit_field *f = &e->rule.fields[i];
+
+				if (f->type == AUDIT_FSTYPE
+				    && audit_comparator(inode->i_sb->s_magic,
+							f->op, f->val)
+				    && e->rule.action == AUDIT_NEVER) {
+					rcu_read_unlock();
+					return;
+				}
+			}
+		}
+	}
+	rcu_read_unlock();
 
 	if (!name)
 		goto out_alloc;
@@ -1875,14 +1899,12 @@ void __audit_inode_child(struct inode *parent,
 			for (i = 0; i < e->rule.field_count; i++) {
 				struct audit_field *f = &e->rule.fields[i];
 
-				if (f->type == AUDIT_FSTYPE) {
-					if (audit_comparator(parent->i_sb->s_magic,
-					    f->op, f->val)) {
-						if (e->rule.action == AUDIT_NEVER) {
-							rcu_read_unlock();
-							return;
-						}
-					}
+				if (f->type == AUDIT_FSTYPE
+				    && audit_comparator(parent->i_sb->s_magic,
+							f->op, f->val)
+				    && e->rule.action == AUDIT_NEVER) {
+					rcu_read_unlock();
+					return;
 				}
 			}
 		}
@@ -1981,90 +2003,6 @@ int auditsc_get_stamp(struct audit_context *ctx,
 		ctx->current_state = AUDIT_RECORD_CONTEXT;
 	}
 	return 1;
-}
-
-/* global counter which is incremented every time something logs in */
-static atomic_t session_id = ATOMIC_INIT(0);
-
-static int audit_set_loginuid_perm(kuid_t loginuid)
-{
-	/* if we are unset, we don't need privs */
-	if (!audit_loginuid_set(current))
-		return 0;
-	/* if AUDIT_FEATURE_LOGINUID_IMMUTABLE means never ever allow a change*/
-	if (is_audit_feature_set(AUDIT_FEATURE_LOGINUID_IMMUTABLE))
-		return -EPERM;
-	/* it is set, you need permission */
-	if (!capable(CAP_AUDIT_CONTROL))
-		return -EPERM;
-	/* reject if this is not an unset and we don't allow that */
-	if (is_audit_feature_set(AUDIT_FEATURE_ONLY_UNSET_LOGINUID) && uid_valid(loginuid))
-		return -EPERM;
-	return 0;
-}
-
-static void audit_log_set_loginuid(kuid_t koldloginuid, kuid_t kloginuid,
-				   unsigned int oldsessionid, unsigned int sessionid,
-				   int rc)
-{
-	struct audit_buffer *ab;
-	uid_t uid, oldloginuid, loginuid;
-	struct tty_struct *tty;
-
-	if (!audit_enabled)
-		return;
-
-	ab = audit_log_start(NULL, GFP_KERNEL, AUDIT_LOGIN);
-	if (!ab)
-		return;
-
-	uid = from_kuid(&init_user_ns, task_uid(current));
-	oldloginuid = from_kuid(&init_user_ns, koldloginuid);
-	loginuid = from_kuid(&init_user_ns, kloginuid),
-	tty = audit_get_tty();
-
-	audit_log_format(ab, "pid=%d uid=%u", task_tgid_nr(current), uid);
-	audit_log_task_context(ab);
-	audit_log_format(ab, " old-auid=%u auid=%u tty=%s old-ses=%u ses=%u res=%d",
-			 oldloginuid, loginuid, tty ? tty_name(tty) : "(none)",
-			 oldsessionid, sessionid, !rc);
-	audit_put_tty(tty);
-	audit_log_end(ab);
-}
-
-/**
- * audit_set_loginuid - set current task's audit_context loginuid
- * @loginuid: loginuid value
- *
- * Returns 0.
- *
- * Called (set) from fs/proc/base.c::proc_loginuid_write().
- */
-int audit_set_loginuid(kuid_t loginuid)
-{
-	unsigned int oldsessionid, sessionid = AUDIT_SID_UNSET;
-	kuid_t oldloginuid;
-	int rc;
-
-	oldloginuid = audit_get_loginuid(current);
-	oldsessionid = audit_get_sessionid(current);
-
-	rc = audit_set_loginuid_perm(loginuid);
-	if (rc)
-		goto out;
-
-	/* are we setting or clearing? */
-	if (uid_valid(loginuid)) {
-		sessionid = (unsigned int)atomic_inc_return(&session_id);
-		if (unlikely(sessionid == AUDIT_SID_UNSET))
-			sessionid = (unsigned int)atomic_inc_return(&session_id);
-	}
-
-	current->sessionid = sessionid;
-	current->loginuid = loginuid;
-out:
-	audit_log_set_loginuid(oldloginuid, loginuid, oldsessionid, sessionid, rc);
-	return rc;
 }
 
 /**
@@ -2355,6 +2293,7 @@ int __audit_log_bprm_fcaps(struct linux_binprm *bprm,
 	ax->fcap.permitted = vcaps.permitted;
 	ax->fcap.inheritable = vcaps.inheritable;
 	ax->fcap.fE = !!(vcaps.magic_etc & VFS_CAP_FLAGS_EFFECTIVE);
+	ax->fcap.rootid = vcaps.rootid;
 	ax->fcap_ver = (vcaps.magic_etc & VFS_CAP_REVISION_MASK) >> VFS_CAP_REVISION_SHIFT;
 
 	ax->old_pcap.permitted   = old->cap_permitted;
