@@ -34,6 +34,7 @@
 #include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/dma-mapping.h>
+#include <linux/io-64-nonatomic-lo-hi.h>
 
 #include "vop_main.h"
 
@@ -116,7 +117,7 @@ _vop_total_desc_size(struct mic_device_desc __iomem *desc)
 static u64 vop_get_features(struct virtio_device *vdev)
 {
 	unsigned int i, bits;
-	u32 features = 0;
+	u64 features = 0;
 	struct mic_device_desc __iomem *desc = to_vopvdev(vdev)->desc;
 	u8 __iomem *in_features = _vop_vq_features(desc);
 	int feature_len = ioread8(&desc->feature_len);
@@ -124,7 +125,7 @@ static u64 vop_get_features(struct virtio_device *vdev)
 	bits = min_t(unsigned, feature_len, sizeof(vdev->features)) * 8;
 	for (i = 0; i < bits; i++)
 		if (ioread8(&in_features[i / 8]) & (BIT(i % 8)))
-			features |= BIT(i);
+			features |= BIT_ULL(i);
 
 	return features;
 }
@@ -226,7 +227,7 @@ static void vop_reset_inform_host(struct virtio_device *dev)
 		if (ioread8(&dc->host_ack))
 			break;
 		msleep(100);
-	};
+	}
 
 	dev_dbg(_vop_dev(vdev), "%s: retry: %d\n", __func__, retry);
 
@@ -426,7 +427,7 @@ static int vop_find_vqs(struct virtio_device *dev, unsigned nvqs,
 		if (!ioread8(&dc->used_address_updated))
 			break;
 		msleep(100);
-	};
+	}
 
 	dev_dbg(_vop_dev(vdev), "%s: retry: %d\n", __func__, retry);
 	if (!retry) {
