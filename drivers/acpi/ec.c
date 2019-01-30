@@ -1539,49 +1539,6 @@ static int acpi_ec_setup(struct acpi_ec *ec, bool handle_events)
 	return ret;
 }
 
-static int acpi_config_boot_ec(struct acpi_ec *ec, acpi_handle handle,
-			       bool handle_events, bool is_ecdt)
-{
-	int ret;
-
-	/*
-	 * Changing the ACPI handle results in a re-configuration of the
-	 * boot EC. And if it happens after the namespace initialization,
-	 * it causes _REG evaluations.
-	 */
-	if (boot_ec && boot_ec->handle != handle)
-		ec_remove_handlers(boot_ec);
-
-	/* Unset old boot EC */
-	if (boot_ec != ec)
-		acpi_ec_free(boot_ec);
-
-	/*
-	 * ECDT device creation is split into acpi_ec_ecdt_probe() and
-	 * acpi_ec_ecdt_start(). This function takes care of completing the
-	 * ECDT parsing logic as the handle update should be performed
-	 * between the installation/uninstallation of the handlers.
-	 */
-	if (ec->handle != handle)
-		ec->handle = handle;
-
-	ret = acpi_ec_setup(ec, handle_events);
-	if (ret)
-		return ret;
-
-	/* Set new boot EC */
-	if (!boot_ec) {
-		boot_ec = ec;
-		boot_ec_is_ecdt = is_ecdt;
-	}
-
-	acpi_handle_info(boot_ec->handle,
-			 "Used as boot %s EC to handle transactions%s\n",
-			 is_ecdt ? "ECDT" : "DSDT",
-			 handle_events ? " and events" : "");
-	return ret;
-}
-
 static bool acpi_ec_ecdt_get_handle(acpi_handle *phandle)
 {
 	struct acpi_table_ecdt *ecdt_ptr;
@@ -1601,16 +1558,6 @@ static bool acpi_ec_ecdt_get_handle(acpi_handle *phandle)
 	return true;
 }
 
-static bool acpi_is_boot_ec(struct acpi_ec *ec)
-{
-	if (!boot_ec)
-		return false;
-	if (ec->command_addr == boot_ec->command_addr &&
-	    ec->data_addr == boot_ec->data_addr)
-		return true;
-	return false;
-}
-
 static int acpi_ec_add(struct acpi_device *device)
 {
 	struct acpi_ec *ec = NULL;
@@ -1622,22 +1569,22 @@ static int acpi_ec_add(struct acpi_device *device)
 	strcpy(acpi_device_class(device), ACPI_EC_CLASS);
 
 	if (!strcmp(acpi_device_hid(device), ACPI_ECDT_HID)) {
-		is_ecdt = true;
 		ec = boot_ec;
+		boot_ec_is_ecdt = true;
+		is_ecdt = true;
 	} else {
 		ec = acpi_ec_alloc();
 		if (!ec)
 			return -ENOMEM;
+
 		status = ec_parse_device(device->handle, 0, ec, NULL);
 		if (status != AE_CTRL_TERMINATE) {
 			ret = -EINVAL;
 			goto err_alloc;
 		}
-	}
 
-	if (acpi_is_boot_ec(ec)) {
-		boot_ec_is_ecdt = is_ecdt;
-		if (!is_ecdt) {
+		if (boot_ec && ec->command_addr == boot_ec->command_addr &&
+		    ec->data_addr == boot_ec->data_addr) {
 			/*
 			 * Trust PNP0C09 namespace location rather than
 			 * ECDT ID. But trust ECDT GPE rather than _GPE
@@ -1649,11 +1596,16 @@ static int acpi_ec_add(struct acpi_device *device)
 			acpi_ec_free(ec);
 			ec = boot_ec;
 		}
-		ret = acpi_config_boot_ec(ec, ec->handle, true, is_ecdt);
-	} else
-		ret = acpi_ec_setup(ec, true);
+	}
+
+	ret = acpi_ec_setup(ec, true);
 	if (ret)
 		goto err_query;
+
+	if (ec == boot_ec)
+		acpi_handle_info(ec->handle,
+			"Boot %s EC used to handle transactions and events\n",
+			is_ecdt ? "ECDT" : "DSDT");
 
 	device->driver_data = ec;
 
@@ -1730,10 +1682,10 @@ static const struct acpi_device_id ec_device_ids[] = {
  * namespace EC before the main ACPI device enumeration process. It is
  * retained for historical reason and will be deprecated in the future.
  */
-int __init acpi_ec_dsdt_probe(void)
+void __init acpi_ec_dsdt_probe(void)
 {
-	acpi_status status;
 	struct acpi_ec *ec;
+	acpi_status status;
 	int ret;
 
 	/*
@@ -1743,21 +1695,22 @@ int __init acpi_ec_dsdt_probe(void)
 	 * picking up an invalid EC device.
 	 */
 	if (boot_ec)
-		return -ENODEV;
+		return;
 
 	ec = acpi_ec_alloc();
 	if (!ec)
-		return -ENOMEM;
+		return;
+
 	/*
 	 * At this point, the namespace is initialized, so start to find
 	 * the namespace objects.
 	 */
-	status = acpi_get_devices(ec_device_ids[0].id,
-				  ec_parse_device, ec, NULL);
+	status = acpi_get_devices(ec_device_ids[0].id, ec_parse_device, ec, NULL);
 	if (ACPI_FAILURE(status) || !ec->handle) {
-		ret = -ENODEV;
-		goto error;
+		acpi_ec_free(ec);
+		return;
 	}
+
 	/*
 	 * When the DSDT EC is available, always re-configure boot EC to
 	 * have _REG evaluated. _REG can only be evaluated after the
@@ -1765,11 +1718,14 @@ int __init acpi_ec_dsdt_probe(void)
 	 * At this point, the GPE is not fully initialized, so do not to
 	 * handle the events.
 	 */
-	ret = acpi_config_boot_ec(ec, ec->handle, false, false);
-error:
+	ret = acpi_ec_setup(ec, false);
 	if (ret)
 		acpi_ec_free(ec);
-	return ret;
+
+	boot_ec = ec;
+
+	acpi_handle_info(ec->handle,
+			 "Boot DSDT EC used to handle transactions\n");
 }
 
 /*
@@ -1872,35 +1828,31 @@ static const struct dmi_system_id ec_dmi_table[] __initconst = {
 	{},
 };
 
-int __init acpi_ec_ecdt_probe(void)
+void __init acpi_ec_ecdt_probe(void)
 {
-	int ret;
-	acpi_status status;
 	struct acpi_table_ecdt *ecdt_ptr;
 	struct acpi_ec *ec;
+	acpi_status status;
+	int ret;
 
-	ec = acpi_ec_alloc();
-	if (!ec)
-		return -ENOMEM;
-	/*
-	 * Generate a boot ec context
-	 */
+	/* Generate a boot ec context. */
 	dmi_check_system(ec_dmi_table);
 	status = acpi_get_table(ACPI_SIG_ECDT, 1,
 				(struct acpi_table_header **)&ecdt_ptr);
-	if (ACPI_FAILURE(status)) {
-		ret = -ENODEV;
-		goto error;
-	}
+	if (ACPI_FAILURE(status))
+		return;
 
 	if (!ecdt_ptr->control.address || !ecdt_ptr->data.address) {
 		/*
 		 * Asus X50GL:
 		 * https://bugzilla.kernel.org/show_bug.cgi?id=11880
 		 */
-		ret = -ENODEV;
-		goto error;
+		return;
 	}
+
+	ec = acpi_ec_alloc();
+	if (!ec)
+		return;
 
 	if (EC_FLAGS_CORRECT_ECDT) {
 		ec->command_addr = ecdt_ptr->data.address;
@@ -1910,16 +1862,20 @@ int __init acpi_ec_ecdt_probe(void)
 		ec->data_addr = ecdt_ptr->data.address;
 	}
 	ec->gpe = ecdt_ptr->gpe;
+	ec->handle = ACPI_ROOT_OBJECT;
 
 	/*
 	 * At this point, the namespace is not initialized, so do not find
 	 * the namespace objects, or handle the events.
 	 */
-	ret = acpi_config_boot_ec(ec, ACPI_ROOT_OBJECT, false, true);
-error:
+	ret = acpi_ec_setup(ec, false);
 	if (ret)
 		acpi_ec_free(ec);
-	return ret;
+
+	boot_ec = ec;
+	boot_ec_is_ecdt = true;
+
+	pr_info("Boot ECDT EC used to handle transactions\n");
 }
 
 #ifdef CONFIG_PM_SLEEP
