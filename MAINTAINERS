@@ -9805,6 +9805,7 @@ M:	Richard Weinberger <richard@nod.at>
 L:	linux-mtd@lists.infradead.org
 W:	http://www.linux-mtd.infradead.org/
 Q:	http://patchwork.ozlabs.org/project/linux-mtd/list/
+C:	irc://irc.oftc.net/mtd
 T:	git git://git.infradead.org/linux-mtd.git master
 T:	git git://git.infradead.org/linux-mtd.git mtd/next
 S:	Maintained
