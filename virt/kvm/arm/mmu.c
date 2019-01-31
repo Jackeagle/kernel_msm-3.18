@@ -921,6 +921,7 @@ int kvm_alloc_stage2_pgd(struct kvm *kvm)
 		return -ENOMEM;
 
 	kvm->arch.pgd = pgd;
+	kvm->arch.pgd_phys = virt_to_phys(pgd);
 	return 0;
 }
 
@@ -1008,6 +1009,7 @@ void kvm_free_stage2_pgd(struct kvm *kvm)
 		unmap_stage2_range(kvm, 0, kvm_phys_size(kvm));
 		pgd = READ_ONCE(kvm->arch.pgd);
 		kvm->arch.pgd = NULL;
+		kvm->arch.pgd_phys = 0;
 	}
 	spin_unlock(&kvm->mmu_lock);
 
@@ -1394,14 +1396,6 @@ static bool transparent_hugepage_adjust(kvm_pfn_t *pfnp, phys_addr_t *ipap)
 	}
 
 	return false;
-}
-
-static bool kvm_is_write_fault(struct kvm_vcpu *vcpu)
-{
-	if (kvm_vcpu_trap_is_iabt(vcpu))
-		return false;
-
-	return kvm_vcpu_dabt_iswrite(vcpu);
 }
 
 /**
