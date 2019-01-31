@@ -100,7 +100,7 @@ int isolate_movable_page(struct page *page, isolate_mode_t mode)
 	/*
 	 * Check PageMovable before holding a PG_lock because page's owner
 	 * assumes anybody doesn't touch PG_lock of newly allocated page
-	 * so unconditionally grapping the lock ruins page's owner side.
+	 * so unconditionally grabbing the lock ruins page's owner side.
 	 */
 	if (unlikely(!__PageMovable(page)))
 		goto out_putpage;
@@ -641,8 +641,14 @@ void migrate_page_states(struct page *newpage, struct page *page)
 	 */
 	if (PageSwapCache(page))
 		ClearPageSwapCache(page);
-	ClearPagePrivate(page);
-	set_page_private(page, 0);
+	/*
+	 * Unlikely, but PagePrivate and page_private could potentially
+	 * contain information needed at hugetlb free page time.
+	 */
+	if (!PageHuge(page)) {
+		ClearPagePrivate(page);
+		set_page_private(page, 0);
+	}
 
 	/*
 	 * If any waiters have accumulated on the new page then
@@ -709,7 +715,6 @@ static bool buffer_migrate_lock_buffers(struct buffer_head *head,
 	/* Simple case, sync compaction */
 	if (mode != MIGRATE_ASYNC) {
 		do {
-			get_bh(bh);
 			lock_buffer(bh);
 			bh = bh->b_this_page;
 
@@ -720,18 +725,15 @@ static bool buffer_migrate_lock_buffers(struct buffer_head *head,
 
 	/* async case, we cannot block on lock_buffer so use trylock_buffer */
 	do {
-		get_bh(bh);
 		if (!trylock_buffer(bh)) {
 			/*
 			 * We failed to lock the buffer and cannot stall in
 			 * async migration. Release the taken locks
 			 */
 			struct buffer_head *failed_bh = bh;
-			put_bh(failed_bh);
 			bh = head;
 			while (bh != failed_bh) {
 				unlock_buffer(bh);
-				put_bh(bh);
 				bh = bh->b_this_page;
 			}
 			return false;
@@ -818,7 +820,6 @@ unlock_buffers:
 	bh = head;
 	do {
 		unlock_buffer(bh);
-		put_bh(bh);
 		bh = bh->b_this_page;
 
 	} while (bh != head);
@@ -916,7 +917,7 @@ static int fallback_migrate_page(struct address_space *mapping,
 	 */
 	if (page_has_private(page) &&
 	    !try_to_release_page(page, GFP_KERNEL))
-		return -EAGAIN;
+		return mode == MIGRATE_SYNC ? -EAGAIN : -EBUSY;
 
 	return migrate_page(mapping, newpage, page, mode);
 }
@@ -1135,10 +1136,13 @@ out:
 	 * If migration is successful, decrease refcount of the newpage
 	 * which will not free the page because new page owner increased
 	 * refcounter. As well, if it is LRU page, add the page to LRU
-	 * list in here.
+	 * list in here. Use the old state of the isolated source page to
+	 * determine if we migrated a LRU page. newpage was already unlocked
+	 * and possibly modified by its owner - don't rely on the page
+	 * state.
 	 */
 	if (rc == MIGRATEPAGE_SUCCESS) {
-		if (unlikely(__PageMovable(newpage)))
+		if (unlikely(!is_lru))
 			put_page(newpage);
 		else
 			putback_lru_page(newpage);
@@ -1289,7 +1293,7 @@ static int unmap_and_move_huge_page(new_page_t get_new_page,
 	struct anon_vma *anon_vma = NULL;
 
 	/*
-	 * Movability of hugepages depends on architectures and hugepage size.
+	 * Migratability of hugepages depends on architectures and their size.
 	 * This check is necessary because some callers of hugepage migration
 	 * like soft offline and memory hotremove don't walk through page
 	 * tables or check whether the hugepage is pmd-based or not before
@@ -2343,7 +2347,7 @@ static void migrate_vma_collect(struct migrate_vma *migrate)
 	mm_walk.private = migrate;
 
 	mmu_notifier_range_init(&range, mm_walk.mm, migrate->start,
-				migrate->end);
+				migrate->end, MMU_NOTIFY_CLEAR);
 	mmu_notifier_invalidate_range_start(&range);
 	walk_page_range(migrate->start, migrate->end, &mm_walk);
 	mmu_notifier_invalidate_range_end(&range);
@@ -2751,7 +2755,8 @@ static void migrate_vma_pages(struct migrate_vma *migrate)
 
 				mmu_notifier_range_init(&range,
 							migrate->vma->vm_mm,
-							addr, migrate->end);
+							addr, migrate->end,
+							MMU_NOTIFY_CLEAR);
 				mmu_notifier_invalidate_range_start(&range);
 			}
 			migrate_vma_insert_page(migrate, addr, newpage,

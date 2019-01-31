@@ -33,6 +33,7 @@
 #include <linux/page_idle.h>
 #include <linux/shmem_fs.h>
 #include <linux/oom.h>
+#include <linux/numa.h>
 
 #include <asm/tlb.h>
 #include <asm/pgalloc.h>
@@ -616,6 +617,7 @@ static vm_fault_t __do_huge_pmd_anonymous_page(struct vm_fault *vmf,
 		mm_inc_nr_ptes(vma->vm_mm);
 		spin_unlock(vmf->ptl);
 		count_vm_event(THP_FAULT_ALLOC);
+		count_memcg_events(memcg, THP_FAULT_ALLOC, 1);
 	}
 
 	return 0;
@@ -1183,7 +1185,8 @@ static vm_fault_t do_huge_pmd_wp_page_fallback(struct vm_fault *vmf,
 	}
 
 	mmu_notifier_range_init(&range, vma->vm_mm, haddr,
-				haddr + HPAGE_PMD_SIZE);
+				haddr + HPAGE_PMD_SIZE,
+				MMU_NOTIFY_CLEAR);
 	mmu_notifier_invalidate_range_start(&range);
 
 	vmf->ptl = pmd_lock(vma->vm_mm, vmf->pmd);
@@ -1337,6 +1340,7 @@ alloc:
 	}
 
 	count_vm_event(THP_FAULT_ALLOC);
+	count_memcg_events(memcg, THP_FAULT_ALLOC, 1);
 
 	if (!page)
 		clear_huge_page(new_page, vmf->address, HPAGE_PMD_NR);
@@ -1346,7 +1350,8 @@ alloc:
 	__SetPageUptodate(new_page);
 
 	mmu_notifier_range_init(&range, vma->vm_mm, haddr,
-				haddr + HPAGE_PMD_SIZE);
+				haddr + HPAGE_PMD_SIZE,
+				MMU_NOTIFY_CLEAR);
 	mmu_notifier_invalidate_range_start(&range);
 
 	spin_lock(vmf->ptl);
@@ -1475,7 +1480,7 @@ vm_fault_t do_huge_pmd_numa_page(struct vm_fault *vmf, pmd_t pmd)
 	struct anon_vma *anon_vma = NULL;
 	struct page *page;
 	unsigned long haddr = vmf->address & HPAGE_PMD_MASK;
-	int page_nid = -1, this_nid = numa_node_id();
+	int page_nid = NUMA_NO_NODE, this_nid = numa_node_id();
 	int target_nid, last_cpupid = -1;
 	bool page_locked;
 	bool migrated = false;
@@ -1520,7 +1525,7 @@ vm_fault_t do_huge_pmd_numa_page(struct vm_fault *vmf, pmd_t pmd)
 	 */
 	page_locked = trylock_page(page);
 	target_nid = mpol_misplaced(page, vma, haddr);
-	if (target_nid == -1) {
+	if (target_nid == NUMA_NO_NODE) {
 		/* If the page was locked, there are no parallel migrations */
 		if (page_locked)
 			goto clear_pmdnuma;
@@ -1528,7 +1533,7 @@ vm_fault_t do_huge_pmd_numa_page(struct vm_fault *vmf, pmd_t pmd)
 
 	/* Migration could have started since the pmd_trans_migrating check */
 	if (!page_locked) {
-		page_nid = -1;
+		page_nid = NUMA_NO_NODE;
 		if (!get_page_unless_zero(page))
 			goto out_unlock;
 		spin_unlock(vmf->ptl);
@@ -1549,14 +1554,14 @@ vm_fault_t do_huge_pmd_numa_page(struct vm_fault *vmf, pmd_t pmd)
 	if (unlikely(!pmd_same(pmd, *vmf->pmd))) {
 		unlock_page(page);
 		put_page(page);
-		page_nid = -1;
+		page_nid = NUMA_NO_NODE;
 		goto out_unlock;
 	}
 
 	/* Bail if we fail to protect against THP splits for any reason */
 	if (unlikely(!anon_vma)) {
 		put_page(page);
-		page_nid = -1;
+		page_nid = NUMA_NO_NODE;
 		goto clear_pmdnuma;
 	}
 
@@ -1618,7 +1623,7 @@ out:
 	if (anon_vma)
 		page_unlock_anon_vma_read(anon_vma);
 
-	if (page_nid != -1)
+	if (page_nid != NUMA_NO_NODE)
 		task_numa_fault(last_cpupid, page_nid, HPAGE_PMD_NR,
 				flags);
 
@@ -2024,7 +2029,8 @@ void __split_huge_pud(struct vm_area_struct *vma, pud_t *pud,
 	struct mmu_notifier_range range;
 
 	mmu_notifier_range_init(&range, vma->vm_mm, address & HPAGE_PUD_MASK,
-				(address & HPAGE_PUD_MASK) + HPAGE_PUD_SIZE);
+				(address & HPAGE_PUD_MASK) + HPAGE_PUD_SIZE,
+				MMU_NOTIFY_CLEAR);
 	mmu_notifier_invalidate_range_start(&range);
 	ptl = pud_lock(vma->vm_mm, pud);
 	if (unlikely(!pud_trans_huge(*pud) && !pud_devmap(*pud)))
@@ -2242,7 +2248,8 @@ void __split_huge_pmd(struct vm_area_struct *vma, pmd_t *pmd,
 	struct mmu_notifier_range range;
 
 	mmu_notifier_range_init(&range, vma->vm_mm, address & HPAGE_PMD_MASK,
-				(address & HPAGE_PMD_MASK) + HPAGE_PMD_SIZE);
+				(address & HPAGE_PMD_MASK) + HPAGE_PMD_SIZE,
+				MMU_NOTIFY_CLEAR);
 	mmu_notifier_invalidate_range_start(&range);
 	ptl = pmd_lock(vma->vm_mm, pmd);
 
@@ -2886,12 +2893,8 @@ DEFINE_SIMPLE_ATTRIBUTE(split_huge_pages_fops, NULL, split_huge_pages_set,
 
 static int __init split_huge_pages_debugfs(void)
 {
-	void *ret;
-
-	ret = debugfs_create_file("split_huge_pages", 0200, NULL, NULL,
-			&split_huge_pages_fops);
-	if (!ret)
-		pr_warn("Failed to create split_huge_pages in debugfs");
+	debugfs_create_file("split_huge_pages", 0200, NULL, NULL,
+			    &split_huge_pages_fops);
 	return 0;
 }
 late_initcall(split_huge_pages_debugfs);
