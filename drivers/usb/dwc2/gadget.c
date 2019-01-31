@@ -4013,6 +4013,7 @@ static int dwc2_hsotg_ep_enable(struct usb_ep *ep,
 			ret = -ENOMEM;
 			goto error1;
 		}
+		epctrl &= ~(DXEPCTL_TXFNUM_LIMIT << DXEPCTL_TXFNUM_SHIFT);
 		hsotg->fifo_map |= 1 << fifo_index;
 		epctrl |= DXEPCTL_TXFNUM(fifo_index);
 		hs_ep->fifo_index = fifo_index;
