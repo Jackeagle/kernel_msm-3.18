@@ -709,6 +709,7 @@ static void smap_gather_stats(struct vm_area_struct *vma,
 #endif
 		.mm = vma->vm_mm,
 	};
+	unsigned long pss;
 
 	smaps_walk.private = mss;
 
@@ -737,11 +738,12 @@ static void smap_gather_stats(struct vm_area_struct *vma,
 		}
 	}
 #endif
-
+	/* record current pss so we can calculate the delta after page walk */
+	pss = mss->pss;
 	/* mmap_sem is held in m_start */
 	walk_page_vma(vma, &smaps_walk);
 	if (vma->vm_flags & VM_LOCKED)
-		mss->pss_locked += mss->pss;
+		mss->pss_locked += mss->pss - pss;
 }
 
 #define SEQ_PUT_DEC(str, val) \
@@ -942,10 +944,12 @@ static inline void clear_soft_dirty(struct vm_area_struct *vma,
 	pte_t ptent = *pte;
 
 	if (pte_present(ptent)) {
-		ptent = ptep_modify_prot_start(vma->vm_mm, addr, pte);
-		ptent = pte_wrprotect(ptent);
+		pte_t old_pte;
+
+		old_pte = ptep_modify_prot_start(vma, addr, pte);
+		ptent = pte_wrprotect(old_pte);
 		ptent = pte_clear_soft_dirty(ptent);
-		ptep_modify_prot_commit(vma->vm_mm, addr, pte, ptent);
+		ptep_modify_prot_commit(vma, addr, pte, old_pte, ptent);
 	} else if (is_swap_pte(ptent)) {
 		ptent = pte_swp_clear_soft_dirty(ptent);
 		set_pte_at(vma->vm_mm, addr, pte, ptent);
@@ -1143,7 +1147,8 @@ static ssize_t clear_refs_write(struct file *file, const char __user *buf,
 				break;
 			}
 
-			mmu_notifier_range_init(&range, mm, 0, -1UL);
+			mmu_notifier_range_init(&range, mm, 0, -1UL,
+						MMU_NOTIFY_SOFT_DIRTY);
 			mmu_notifier_invalidate_range_start(&range);
 		}
 		walk_page_range(0, mm->highest_vm_end, &clear_refs_walk);
