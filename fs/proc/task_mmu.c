@@ -709,6 +709,7 @@ static void smap_gather_stats(struct vm_area_struct *vma,
 #endif
 		.mm = vma->vm_mm,
 	};
+	unsigned long pss;
 
 	smaps_walk.private = mss;
 
@@ -737,11 +738,12 @@ static void smap_gather_stats(struct vm_area_struct *vma,
 		}
 	}
 #endif
-
+	/* record current pss so we can calculate the delta after page walk */
+	pss = mss->pss;
 	/* mmap_sem is held in m_start */
 	walk_page_vma(vma, &smaps_walk);
 	if (vma->vm_flags & VM_LOCKED)
-		mss->pss_locked += mss->pss;
+		mss->pss_locked += mss->pss - pss;
 }
 
 #define SEQ_PUT_DEC(str, val) \
