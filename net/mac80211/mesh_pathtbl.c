@@ -574,9 +574,11 @@ void mesh_path_flush_by_nexthop(struct sta_info *sta)
 	struct rhashtable_iter iter;
 	int ret;
 
+	local_bh_disable();
+
 	ret = rhashtable_walk_init(&tbl->rhead, &iter, GFP_ATOMIC);
 	if (ret)
-		return;
+		goto out;
 
 	rhashtable_walk_start(&iter);
 
@@ -592,6 +594,8 @@ void mesh_path_flush_by_nexthop(struct sta_info *sta)
 
 	rhashtable_walk_stop(&iter);
 	rhashtable_walk_exit(&iter);
+out:
+	local_bh_enable();
 }
 
 static void mpp_flush_by_proxy(struct ieee80211_sub_if_data *sdata,
@@ -602,9 +606,10 @@ static void mpp_flush_by_proxy(struct ieee80211_sub_if_data *sdata,
 	struct rhashtable_iter iter;
 	int ret;
 
+	local_bh_disable();
 	ret = rhashtable_walk_init(&tbl->rhead, &iter, GFP_ATOMIC);
 	if (ret)
-		return;
+		goto out;
 
 	rhashtable_walk_start(&iter);
 
@@ -620,6 +625,8 @@ static void mpp_flush_by_proxy(struct ieee80211_sub_if_data *sdata,
 
 	rhashtable_walk_stop(&iter);
 	rhashtable_walk_exit(&iter);
+out:
+	local_bh_enable();
 }
 
 static void table_flush_by_iface(struct mesh_table *tbl)
@@ -628,9 +635,10 @@ static void table_flush_by_iface(struct mesh_table *tbl)
 	struct rhashtable_iter iter;
 	int ret;
 
+	local_bh_disable();
 	ret = rhashtable_walk_init(&tbl->rhead, &iter, GFP_ATOMIC);
 	if (ret)
-		return;
+		goto out;
 
 	rhashtable_walk_start(&iter);
 
@@ -644,6 +652,8 @@ static void table_flush_by_iface(struct mesh_table *tbl)
 
 	rhashtable_walk_stop(&iter);
 	rhashtable_walk_exit(&iter);
+out:
+	local_bh_enable();
 }
 
 /**
@@ -857,9 +867,10 @@ void mesh_path_tbl_expire(struct ieee80211_sub_if_data *sdata,
 	struct rhashtable_iter iter;
 	int ret;
 
+	local_bh_disable();
 	ret = rhashtable_walk_init(&tbl->rhead, &iter, GFP_KERNEL);
 	if (ret)
-		return;
+		goto out;
 
 	rhashtable_walk_start(&iter);
 
@@ -876,6 +887,8 @@ void mesh_path_tbl_expire(struct ieee80211_sub_if_data *sdata,
 
 	rhashtable_walk_stop(&iter);
 	rhashtable_walk_exit(&iter);
+out:
+	local_bh_enable();
 }
 
 void mesh_path_expire(struct ieee80211_sub_if_data *sdata)
