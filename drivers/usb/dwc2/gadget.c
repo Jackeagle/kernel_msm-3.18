@@ -3689,6 +3689,14 @@ irq_retry:
 	if (gintsts & GINTSTS_ERLYSUSP) {
 		dev_dbg(hsotg->dev, "GINTSTS_ErlySusp\n");
 		dwc2_writel(hsotg, GINTSTS_ERLYSUSP, GINTSTS);
+
+		mdelay(hsotg->params.vbus_discharge_time);
+		if (!(dwc2_readl(hsotg, GOTGCTL) & GOTGCTL_BSESVLD)) {
+			/* Clear Suspend, Reset Detect and Reset interrupts */
+			dwc2_writel(hsotg, GINTSTS_USBSUSP | GINTSTS_RESETDET |
+				    GINTSTS_USBRST, GINTSTS);
+			dwc2_hsotg_disconnect(hsotg);
+		}
 	}
 
 	/*

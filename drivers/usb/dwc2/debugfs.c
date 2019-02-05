@@ -707,6 +707,8 @@ static int params_show(struct seq_file *seq, void *v)
 	print_param(seq, p, g_dma_desc);
 	print_param(seq, p, g_rx_fifo_size);
 	print_param(seq, p, g_np_tx_fifo_size);
+	print_param(seq, p, vbus_discharge_time);
+
 
 	for (i = 0; i < MAX_EPS_CHANNELS; i++) {
 		char str[32];
