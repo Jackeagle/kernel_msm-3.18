@@ -1210,6 +1210,7 @@ enum {
 	 * Set for the subvolume tree owning the reloc tree.
 	 */
 	BTRFS_ROOT_DEAD_RELOC_TREE,
+	BTRFS_ROOT_DEAD_TREE,
 };
 
 /*
