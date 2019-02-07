@@ -66,11 +66,9 @@ static inline void debug_puthex(const char *s)
 
 #endif
 
-#if CONFIG_EARLY_PRINTK || CONFIG_RANDOMIZE_BASE
 /* cmdline.c */
 int cmdline_find_option(const char *option, char *buffer, int bufsize);
 int cmdline_find_option_bool(const char *option);
-#endif
 
 struct mem_vector {
 	unsigned long long start;
@@ -131,7 +129,7 @@ acpi_physical_address get_rsdp_addr(void);
 static inline acpi_physical_address get_rsdp_addr(void) { return 0; }
 #endif
 
-#if defined(CONFIG_RANDOMIZE_BASE) && defined(CONFIG_MEMORY_HOTREMOVE)
+#if defined(CONFIG_RANDOMIZE_BASE) && defined(CONFIG_MEMORY_HOTREMOVE) && defined(CONFIG_ACPI)
 extern struct mem_vector immovable_mem[MAX_NUMNODES*2];
 int count_immovable_mem_regions(void);
 #else
