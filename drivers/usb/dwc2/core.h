@@ -433,6 +433,8 @@ enum dwc2_ep0_state {
  * @service_interval:   Enable service interval based scheduling.
  *                      0 - No
  *                      1 - Yes
+ * @vbus_discharge_time: VBUS discharge time (msec) depend on PHY
+ *                       implementation and can be up to 1 sec.
  *
  * The following parameters may be specified when starting the module. These
  * parameters define how the DWC_otg controller should be configured. A
@@ -511,6 +513,8 @@ struct dwc2_core_params {
 	u32 g_tx_fifo_size[MAX_EPS_CHANNELS];
 
 	bool change_speed_quirk;
+
+	u32 vbus_discharge_time;
 };
 
 /**
