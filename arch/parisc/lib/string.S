@@ -104,4 +104,39 @@ ENTRY_CFI(strcat)
 	bv,n	r0(rp)
 ENDPROC_CFI(strcat)
 
+
+       .align 16
+ENTRY_CFI(memset, FRAME=0)
+	copy	arg0,ret0
+	cmpb,COND(=) r0,arg0,4f
+	copy	arg0,t2
+	cmpb,COND(=) r0,arg2,4f
+	ldo	-1(arg2),arg3
+	subi	-1,arg3,t0
+	subi	0,t0,t1
+	cmpiclr,COND(>=) 0,t1,arg2
+	ldo	-1(t1),arg2
+	extru arg2,31,2,arg0
+2:	stb	arg1,0(t2)
+	ldo	1(t2),t2
+	addib,>= -1,arg0,2b
+	ldo	-1(arg3),arg3
+	cmpiclr,COND(<=) 4,arg2,r0
+	b,l,n	4f,r0
+#ifdef CONFIG_64BIT
+	depd,*	r0,63,2,arg2
+#else
+	depw	r0,31,2,arg2
+#endif
+	ldo	1(t2),t2
+3:	stb	arg1,-1(t2)
+	stb	arg1,0(t2)
+	stb	arg1,1(t2)
+	stb	arg1,2(t2)
+	addib,COND(>) -4,arg2,3b
+	ldo	4(t2),t2
+4:	bv,n	r0(rp)
+ENDPROC_CFI(memset)
+
+        .end
 	.end

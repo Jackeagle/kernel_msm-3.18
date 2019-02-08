@@ -20,4 +20,7 @@ extern char *strncpy(char *dest, const char *src, size_t count);
 #define __HAVE_ARCH_STRCAT
 extern char *strcat(char *dest, const char *src);
 
+#define __HAVE_ARCH_MEMSET
+extern void *memset(void *, int, size_t);
+
 #endif
