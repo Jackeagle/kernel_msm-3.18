@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Marvell 10G 88x3310 PHY driver
  *
@@ -56,24 +57,6 @@ struct mv3310_priv {
 	struct device *hwmon_dev;
 	char *hwmon_name;
 };
-
-static int mv3310_modify(struct phy_device *phydev, int devad, u16 reg,
-			 u16 mask, u16 bits)
-{
-	int old, val, ret;
-
-	old = phy_read_mmd(phydev, devad, reg);
-	if (old < 0)
-		return old;
-
-	val = (old & ~mask) | (bits & mask);
-	if (val == old)
-		return 0;
-
-	ret = phy_write_mmd(phydev, devad, reg, val);
-
-	return ret < 0 ? ret : 1;
-}
 
 #ifdef CONFIG_HWMON
 static umode_t mv3310_hwmon_is_visible(const void *data,
@@ -158,10 +141,9 @@ static int mv3310_hwmon_config(struct phy_device *phydev, bool enable)
 		return ret;
 
 	val = enable ? MV_V2_TEMP_CTRL_SAMPLE : MV_V2_TEMP_CTRL_DISABLE;
-	ret = mv3310_modify(phydev, MDIO_MMD_VEND2, MV_V2_TEMP_CTRL,
-			    MV_V2_TEMP_CTRL_MASK, val);
 
-	return ret < 0 ? ret : 0;
+	return phy_modify_mmd(phydev, MDIO_MMD_VEND2, MV_V2_TEMP_CTRL,
+			      MV_V2_TEMP_CTRL_MASK, val);
 }
 
 static void mv3310_hwmon_disable(void *data)
@@ -362,18 +344,18 @@ static int mv3310_config_aneg(struct phy_device *phydev)
 	linkmode_and(phydev->advertising, phydev->advertising,
 		     phydev->supported);
 
-	ret = mv3310_modify(phydev, MDIO_MMD_AN, MDIO_AN_ADVERTISE,
-			    ADVERTISE_ALL | ADVERTISE_100BASE4 |
-			    ADVERTISE_PAUSE_CAP | ADVERTISE_PAUSE_ASYM,
-			    linkmode_adv_to_mii_adv_t(phydev->advertising));
+	ret = phy_modify_mmd_changed(phydev, MDIO_MMD_AN, MDIO_AN_ADVERTISE,
+			     ADVERTISE_ALL | ADVERTISE_100BASE4 |
+			     ADVERTISE_PAUSE_CAP | ADVERTISE_PAUSE_ASYM,
+			     linkmode_adv_to_mii_adv_t(phydev->advertising));
 	if (ret < 0)
 		return ret;
 	if (ret > 0)
 		changed = true;
 
 	reg = linkmode_adv_to_mii_ctrl1000_t(phydev->advertising);
-	ret = mv3310_modify(phydev, MDIO_MMD_AN, MV_AN_CTRL1000,
-			    ADVERTISE_1000FULL | ADVERTISE_1000HALF, reg);
+	ret = phy_modify_mmd_changed(phydev, MDIO_MMD_AN, MV_AN_CTRL1000,
+			     ADVERTISE_1000FULL | ADVERTISE_1000HALF, reg);
 	if (ret < 0)
 		return ret;
 	if (ret > 0)
@@ -386,8 +368,8 @@ static int mv3310_config_aneg(struct phy_device *phydev)
 	else
 		reg = 0;
 
-	ret = mv3310_modify(phydev, MDIO_MMD_AN, MDIO_AN_10GBT_CTRL,
-			    MDIO_AN_10GBT_CTRL_ADV10G, reg);
+	ret = phy_modify_mmd_changed(phydev, MDIO_MMD_AN, MDIO_AN_10GBT_CTRL,
+				     MDIO_AN_10GBT_CTRL_ADV10G, reg);
 	if (ret < 0)
 		return ret;
 	if (ret > 0)
@@ -445,15 +427,7 @@ static int mv3310_read_10gbr_status(struct phy_device *phydev)
 
 static int mv3310_read_status(struct phy_device *phydev)
 {
-	u32 mmd_mask = phydev->c45_ids.devices_in_package;
 	int val;
-
-	/* The vendor devads do not report link status.  Avoid the PHYXS
-	 * instance as there are three, and its status depends on the MAC
-	 * being appropriately configured for the negotiated speed.
-	 */
-	mmd_mask &= ~(BIT(MDIO_MMD_VEND1) | BIT(MDIO_MMD_VEND2) |
-		      BIT(MDIO_MMD_PHYXS));
 
 	phydev->speed = SPEED_UNKNOWN;
 	phydev->duplex = DUPLEX_UNKNOWN;
@@ -470,11 +444,9 @@ static int mv3310_read_status(struct phy_device *phydev)
 	if (val & MDIO_STAT1_LSTATUS)
 		return mv3310_read_10gbr_status(phydev);
 
-	val = genphy_c45_read_link(phydev, mmd_mask);
+	val = genphy_c45_read_link(phydev);
 	if (val < 0)
 		return val;
-
-	phydev->link = val > 0 ? 1 : 0;
 
 	val = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_STAT1);
 	if (val < 0)
