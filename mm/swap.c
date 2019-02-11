@@ -694,11 +694,16 @@ void lru_add_drain_all(void)
 			INIT_WORK(work, lru_add_drain_per_cpu);
 			queue_work_on(cpu, mm_percpu_wq, work);
 			cpumask_set_cpu(cpu, &has_work);
+#if NR_CPUS == 1
+			flush_work(work);
+#endif
 		}
 	}
 
+#if NR_CPUS != 1
 	for_each_cpu(cpu, &has_work)
 		flush_work(&per_cpu(lru_add_drain_work, cpu));
+#endif
 
 	mutex_unlock(&lock);
 }
