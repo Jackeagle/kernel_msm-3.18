@@ -31,6 +31,7 @@ static int orangefs_writepage_locked(struct page *page,
 	len = i_size_read(inode);
 	if (PagePrivate(page)) {
 		wr = (struct orangefs_write_range *)page_private(page);
+		WARN_ON(wr->pos >= len);
 		off = wr->pos;
 		if (off + wr->len > len)
 			wlen = len - off;
@@ -102,8 +103,7 @@ static int orangefs_writepages_work(struct orangefs_writepages *ow,
 	int i;
 
 	len = i_size_read(inode);
-	if (ow->off + ow->len > len)
-		ow->len = len - ow->off;
+
 	for (i = 0; i < ow->npages; i++) {
 		set_page_writeback(ow->pages[i]);
 		ow->bv[i].bv_page = ow->pages[i];
@@ -117,6 +117,10 @@ static int orangefs_writepages_work(struct orangefs_writepages *ow,
 			ow->bv[i].bv_offset = 0;
 	}
 	iov_iter_bvec(&iter, WRITE, ow->bv, ow->npages, ow->len);
+
+	WARN_ON(ow->off >= len);
+	if (ow->off + ow->len > len)
+		ow->len = len - ow->off;
 
 	off = ow->off;
 	wr.uid = ow->uid;
@@ -243,6 +247,8 @@ static int orangefs_writepages(struct address_space *mapping,
 	return ret;
 }
 
+static int orangefs_launder_page(struct page *);
+
 static int orangefs_readpage(struct file *file, struct page *page)
 {
 	struct inode *inode = page->mapping->host;
@@ -256,6 +262,9 @@ static int orangefs_readpage(struct file *file, struct page *page)
 	bv.bv_len = PAGE_SIZE;
 	bv.bv_offset = 0;
 	iov_iter_bvec(&iter, READ, &bv, 1, PAGE_SIZE);
+
+	if (PageDirty(page))
+		orangefs_launder_page(page);
 
 	ret = wait_for_direct_io(ORANGEFS_IO_READ, inode, &off, &iter,
 	    PAGE_SIZE, inode->i_size, NULL);
@@ -275,8 +284,6 @@ static int orangefs_readpage(struct file *file, struct page *page)
 	unlock_page(page);
 	return ret;
 }
-
-static int orangefs_launder_page(struct page *);
 
 int orangefs_write_begin(struct file *file, struct address_space *mapping,
     loff_t pos, unsigned len, unsigned flags, struct page **pagep,
@@ -333,22 +340,42 @@ int orangefs_write_begin(struct file *file, struct address_space *mapping,
 	set_page_private(page, (unsigned long)wr);
 	get_page(page);
 okay:
-
-	if (!PageUptodate(page) && (len != PAGE_SIZE)) {
-		unsigned from = pos & (PAGE_SIZE - 1);
-
-		zero_user_segments(page, 0, from, from + len, PAGE_SIZE);
-	}
 	return 0;
 }
 
 int orangefs_write_end(struct file *file, struct address_space *mapping,
     loff_t pos, unsigned len, unsigned copied, struct page *page, void *fsdata)
 {
-	int r;
-	r = simple_write_end(file, mapping, pos, len, copied, page, fsdata);
+	struct inode *inode = page->mapping->host;
+	loff_t last_pos = pos + copied;
+
+	/*
+	 * No need to use i_size_read() here, the i_size
+	 * cannot change under us because we hold the i_mutex.
+	 */
+	if (last_pos > inode->i_size)
+		i_size_write(inode, last_pos);
+
+	/* zero the stale part of the page if we did a short copy */
+	if (!PageUptodate(page)) {
+		unsigned from = pos & (PAGE_SIZE - 1);
+		if (copied < len) {
+			zero_user(page, from + copied, len - copied);
+		}
+		/* Set fully written pages uptodate. */
+		if (pos == page_offset(page) &&
+		    (len == PAGE_SIZE || pos + len == inode->i_size)) {
+			zero_user_segment(page, from + copied, PAGE_SIZE);
+			SetPageUptodate(page);
+		}
+	}
+
+	set_page_dirty(page);
+	unlock_page(page);
+	put_page(page);
+
 	mark_inode_dirty_sync(file_inode(file));
-	return r;
+	return copied;
 }
 
 static void orangefs_invalidatepage(struct page *page,
@@ -593,8 +620,17 @@ vm_fault_t orangefs_page_mkwrite(struct vm_fault *vmf)
 {
 	struct page *page = vmf->page;
 	struct inode *inode = file_inode(vmf->vma->vm_file);
-	vm_fault_t ret = VM_FAULT_LOCKED;
+	struct orangefs_inode_s *orangefs_inode = ORANGEFS_I(inode);
+	unsigned long *bitlock = &orangefs_inode->bitlock;
+	vm_fault_t ret;
 	struct orangefs_write_range *wr;
+
+	sb_start_pagefault(inode->i_sb);
+
+	if (wait_on_bit(bitlock, 1, TASK_KILLABLE)) {
+		ret = VM_FAULT_RETRY;
+		goto out;
+	}
 
 	lock_page(page);
 	if (PageDirty(page) && !PagePrivate(page)) {
@@ -604,7 +640,7 @@ vm_fault_t orangefs_page_mkwrite(struct vm_fault *vmf)
 		 * orangefs_writepage_locked.
 		 */
 		if (orangefs_launder_page(page)) {
-			ret = VM_FAULT_RETRY;
+			ret = VM_FAULT_LOCKED|VM_FAULT_RETRY;
 			goto out;
 		}
 	}
@@ -617,14 +653,14 @@ vm_fault_t orangefs_page_mkwrite(struct vm_fault *vmf)
 			goto okay;
 		} else {
 			if (orangefs_launder_page(page)) {
-				ret = VM_FAULT_RETRY;
+				ret = VM_FAULT_LOCKED|VM_FAULT_RETRY;
 				goto out;
 			}
 		}
 	}
 	wr = kmalloc(sizeof *wr, GFP_KERNEL);
 	if (!wr) {
-		ret = VM_FAULT_RETRY;
+		ret = VM_FAULT_LOCKED|VM_FAULT_RETRY;
 		goto out;
 	}
 	wr->pos = page_offset(page);
@@ -636,11 +672,10 @@ vm_fault_t orangefs_page_mkwrite(struct vm_fault *vmf)
 	get_page(page);
 okay:
 
-	sb_start_pagefault(inode->i_sb);
 	file_update_time(vmf->vma->vm_file);
 	if (page->mapping != inode->i_mapping) {
 		unlock_page(page);
-		ret = VM_FAULT_NOPAGE;
+		ret = VM_FAULT_LOCKED|VM_FAULT_NOPAGE;
 		goto out;
 	}
 
@@ -651,6 +686,7 @@ okay:
 	 */
 	set_page_dirty(page);
 	wait_for_stable_page(page);
+	ret = VM_FAULT_LOCKED;
 out:
 	sb_end_pagefault(inode->i_sb);
 	return ret;
@@ -728,13 +764,15 @@ int __orangefs_setattr(struct inode *inode, struct iattr *iattr)
 			} else {
 				gossip_debug(GOSSIP_UTILS_DEBUG,
 					     "User attempted to set sticky bit on non-root directory; returning EINVAL.\n");
-				return -EINVAL;
+				ret = -EINVAL;
+				goto out;
 			}
 		}
 		if (iattr->ia_mode & (S_ISUID)) {
 			gossip_debug(GOSSIP_UTILS_DEBUG,
 				     "Attempting to set setuid bit (not supported); returning EINVAL.\n");
-			return -EINVAL;
+			ret = -EINVAL;
+			goto out;
 		}
 	}
 
@@ -916,6 +954,8 @@ static int orangefs_set_inode(struct inode *inode, void *data)
 	ORANGEFS_I(inode)->refn.khandle = ref->khandle;
 	ORANGEFS_I(inode)->attr_valid = 0;
 	hash_init(ORANGEFS_I(inode)->xattr_cache);
+	ORANGEFS_I(inode)->mapping_time = jiffies - 1;
+	ORANGEFS_I(inode)->bitlock = 0;
 	return 0;
 }
 
