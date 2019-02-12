@@ -9,15 +9,15 @@
  */
 #include <linux/debugfs.h>
 #include <linux/delay.h>
-#include <linux/i2c.h>
+#include <linux/gpio/consumer.h>
 #include <linux/i2c-algo-bit.h>
-#include <linux/platform_data/i2c-gpio.h>
+#include <linux/i2c.h>
 #include <linux/init.h>
 #include <linux/module.h>
-#include <linux/slab.h>
-#include <linux/platform_device.h>
-#include <linux/gpio/consumer.h>
 #include <linux/of.h>
+#include <linux/platform_data/i2c-gpio.h>
+#include <linux/platform_device.h>
+#include <linux/slab.h>
 
 struct i2c_gpio_private_data {
 	struct gpio_desc *sda;
@@ -181,12 +181,12 @@ static void i2c_gpio_fault_injector_init(struct platform_device *pdev)
 	if (!priv->debug_dir)
 		return;
 
-	debugfs_create_file_unsafe("scl", 0600, priv->debug_dir, priv, &fops_scl);
-	debugfs_create_file_unsafe("sda", 0600, priv->debug_dir, priv, &fops_sda);
 	debugfs_create_file_unsafe("incomplete_address_phase", 0200, priv->debug_dir,
 				   priv, &fops_incomplete_addr_phase);
 	debugfs_create_file_unsafe("incomplete_write_byte", 0200, priv->debug_dir,
 				   priv, &fops_incomplete_write_byte);
+	debugfs_create_file_unsafe("scl", 0600, priv->debug_dir, priv, &fops_scl);
+	debugfs_create_file_unsafe("sda", 0600, priv->debug_dir, priv, &fops_sda);
 }
 
 static void i2c_gpio_fault_injector_exit(struct platform_device *pdev)
@@ -286,11 +286,11 @@ static int i2c_gpio_probe(struct platform_device *pdev)
 
 	/*
 	 * First get the GPIO pins; if it fails, we'll defer the probe.
-	 * If the SDA line is marked from platform data or device tree as
-	 * "open drain" it means something outside of our control is making
-	 * this line being handled as open drain, and we should just handle
-	 * it as any other output. Else we enforce open drain as this is
-	 * required for an I2C bus.
+	 * If the SCL/SDA lines are marked "open drain" by platform data or
+	 * device tree then this means that something outside of our control is
+	 * marking these lines to be handled as open drain, and we should just
+	 * handle them as we handle any other output. Else we enforce open
+	 * drain as this is required for an I2C bus.
 	 */
 	if (pdata->sda_is_open_drain)
 		gflags = GPIOD_OUT_HIGH;
@@ -300,13 +300,6 @@ static int i2c_gpio_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->sda))
 		return PTR_ERR(priv->sda);
 
-	/*
-	 * If the SCL line is marked from platform data or device tree as
-	 * "open drain" it means something outside of our control is making
-	 * this line being handled as open drain, and we should just handle
-	 * it as any other output. Else we enforce open drain as this is
-	 * required for an I2C bus.
-	 */
 	if (pdata->scl_is_open_drain)
 		gflags = GPIOD_OUT_HIGH;
 	else
