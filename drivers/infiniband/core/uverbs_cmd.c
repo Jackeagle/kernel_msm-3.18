@@ -238,13 +238,10 @@ static int ib_uverbs_get_context(struct uverbs_attr_bundle *attrs)
 	ucontext->closing = false;
 	ucontext->cleanup_retryable = false;
 
-#ifdef CONFIG_INFINIBAND_ON_DEMAND_PAGING
 	mutex_init(&ucontext->per_mm_list_lock);
 	INIT_LIST_HEAD(&ucontext->per_mm_list);
 	if (!(ib_dev->attrs.device_cap_flags & IB_DEVICE_ON_DEMAND_PAGING))
 		ucontext->invalidate_range = NULL;
-
-#endif
 
 	resp.num_comp_vectors = file->device->num_comp_vectors;
 
@@ -410,9 +407,9 @@ static int ib_uverbs_alloc_pd(struct uverbs_attr_bundle *attrs)
 	if (IS_ERR(uobj))
 		return PTR_ERR(uobj);
 
-	pd = ib_dev->ops.alloc_pd(ib_dev, uobj->context, &attrs->driver_udata);
-	if (IS_ERR(pd)) {
-		ret = PTR_ERR(pd);
+	pd = rdma_zalloc_drv_obj(ib_dev, ib_pd);
+	if (!pd) {
+		ret = -ENOMEM;
 		goto err;
 	}
 
@@ -420,11 +417,15 @@ static int ib_uverbs_alloc_pd(struct uverbs_attr_bundle *attrs)
 	pd->uobject = uobj;
 	pd->__internal_mr = NULL;
 	atomic_set(&pd->usecnt, 0);
+	pd->res.type = RDMA_RESTRACK_PD;
+
+	ret = ib_dev->ops.alloc_pd(pd, uobj->context, &attrs->driver_udata);
+	if (ret)
+		goto err_alloc;
 
 	uobj->object = pd;
 	memset(&resp, 0, sizeof resp);
 	resp.pd_handle = uobj->id;
-	pd->res.type = RDMA_RESTRACK_PD;
 	rdma_restrack_uadd(&pd->res);
 
 	ret = uverbs_response(attrs, &resp, sizeof(resp));
@@ -435,7 +436,8 @@ static int ib_uverbs_alloc_pd(struct uverbs_attr_bundle *attrs)
 
 err_copy:
 	ib_dealloc_pd(pd);
-
+err_alloc:
+	kfree(pd);
 err:
 	uobj_alloc_abort(uobj);
 	return ret;
@@ -3618,7 +3620,6 @@ static int ib_uverbs_ex_query_device(struct uverbs_attr_bundle *attrs)
 
 	copy_query_dev_fields(ucontext, &resp.base, &attr);
 
-#ifdef CONFIG_INFINIBAND_ON_DEMAND_PAGING
 	resp.odp_caps.general_caps = attr.odp_caps.general_caps;
 	resp.odp_caps.per_transport_caps.rc_odp_caps =
 		attr.odp_caps.per_transport_caps.rc_odp_caps;
@@ -3626,7 +3627,7 @@ static int ib_uverbs_ex_query_device(struct uverbs_attr_bundle *attrs)
 		attr.odp_caps.per_transport_caps.uc_odp_caps;
 	resp.odp_caps.per_transport_caps.ud_odp_caps =
 		attr.odp_caps.per_transport_caps.ud_odp_caps;
-#endif
+	resp.xrc_odp_caps = attr.odp_caps.per_transport_caps.xrc_odp_caps;
 
 	resp.timestamp_mask = attr.timestamp_mask;
 	resp.hca_core_clock = attr.hca_core_clock;
