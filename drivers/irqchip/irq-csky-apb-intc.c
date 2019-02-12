@@ -12,6 +12,7 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <asm/irq.h>
+#include <asm/traps.h>
 
 #define INTC_IRQS		64
 
@@ -132,7 +133,7 @@ ck_intc_init_comm(struct device_node *node, struct device_node *parent)
 	return 0;
 }
 
-static inline bool handle_irq_perbit(struct pt_regs *regs, u32 hwirq,
+static inline bool handle_irq_onebit(struct pt_regs *regs, u32 hwirq,
 				     u32 irq_base)
 {
 	if (hwirq == 0)
@@ -148,16 +149,15 @@ static void gx_irq_handler(struct pt_regs *regs)
 {
 	bool ret;
 
-retry:
-	ret = handle_irq_perbit(regs,
+	ret = handle_irq_onebit(regs,
 			readl(reg_base + GX_INTC_PEN63_32), 32);
 	if (ret)
-		goto retry;
+		return;
 
-	ret = handle_irq_perbit(regs,
+	ret = handle_irq_onebit(regs,
 			readl(reg_base + GX_INTC_PEN31_00), 0);
-	if (ret)
-		goto retry;
+	if (!ret)
+		pr_err("%s: none irq pending!\n", __func__);
 }
 
 static int __init
@@ -202,35 +202,45 @@ static void ck_irq_handler(struct pt_regs *regs)
 	void __iomem *reg_pen_lo = reg_base + CK_INTC_PEN31_00;
 	void __iomem *reg_pen_hi = reg_base + CK_INTC_PEN63_32;
 
-retry:
 	/* handle 0 - 63 irqs */
-	ret = handle_irq_perbit(regs, readl(reg_pen_hi), 32);
+	ret = handle_irq_onebit(regs, readl(reg_pen_hi), 32);
 	if (ret)
-		goto retry;
-
-	ret = handle_irq_perbit(regs, readl(reg_pen_lo), 0);
-	if (ret)
-		goto retry;
-
-	if (nr_irq == INTC_IRQS)
 		return;
 
+	ret = handle_irq_onebit(regs, readl(reg_pen_lo), 0);
+	if (ret)
+		return;
+
+	if (nr_irq == INTC_IRQS) {
+		pr_err("%s: none irq pending!\n", __func__);
+		return;
+	}
+
 	/* handle 64 - 127 irqs */
-	ret = handle_irq_perbit(regs,
+	ret = handle_irq_onebit(regs,
 			readl(reg_pen_hi + CK_INTC_DUAL_BASE), 96);
 	if (ret)
-		goto retry;
+		return;
 
-	ret = handle_irq_perbit(regs,
+	ret = handle_irq_onebit(regs,
 			readl(reg_pen_lo + CK_INTC_DUAL_BASE), 64);
-	if (ret)
-		goto retry;
+	if (!ret)
+		pr_err("%s: none irq pending!\n", __func__);
 }
+
+static void ck_vec_irq_handler(struct pt_regs *regs)
+{
+	unsigned long vector = (mfcr("psr") >> 16) & 0xff;
+
+	handle_domain_irq(root_domain, vector - 32, regs);
+}
+
+extern void csky_irq(void);
 
 static int __init
 ck_intc_init(struct device_node *node, struct device_node *parent)
 {
-	int ret;
+	int ret, i;
 
 	ret = ck_intc_init_comm(node, parent);
 	if (ret)
@@ -248,7 +258,16 @@ ck_intc_init(struct device_node *node, struct device_node *parent)
 
 	setup_irq_channel(0x00010203, reg_base + CK_INTC_SOURCE);
 
-	set_handle_irq(ck_irq_handler);
+	if (of_find_property(node, "csky,support-vector-irq", NULL)) {
+		set_handle_irq(ck_vec_irq_handler);
+
+		for (i = 32; i < 128; i++)
+			VEC_INIT(i, csky_irq);
+
+		writel(0, reg_base + CK_INTC_ICR);
+	} else {
+		set_handle_irq(ck_irq_handler);
+	}
 
 	return 0;
 }
