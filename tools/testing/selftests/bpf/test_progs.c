@@ -11,6 +11,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <time.h>
+#include <signal.h>
 
 #include <linux/types.h>
 typedef __u16 __sum16;
@@ -27,6 +28,7 @@ typedef __u16 __sum16;
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <fcntl.h>
 
 #include <linux/bpf.h>
@@ -1912,6 +1914,47 @@ out:
 	bpf_object__close(obj);
 }
 
+static void sigalrm_handler(int s) {}
+static struct sigaction sigalrm_action = {
+	.sa_handler = sigalrm_handler,
+};
+
+static void test_signal_pending(void)
+{
+	struct bpf_insn prog[4096];
+	struct itimerval timeo = {
+		.it_value.tv_usec = 100000, /* 100ms */
+	};
+	__u32 duration, retval;
+	int prog_fd;
+	int err;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(prog); i++)
+		prog[i] = BPF_ALU64_IMM(BPF_MOV, BPF_REG_0, 0);
+	prog[ARRAY_SIZE(prog) - 1] = BPF_EXIT_INSN();
+
+	prog_fd = bpf_load_program(BPF_PROG_TYPE_SOCKET_FILTER,
+				   prog, ARRAY_SIZE(prog),
+				   "GPL", 0, NULL, 0);
+	CHECK(prog_fd < 0, "test-run", "errno %d\n", errno);
+
+	err = sigaction(SIGALRM, &sigalrm_action, NULL);
+	CHECK(err, "test-run-signal-sigaction", "errno %d\n", errno);
+
+	err = setitimer(ITIMER_REAL, &timeo, NULL);
+	CHECK(err, "test-run-signal-timer", "errno %d\n", errno);
+
+	err = bpf_prog_test_run(prog_fd, 0xffffffff, &pkt_v4, sizeof(pkt_v4),
+				NULL, NULL, &retval, &duration);
+	CHECK(err != -1 || errno != EINTR || duration > 1000000000,
+	      "test-run-signal-run",
+	      "err %d errno %d retval %d\n",
+	      err, errno, retval);
+
+	signal(SIGALRM, SIG_DFL);
+}
+
 int main(void)
 {
 	srand(time(NULL));
@@ -1939,6 +1982,7 @@ int main(void)
 	test_reference_tracking();
 	test_queue_stack_map(QUEUE);
 	test_queue_stack_map(STACK);
+	test_signal_pending();
 
 	printf("Summary: %d PASSED, %d FAILED\n", pass_cnt, error_cnt);
 	return error_cnt ? EXIT_FAILURE : EXIT_SUCCESS;
