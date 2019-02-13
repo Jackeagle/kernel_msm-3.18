@@ -33,8 +33,8 @@
 /*
  * MegaRAID SAS Driver meta data
  */
-#define MEGASAS_VERSION				"07.707.50.00-rc1"
-#define MEGASAS_RELDATE				"December 18, 2018"
+#define MEGASAS_VERSION				"07.707.51.00-rc1"
+#define MEGASAS_RELDATE				"February 7, 2019"
 
 /*
  * Device IDs
@@ -807,13 +807,14 @@ struct MR_HOST_DEVICE_LIST_ENTRY {
 	} flags;
 	u8 scsi_type;
 	__le16 target_id;
-	u8 reserved[2];
+	u8 reserved[4];
 	__le64 sas_addr[2];
 } __packed;
 
 struct MR_HOST_DEVICE_LIST {
 	__le32			size;
 	__le32			count;
+	__le32			reserved[2];
 	struct MR_HOST_DEVICE_LIST_ENTRY	host_device_list[1];
 } __packed;
 
