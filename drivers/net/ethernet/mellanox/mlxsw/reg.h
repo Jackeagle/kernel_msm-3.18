@@ -2199,6 +2199,14 @@ MLXSW_ITEM32(reg, pagt, size, 0x00, 0, 8);
  */
 MLXSW_ITEM32(reg, pagt, acl_group_id, 0x08, 0, 16);
 
+/* reg_pagt_multi
+ * Multi-ACL
+ * 0 - This ACL is the last ACL in the multi-ACL
+ * 1 - This ACL is part of a multi-ACL
+ * Access: RW
+ */
+MLXSW_ITEM32_INDEXED(reg, pagt, multi, 0x30, 31, 1, 0x04, 0x00, false);
+
 /* reg_pagt_acl_id
  * ACL identifier
  * Access: RW
@@ -2212,12 +2220,13 @@ static inline void mlxsw_reg_pagt_pack(char *payload, u16 acl_group_id)
 }
 
 static inline void mlxsw_reg_pagt_acl_id_pack(char *payload, int index,
-					      u16 acl_id)
+					      u16 acl_id, bool multi)
 {
 	u8 size = mlxsw_reg_pagt_size_get(payload);
 
 	if (index >= size)
 		mlxsw_reg_pagt_size_set(payload, index + 1);
+	mlxsw_reg_pagt_multi_set(payload, index, multi);
 	mlxsw_reg_pagt_acl_id_set(payload, index, acl_id);
 }
 
@@ -5666,6 +5675,8 @@ enum mlxsw_reg_ritr_loopback_protocol {
 	MLXSW_REG_RITR_LOOPBACK_PROTOCOL_IPIP_IPV4,
 	/* IPinIP IPv6 underlay Unicast */
 	MLXSW_REG_RITR_LOOPBACK_PROTOCOL_IPIP_IPV6,
+	/* IPinIP generic - used for Spectrum-2 underlay RIF */
+	MLXSW_REG_RITR_LOOPBACK_GENERIC,
 };
 
 /* reg_ritr_loopback_protocol
@@ -5705,6 +5716,13 @@ MLXSW_ITEM32(reg, ritr, loopback_ipip_options, 0x10, 20, 4);
  * Access: RW
  */
 MLXSW_ITEM32(reg, ritr, loopback_ipip_uvr, 0x10, 0, 16);
+
+/* reg_ritr_loopback_ipip_underlay_rif
+ * Underlay ingress router interface.
+ * Reserved for Spectrum.
+ * Access: RW
+ */
+MLXSW_ITEM32(reg, ritr, loopback_ipip_underlay_rif, 0x14, 0, 16);
 
 /* reg_ritr_loopback_ipip_usip*
  * Encapsulation Underlay source IP.
@@ -5821,11 +5839,12 @@ static inline void
 mlxsw_reg_ritr_loopback_ipip_common_pack(char *payload,
 			    enum mlxsw_reg_ritr_loopback_ipip_type ipip_type,
 			    enum mlxsw_reg_ritr_loopback_ipip_options options,
-			    u16 uvr_id, u32 gre_key)
+			    u16 uvr_id, u16 underlay_rif, u32 gre_key)
 {
 	mlxsw_reg_ritr_loopback_ipip_type_set(payload, ipip_type);
 	mlxsw_reg_ritr_loopback_ipip_options_set(payload, options);
 	mlxsw_reg_ritr_loopback_ipip_uvr_set(payload, uvr_id);
+	mlxsw_reg_ritr_loopback_ipip_underlay_rif_set(payload, underlay_rif);
 	mlxsw_reg_ritr_loopback_ipip_gre_key_set(payload, gre_key);
 }
 
@@ -5833,12 +5852,12 @@ static inline void
 mlxsw_reg_ritr_loopback_ipip4_pack(char *payload,
 			    enum mlxsw_reg_ritr_loopback_ipip_type ipip_type,
 			    enum mlxsw_reg_ritr_loopback_ipip_options options,
-			    u16 uvr_id, u32 usip, u32 gre_key)
+			    u16 uvr_id, u16 underlay_rif, u32 usip, u32 gre_key)
 {
 	mlxsw_reg_ritr_loopback_protocol_set(payload,
 				    MLXSW_REG_RITR_LOOPBACK_PROTOCOL_IPIP_IPV4);
 	mlxsw_reg_ritr_loopback_ipip_common_pack(payload, ipip_type, options,
-						 uvr_id, gre_key);
+						 uvr_id, underlay_rif, gre_key);
 	mlxsw_reg_ritr_loopback_ipip_usip4_set(payload, usip);
 }
 
@@ -7199,6 +7218,13 @@ MLXSW_ITEM32(reg, rtdp, type, 0x00, 28, 4);
  * Access: Index
  */
 MLXSW_ITEM32(reg, rtdp, tunnel_index, 0x00, 0, 24);
+
+/* reg_rtdp_egress_router_interface
+ * Underlay egress router interface.
+ * Valid range is from 0 to cap_max_router_interfaces - 1
+ * Access: RW
+ */
+MLXSW_ITEM32(reg, rtdp, egress_router_interface, 0x40, 0, 16);
 
 /* IPinIP */
 

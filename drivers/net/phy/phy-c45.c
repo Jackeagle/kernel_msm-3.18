@@ -75,15 +75,9 @@ EXPORT_SYMBOL_GPL(genphy_c45_pma_setup_forced);
  */
 int genphy_c45_an_disable_aneg(struct phy_device *phydev)
 {
-	int val;
 
-	val = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_CTRL1);
-	if (val < 0)
-		return val;
-
-	val &= ~(MDIO_AN_CTRL1_ENABLE | MDIO_AN_CTRL1_RESTART);
-
-	return phy_write_mmd(phydev, MDIO_MMD_AN, MDIO_CTRL1, val);
+	return phy_clear_bits_mmd(phydev, MDIO_MMD_AN, MDIO_CTRL1,
+				  MDIO_AN_CTRL1_ENABLE | MDIO_AN_CTRL1_RESTART);
 }
 EXPORT_SYMBOL_GPL(genphy_c45_an_disable_aneg);
 
@@ -97,15 +91,8 @@ EXPORT_SYMBOL_GPL(genphy_c45_an_disable_aneg);
  */
 int genphy_c45_restart_aneg(struct phy_device *phydev)
 {
-	int val;
-
-	val = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_CTRL1);
-	if (val < 0)
-		return val;
-
-	val |= MDIO_AN_CTRL1_ENABLE | MDIO_AN_CTRL1_RESTART;
-
-	return phy_write_mmd(phydev, MDIO_MMD_AN, MDIO_CTRL1, val);
+	return phy_set_bits_mmd(phydev, MDIO_MMD_AN, MDIO_CTRL1,
+				MDIO_AN_CTRL1_ENABLE | MDIO_AN_CTRL1_RESTART);
 }
 EXPORT_SYMBOL_GPL(genphy_c45_restart_aneg);
 
@@ -131,25 +118,40 @@ EXPORT_SYMBOL_GPL(genphy_c45_aneg_done);
 /**
  * genphy_c45_read_link - read the overall link status from the MMDs
  * @phydev: target phy_device struct
- * @mmd_mask: MMDs to read status from
  *
  * Read the link status from the specified MMDs, and if they all indicate
- * that the link is up, return positive.  If an error is encountered,
+ * that the link is up, set phydev->link to 1.  If an error is encountered,
  * a negative errno will be returned, otherwise zero.
  */
-int genphy_c45_read_link(struct phy_device *phydev, u32 mmd_mask)
+int genphy_c45_read_link(struct phy_device *phydev)
 {
+	u32 mmd_mask = phydev->c45_ids.devices_in_package;
 	int val, devad;
 	bool link = true;
 
-	while (mmd_mask) {
+	/* The vendor devads and C22EXT do not report link status. Avoid the
+	 * PHYXS instance as its status may depend on the MAC being
+	 * appropriately configured for the negotiated speed.
+	 */
+	mmd_mask &= ~(MDIO_DEVS_VEND1 | MDIO_DEVS_VEND2 | MDIO_DEVS_C22EXT |
+		      MDIO_DEVS_PHYXS);
+
+	while (mmd_mask && link) {
 		devad = __ffs(mmd_mask);
 		mmd_mask &= ~BIT(devad);
 
 		/* The link state is latched low so that momentary link
-		 * drops can be detected.  Do not double-read the status
-		 * register if the link is down.
+		 * drops can be detected. Do not double-read the status
+		 * in polling mode to detect such short link drops.
 		 */
+		if (!phy_polling_mode(phydev)) {
+			val = phy_read_mmd(phydev, devad, MDIO_STAT1);
+			if (val < 0)
+				return val;
+			else if (val & MDIO_STAT1_LSTATUS)
+				continue;
+		}
+
 		val = phy_read_mmd(phydev, devad, MDIO_STAT1);
 		if (val < 0)
 			return val;
@@ -158,7 +160,9 @@ int genphy_c45_read_link(struct phy_device *phydev, u32 mmd_mask)
 			link = false;
 	}
 
-	return link;
+	phydev->link = link;
+
+	return 0;
 }
 EXPORT_SYMBOL_GPL(genphy_c45_read_link);
 
@@ -277,21 +281,11 @@ EXPORT_SYMBOL_GPL(gen10g_config_aneg);
 
 int gen10g_read_status(struct phy_device *phydev)
 {
-	u32 mmd_mask = phydev->c45_ids.devices_in_package;
-	int ret;
-
 	/* For now just lie and say it's 10G all the time */
 	phydev->speed = SPEED_10000;
 	phydev->duplex = DUPLEX_FULL;
 
-	/* Avoid reading the vendor MMDs */
-	mmd_mask &= ~(BIT(MDIO_MMD_VEND1) | BIT(MDIO_MMD_VEND2));
-
-	ret = genphy_c45_read_link(phydev, mmd_mask);
-
-	phydev->link = ret > 0 ? 1 : 0;
-
-	return 0;
+	return genphy_c45_read_link(phydev);
 }
 EXPORT_SYMBOL_GPL(gen10g_read_status);
 

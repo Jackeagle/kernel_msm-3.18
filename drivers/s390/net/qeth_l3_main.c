@@ -40,7 +40,6 @@
 
 
 static int qeth_l3_set_offline(struct ccwgroup_device *);
-static int qeth_l3_stop(struct net_device *);
 static void qeth_l3_set_rx_mode(struct net_device *dev);
 static int qeth_l3_register_addr_entry(struct qeth_card *,
 		struct qeth_ipaddr *);
@@ -254,8 +253,7 @@ static int qeth_l3_add_ip(struct qeth_card *card, struct qeth_ipaddr *tmp_addr)
 		} else
 			rc = qeth_l3_register_addr_entry(card, addr);
 
-		if (!rc || (rc == IPA_RC_DUPLICATE_IP_ADDRESS) ||
-				(rc == IPA_RC_LAN_OFFLINE)) {
+		if (!rc || rc == -EADDRINUSE || rc == -ENETDOWN) {
 			addr->disp_flag = QETH_DISP_ADDR_DO_NOTHING;
 			if (addr->ref_counter < 1) {
 				qeth_l3_deregister_addr_entry(card, addr);
@@ -339,10 +337,28 @@ static void qeth_l3_recover_ip(struct qeth_card *card)
 
 }
 
+static int qeth_l3_setdelip_cb(struct qeth_card *card, struct qeth_reply *reply,
+			       unsigned long data)
+{
+	struct qeth_ipa_cmd *cmd = (struct qeth_ipa_cmd *) data;
+
+	switch (cmd->hdr.return_code) {
+	case IPA_RC_SUCCESS:
+		return 0;
+	case IPA_RC_DUPLICATE_IP_ADDRESS:
+		return -EADDRINUSE;
+	case IPA_RC_MC_ADDR_NOT_FOUND:
+		return -ENOENT;
+	case IPA_RC_LAN_OFFLINE:
+		return -ENETDOWN;
+	default:
+		return -EIO;
+	}
+}
+
 static int qeth_l3_send_setdelmc(struct qeth_card *card,
 			struct qeth_ipaddr *addr, int ipacmd)
 {
-	int rc;
 	struct qeth_cmd_buffer *iob;
 	struct qeth_ipa_cmd *cmd;
 
@@ -359,9 +375,7 @@ static int qeth_l3_send_setdelmc(struct qeth_card *card,
 	else
 		memcpy(&cmd->data.setdelipm.ip4, &addr->u.a4.addr, 4);
 
-	rc = qeth_send_ipa_cmd(card, iob, NULL, NULL);
-
-	return rc;
+	return qeth_send_ipa_cmd(card, iob, qeth_l3_setdelip_cb, NULL);
 }
 
 static void qeth_l3_fill_netmask(u8 *netmask, unsigned int len)
@@ -423,7 +437,7 @@ static int qeth_l3_send_setdelip(struct qeth_card *card,
 		cmd->data.setdelip4.flags = flags;
 	}
 
-	return qeth_send_ipa_cmd(card, iob, NULL, NULL);
+	return qeth_send_ipa_cmd(card, iob, qeth_l3_setdelip_cb, NULL);
 }
 
 static int qeth_l3_send_setrouting(struct qeth_card *card,
@@ -943,12 +957,13 @@ static int qeth_l3_start_ipassists(struct qeth_card *card)
 static int qeth_l3_iqd_read_initial_mac_cb(struct qeth_card *card,
 		struct qeth_reply *reply, unsigned long data)
 {
-	struct qeth_ipa_cmd *cmd;
+	struct qeth_ipa_cmd *cmd = (struct qeth_ipa_cmd *) data;
 
-	cmd = (struct qeth_ipa_cmd *) data;
-	if (cmd->hdr.return_code == 0)
-		ether_addr_copy(card->dev->dev_addr,
-				cmd->data.create_destroy_addr.unique_id);
+	if (cmd->hdr.return_code)
+		return -EIO;
+
+	ether_addr_copy(card->dev->dev_addr,
+			cmd->data.create_destroy_addr.unique_id);
 	return 0;
 }
 
@@ -976,19 +991,18 @@ static int qeth_l3_iqd_read_initial_mac(struct qeth_card *card)
 static int qeth_l3_get_unique_id_cb(struct qeth_card *card,
 		struct qeth_reply *reply, unsigned long data)
 {
-	struct qeth_ipa_cmd *cmd;
+	struct qeth_ipa_cmd *cmd = (struct qeth_ipa_cmd *) data;
 
-	cmd = (struct qeth_ipa_cmd *) data;
-	if (cmd->hdr.return_code == 0)
+	if (cmd->hdr.return_code == 0) {
 		card->info.unique_id = *((__u16 *)
 				&cmd->data.create_destroy_addr.unique_id[6]);
-	else {
-		card->info.unique_id =  UNIQUE_ID_IF_CREATE_ADDR_FAILED |
-					UNIQUE_ID_NOT_BY_CARD;
-		dev_warn(&card->gdev->dev, "The network adapter failed to "
-			"generate a unique ID\n");
+		return 0;
 	}
-	return 0;
+
+	card->info.unique_id = UNIQUE_ID_IF_CREATE_ADDR_FAILED |
+			       UNIQUE_ID_NOT_BY_CARD;
+	dev_warn(&card->gdev->dev, "The network adapter failed to generate a unique ID\n");
+	return -EIO;
 }
 
 static int qeth_l3_get_unique_id(struct qeth_card *card)
@@ -1071,7 +1085,7 @@ qeth_diags_trace_cb(struct qeth_card *card, struct qeth_reply *reply,
 				 cmd->data.diagass.action, CARD_DEVID(card));
 	}
 
-	return 0;
+	return rc ? -EIO : 0;
 }
 
 static int
@@ -1281,10 +1295,6 @@ static int qeth_l3_vlan_rx_kill_vid(struct net_device *dev,
 
 	QETH_CARD_TEXT_(card, 4, "kid:%d", vid);
 
-	if (qeth_wait_for_threads(card, QETH_RECOVER_THREAD)) {
-		QETH_CARD_TEXT(card, 3, "kidREC");
-		return 0;
-	}
 	clear_bit(vid, card->active_vlans);
 	qeth_l3_set_rx_mode(dev);
 	return 0;
@@ -1410,7 +1420,7 @@ static void qeth_l3_stop_card(struct qeth_card *card, int recovery_mode)
 	    card->write.state == CH_STATE_UP &&
 	    (card->state == CARD_STATE_UP)) {
 		if (recovery_mode)
-			qeth_l3_stop(card->dev);
+			qeth_stop(card->dev);
 		else {
 			rtnl_lock();
 			dev_close(card->dev);
@@ -1475,9 +1485,7 @@ static void qeth_l3_set_rx_mode(struct net_device *dev)
 	int i, rc;
 
 	QETH_CARD_TEXT(card, 3, "setmulti");
-	if (qeth_threads_running(card, QETH_RECOVER_THREAD) &&
-	    (card->state != CARD_STATE_UP))
-		return;
+
 	if (!card->options.sniffer) {
 		spin_lock_bh(&card->mclock);
 
@@ -1488,14 +1496,14 @@ static void qeth_l3_set_rx_mode(struct net_device *dev)
 			switch (addr->disp_flag) {
 			case QETH_DISP_ADDR_DELETE:
 				rc = qeth_l3_deregister_addr_entry(card, addr);
-				if (!rc || rc == IPA_RC_MC_ADDR_NOT_FOUND) {
+				if (!rc || rc == -ENOENT) {
 					hash_del(&addr->hnode);
 					kfree(addr);
 				}
 				break;
 			case QETH_DISP_ADDR_ADD:
 				rc = qeth_l3_register_addr_entry(card, addr);
-				if (rc && rc != IPA_RC_LAN_OFFLINE) {
+				if (rc && rc != -ENETDOWN) {
 					hash_del(&addr->hnode);
 					kfree(addr);
 					break;
@@ -1516,7 +1524,7 @@ static void qeth_l3_set_rx_mode(struct net_device *dev)
 	qeth_l3_handle_promisc_mode(card);
 }
 
-static int qeth_l3_arp_makerc(int rc)
+static int qeth_l3_arp_makerc(u16 rc)
 {
 	switch (rc) {
 	case IPA_RC_SUCCESS:
@@ -1533,8 +1541,18 @@ static int qeth_l3_arp_makerc(int rc)
 	}
 }
 
+static int qeth_l3_arp_cmd_cb(struct qeth_card *card, struct qeth_reply *reply,
+			      unsigned long data)
+{
+	struct qeth_ipa_cmd *cmd = (struct qeth_ipa_cmd *) data;
+
+	qeth_setassparms_cb(card, reply, data);
+	return qeth_l3_arp_makerc(cmd->hdr.return_code);
+}
+
 static int qeth_l3_arp_set_no_entries(struct qeth_card *card, int no_entries)
 {
+	struct qeth_cmd_buffer *iob;
 	int rc;
 
 	QETH_CARD_TEXT(card, 3, "arpstnoe");
@@ -1549,13 +1567,19 @@ static int qeth_l3_arp_set_no_entries(struct qeth_card *card, int no_entries)
 	if (!qeth_is_supported(card, IPA_ARP_PROCESSING)) {
 		return -EOPNOTSUPP;
 	}
-	rc = qeth_send_simple_setassparms(card, IPA_ARP_PROCESSING,
-					  IPA_CMD_ASS_ARP_SET_NO_ENTRIES,
-					  no_entries);
+
+	iob = qeth_get_setassparms_cmd(card, IPA_ARP_PROCESSING,
+				       IPA_CMD_ASS_ARP_SET_NO_ENTRIES, 4,
+				       QETH_PROT_IPV4);
+	if (!iob)
+		return -ENOMEM;
+
+	__ipa_cmd(iob)->data.setassparms.data.flags_32bit = (u32) no_entries;
+	rc = qeth_send_ipa_cmd(card, iob, qeth_l3_arp_cmd_cb, NULL);
 	if (rc)
 		QETH_DBF_MESSAGE(2, "Could not set number of ARP entries on device %x: %#x\n",
 				 CARD_DEVID(card), rc);
-	return qeth_l3_arp_makerc(rc);
+	return rc;
 }
 
 static __u32 get_arp_entry_size(struct qeth_card *card,
@@ -1606,7 +1630,6 @@ static int qeth_l3_arp_query_cb(struct qeth_card *card,
 	struct qeth_ipa_cmd *cmd;
 	struct qeth_arp_query_data *qdata;
 	struct qeth_arp_query_info *qinfo;
-	int i;
 	int e;
 	int entrybytes_done;
 	int stripped_bytes;
@@ -1620,13 +1643,13 @@ static int qeth_l3_arp_query_cb(struct qeth_card *card,
 	if (cmd->hdr.return_code) {
 		QETH_CARD_TEXT(card, 4, "arpcberr");
 		QETH_CARD_TEXT_(card, 4, "%i", cmd->hdr.return_code);
-		return 0;
+		return qeth_l3_arp_makerc(cmd->hdr.return_code);
 	}
 	if (cmd->data.setassparms.hdr.return_code) {
 		cmd->hdr.return_code = cmd->data.setassparms.hdr.return_code;
 		QETH_CARD_TEXT(card, 4, "setaperr");
 		QETH_CARD_TEXT_(card, 4, "%i", cmd->hdr.return_code);
-		return 0;
+		return qeth_l3_arp_makerc(cmd->hdr.return_code);
 	}
 	qdata = &cmd->data.setassparms.data.query_arp;
 	QETH_CARD_TEXT_(card, 4, "anoen%i", qdata->no_entries);
@@ -1653,9 +1676,9 @@ static int qeth_l3_arp_query_cb(struct qeth_card *card,
 			break;
 
 		if ((qinfo->udata_len - qinfo->udata_offset) < esize) {
-			QETH_CARD_TEXT_(card, 4, "qaer3%i", -ENOMEM);
-			cmd->hdr.return_code = IPA_RC_ENOMEM;
-			goto out_error;
+			QETH_CARD_TEXT_(card, 4, "qaer3%i", -ENOSPC);
+			memset(qinfo->udata, 0, 4);
+			return -ENOSPC;
 		}
 
 		memcpy(qinfo->udata + qinfo->udata_offset,
@@ -1678,10 +1701,6 @@ static int qeth_l3_arp_query_cb(struct qeth_card *card,
 	memcpy(qinfo->udata + QETH_QARP_MASK_OFFSET, &qdata->reply_bits, 2);
 	QETH_CARD_TEXT_(card, 4, "rc%i", 0);
 	return 0;
-out_error:
-	i = 0;
-	memcpy(qinfo->udata, &i, 4);
-	return 0;
 }
 
 static int qeth_l3_query_arp_cache_info(struct qeth_card *card,
@@ -1703,13 +1722,11 @@ static int qeth_l3_query_arp_cache_info(struct qeth_card *card,
 		return -ENOMEM;
 	cmd = __ipa_cmd(iob);
 	cmd->data.setassparms.data.query_arp.request_bits = 0x000F;
-	rc = qeth_send_control_data(card,
-				    QETH_SETASS_BASE_LEN + QETH_ARP_CMD_LEN,
-				    iob, qeth_l3_arp_query_cb, qinfo);
+	rc = qeth_send_ipa_cmd(card, iob, qeth_l3_arp_query_cb, qinfo);
 	if (rc)
 		QETH_DBF_MESSAGE(2, "Error while querying ARP cache on device %x: %#x\n",
 				 CARD_DEVID(card), rc);
-	return qeth_l3_arp_makerc(rc);
+	return rc;
 }
 
 static int qeth_l3_arp_query(struct qeth_card *card, char __user *udata)
@@ -1791,16 +1808,16 @@ static int qeth_l3_arp_modify_entry(struct qeth_card *card,
 	cmd_entry = &__ipa_cmd(iob)->data.setassparms.data.arp_entry;
 	ether_addr_copy(cmd_entry->macaddr, entry->macaddr);
 	memcpy(cmd_entry->ipaddr, entry->ipaddr, 4);
-	rc = qeth_send_ipa_cmd(card, iob, qeth_setassparms_cb, NULL);
+	rc = qeth_send_ipa_cmd(card, iob, qeth_l3_arp_cmd_cb, NULL);
 	if (rc)
 		QETH_DBF_MESSAGE(2, "Could not modify (cmd: %#x) ARP entry on device %x: %#x\n",
 				 arp_cmd, CARD_DEVID(card), rc);
-
-	return qeth_l3_arp_makerc(rc);
+	return rc;
 }
 
 static int qeth_l3_arp_flush_cache(struct qeth_card *card)
 {
+	struct qeth_cmd_buffer *iob;
 	int rc;
 
 	QETH_CARD_TEXT(card, 3, "arpflush");
@@ -1815,12 +1832,18 @@ static int qeth_l3_arp_flush_cache(struct qeth_card *card)
 	if (!qeth_is_supported(card, IPA_ARP_PROCESSING)) {
 		return -EOPNOTSUPP;
 	}
-	rc = qeth_send_simple_setassparms(card, IPA_ARP_PROCESSING,
-					  IPA_CMD_ASS_ARP_FLUSH_CACHE, 0);
+
+	iob = qeth_get_setassparms_cmd(card, IPA_ARP_PROCESSING,
+				       IPA_CMD_ASS_ARP_FLUSH_CACHE, 0,
+				       QETH_PROT_IPV4);
+	if (!iob)
+		return -ENOMEM;
+
+	rc = qeth_send_ipa_cmd(card, iob, qeth_l3_arp_cmd_cb, NULL);
 	if (rc)
 		QETH_DBF_MESSAGE(2, "Could not flush ARP cache on device %x: %#x\n",
 				 CARD_DEVID(card), rc);
-	return qeth_l3_arp_makerc(rc);
+	return rc;
 }
 
 static int qeth_l3_do_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
@@ -2102,56 +2125,6 @@ tx_drop:
 	return NETDEV_TX_OK;
 }
 
-static int __qeth_l3_open(struct net_device *dev)
-{
-	struct qeth_card *card = dev->ml_priv;
-	int rc = 0;
-
-	QETH_CARD_TEXT(card, 4, "qethopen");
-	if (card->state == CARD_STATE_UP)
-		return rc;
-	if (card->state != CARD_STATE_SOFTSETUP)
-		return -ENODEV;
-	card->data.state = CH_STATE_UP;
-	card->state = CARD_STATE_UP;
-	netif_start_queue(dev);
-
-	if (qdio_stop_irq(card->data.ccwdev, 0) >= 0) {
-		napi_enable(&card->napi);
-		local_bh_disable();
-		napi_schedule(&card->napi);
-		/* kick-start the NAPI softirq: */
-		local_bh_enable();
-	} else
-		rc = -EIO;
-	return rc;
-}
-
-static int qeth_l3_open(struct net_device *dev)
-{
-	struct qeth_card *card = dev->ml_priv;
-
-	QETH_CARD_TEXT(card, 5, "qethope_");
-	if (qeth_wait_for_threads(card, QETH_RECOVER_THREAD)) {
-		QETH_CARD_TEXT(card, 3, "openREC");
-		return -ERESTARTSYS;
-	}
-	return __qeth_l3_open(dev);
-}
-
-static int qeth_l3_stop(struct net_device *dev)
-{
-	struct qeth_card *card = dev->ml_priv;
-
-	QETH_CARD_TEXT(card, 4, "qethstop");
-	netif_tx_disable(dev);
-	if (card->state == CARD_STATE_UP) {
-		card->state = CARD_STATE_SOFTSETUP;
-		napi_disable(&card->napi);
-	}
-	return 0;
-}
-
 static const struct ethtool_ops qeth_l3_ethtool_ops = {
 	.get_link = ethtool_op_get_link,
 	.get_strings = qeth_core_get_strings,
@@ -2195,8 +2168,8 @@ static netdev_features_t qeth_l3_osa_features_check(struct sk_buff *skb,
 }
 
 static const struct net_device_ops qeth_l3_netdev_ops = {
-	.ndo_open		= qeth_l3_open,
-	.ndo_stop		= qeth_l3_stop,
+	.ndo_open		= qeth_open,
+	.ndo_stop		= qeth_stop,
 	.ndo_get_stats		= qeth_get_stats,
 	.ndo_start_xmit		= qeth_l3_hard_start_xmit,
 	.ndo_validate_addr	= eth_validate_addr,
@@ -2210,8 +2183,8 @@ static const struct net_device_ops qeth_l3_netdev_ops = {
 };
 
 static const struct net_device_ops qeth_l3_osa_netdev_ops = {
-	.ndo_open		= qeth_l3_open,
-	.ndo_stop		= qeth_l3_stop,
+	.ndo_open		= qeth_open,
+	.ndo_stop		= qeth_stop,
 	.ndo_get_stats		= qeth_get_stats,
 	.ndo_start_xmit		= qeth_l3_hard_start_xmit,
 	.ndo_features_check	= qeth_l3_osa_features_check,
@@ -2230,9 +2203,6 @@ static int qeth_l3_setup_netdev(struct qeth_card *card, bool carrier_ok)
 {
 	unsigned int headroom;
 	int rc;
-
-	if (qeth_netdev_is_registered(card->dev))
-		return 0;
 
 	if (card->info.type == QETH_CARD_TYPE_OSD ||
 	    card->info.type == QETH_CARD_TYPE_OSX) {
@@ -2350,6 +2320,7 @@ static void qeth_l3_remove_device(struct ccwgroup_device *cgdev)
 static int __qeth_l3_set_online(struct ccwgroup_device *gdev, int recovery_mode)
 {
 	struct qeth_card *card = dev_get_drvdata(&gdev->dev);
+	struct net_device *dev = card->dev;
 	int rc = 0;
 	enum qeth_card_states recover_flag;
 	bool carrier_ok;
@@ -2366,10 +2337,6 @@ static int __qeth_l3_set_online(struct ccwgroup_device *gdev, int recovery_mode)
 		rc = -ENODEV;
 		goto out_remove;
 	}
-
-	rc = qeth_l3_setup_netdev(card, carrier_ok);
-	if (rc)
-		goto out_remove;
 
 	if (qeth_is_diagass_supported(card, QETH_DIAGS_CMD_TRAP)) {
 		if (card->info.hwtrap &&
@@ -2400,7 +2367,6 @@ static int __qeth_l3_set_online(struct ccwgroup_device *gdev, int recovery_mode)
 		if (rc)
 			QETH_DBF_TEXT_(SETUP, 2, "5err%04x", rc);
 	}
-	netif_tx_disable(card->dev);
 
 	rc = qeth_init_qdio_queues(card);
 	if (rc) {
@@ -2413,14 +2379,27 @@ static int __qeth_l3_set_online(struct ccwgroup_device *gdev, int recovery_mode)
 	qeth_set_allowed_threads(card, 0xffffffff, 0);
 	qeth_l3_recover_ip(card);
 
-	qeth_enable_hw_features(card->dev);
-	if (recover_flag == CARD_STATE_RECOVER) {
+	if (!qeth_netdev_is_registered(dev)) {
+		rc = qeth_l3_setup_netdev(card, carrier_ok);
+		if (rc)
+			goto out_remove;
+	} else {
 		rtnl_lock();
-		if (recovery_mode) {
-			__qeth_l3_open(card->dev);
-			qeth_l3_set_rx_mode(card->dev);
-		} else {
-			dev_open(card->dev, NULL);
+		if (carrier_ok)
+			netif_carrier_on(dev);
+		else
+			netif_carrier_off(dev);
+
+		netif_device_attach(dev);
+		qeth_enable_hw_features(dev);
+
+		if (recover_flag == CARD_STATE_RECOVER) {
+			if (recovery_mode) {
+				qeth_open(dev);
+				qeth_l3_set_rx_mode(dev);
+			} else {
+				dev_open(dev, NULL);
+			}
 		}
 		rtnl_unlock();
 	}
@@ -2462,7 +2441,11 @@ static int __qeth_l3_set_offline(struct ccwgroup_device *cgdev,
 	QETH_DBF_TEXT(SETUP, 3, "setoffl");
 	QETH_DBF_HEX(SETUP, 3, &card, sizeof(void *));
 
+	rtnl_lock();
+	netif_device_detach(card->dev);
 	netif_carrier_off(card->dev);
+	rtnl_unlock();
+
 	recover_flag = card->state;
 	if ((!recovery_mode && card->info.hwtrap) || card->info.hwtrap == 2) {
 		qeth_hw_trap(card, QETH_DIAGS_TRAP_DISARM);
@@ -2509,7 +2492,6 @@ static int qeth_l3_recover(void *ptr)
 	QETH_CARD_TEXT(card, 2, "recover2");
 	dev_warn(&card->gdev->dev,
 		"A recovery process has been started for the device\n");
-	qeth_set_recovery_task(card);
 	__qeth_l3_set_offline(card->gdev, 1);
 	rc = __qeth_l3_set_online(card->gdev, 1);
 	if (!rc)
@@ -2520,7 +2502,6 @@ static int qeth_l3_recover(void *ptr)
 		dev_warn(&card->gdev->dev, "The qeth device driver "
 				"failed to recover an error on the device\n");
 	}
-	qeth_clear_recovery_task(card);
 	qeth_clear_thread_start_bit(card, QETH_RECOVER_THREAD);
 	qeth_clear_thread_running_bit(card, QETH_RECOVER_THREAD);
 	return 0;
@@ -2530,7 +2511,6 @@ static int qeth_l3_pm_suspend(struct ccwgroup_device *gdev)
 {
 	struct qeth_card *card = dev_get_drvdata(&gdev->dev);
 
-	netif_device_detach(card->dev);
 	qeth_set_allowed_threads(card, 0, 1);
 	wait_event(card->wait_q, qeth_threads_running(card, 0xffffffff) == 0);
 	if (gdev->state == CCWGROUP_OFFLINE)
@@ -2560,7 +2540,6 @@ static int qeth_l3_pm_resume(struct ccwgroup_device *gdev)
 		rc = __qeth_l3_set_online(card->gdev, 0);
 
 	qeth_set_allowed_threads(card, 0xffffffff, 0);
-	netif_device_attach(card->dev);
 	if (rc)
 		dev_warn(&card->gdev->dev, "The qeth device driver "
 			"failed to recover an error on the device\n");

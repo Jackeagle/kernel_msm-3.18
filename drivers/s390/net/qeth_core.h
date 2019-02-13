@@ -595,8 +595,8 @@ struct qeth_channel;
 struct qeth_cmd_buffer {
 	enum qeth_cmd_buffer_state state;
 	struct qeth_channel *channel;
+	struct qeth_reply *reply;
 	unsigned char *data;
-	int rc;
 	void (*callback)(struct qeth_card *card, struct qeth_channel *channel,
 			 struct qeth_cmd_buffer *iob);
 };
@@ -742,11 +742,6 @@ struct qeth_discipline {
 					struct qeth_ipa_cmd *cmd);
 };
 
-struct qeth_vlan_vid {
-	struct list_head list;
-	unsigned short vid;
-};
-
 enum qeth_addr_disposition {
 	QETH_DISP_ADDR_DELETE = 0,
 	QETH_DISP_ADDR_DO_NOTHING = 1,
@@ -794,8 +789,6 @@ struct qeth_card {
 	wait_queue_head_t wait_q;
 	spinlock_t mclock;
 	unsigned long active_vlans[BITS_TO_LONGS(VLAN_N_VID)];
-	struct mutex vid_list_mutex;		/* vid_list */
-	struct list_head vid_list;
 	DECLARE_HASHTABLE(mac_htable, 4);
 	DECLARE_HASHTABLE(ip_htable, 4);
 	DECLARE_HASHTABLE(ip_mc_htable, 4);
@@ -804,7 +797,6 @@ struct qeth_card {
 	unsigned long thread_start_mask;
 	unsigned long thread_allowed_mask;
 	unsigned long thread_running_mask;
-	struct task_struct *recovery_task;
 	spinlock_t ip_lock;
 	struct qeth_ipato ipato;
 	struct list_head cmd_waiter_list;
@@ -977,11 +969,8 @@ extern struct qeth_dbf_info qeth_dbf[QETH_DBF_INFOS];
 
 struct net_device *qeth_clone_netdev(struct net_device *orig);
 struct qeth_card *qeth_get_card_by_busid(char *bus_id);
-void qeth_set_recovery_task(struct qeth_card *);
-void qeth_clear_recovery_task(struct qeth_card *);
 void qeth_set_allowed_threads(struct qeth_card *, unsigned long , int);
 int qeth_threads_running(struct qeth_card *, unsigned long);
-int qeth_wait_for_threads(struct qeth_card *, unsigned long);
 int qeth_do_run_thread(struct qeth_card *, unsigned long);
 void qeth_clear_thread_start_bit(struct qeth_card *, unsigned long);
 void qeth_clear_thread_running_bit(struct qeth_card *, unsigned long);
@@ -1011,13 +1000,11 @@ void qeth_tx_timeout(struct net_device *);
 void qeth_prepare_control_data(struct qeth_card *, int,
 				struct qeth_cmd_buffer *);
 void qeth_release_buffer(struct qeth_channel *, struct qeth_cmd_buffer *);
-void qeth_prepare_ipa_cmd(struct qeth_card *card, struct qeth_cmd_buffer *iob);
+void qeth_prepare_ipa_cmd(struct qeth_card *card, struct qeth_cmd_buffer *iob,
+			  u16 cmd_length);
 struct qeth_cmd_buffer *qeth_wait_for_buffer(struct qeth_channel *);
 int qeth_query_switch_attributes(struct qeth_card *card,
 				  struct qeth_switch_info *sw_info);
-int qeth_send_control_data(struct qeth_card *, int, struct qeth_cmd_buffer *,
-	int (*reply_cb)(struct qeth_card *, struct qeth_reply*, unsigned long),
-	void *reply_param);
 unsigned int qeth_count_elements(struct sk_buff *skb, unsigned int data_offset);
 int qeth_do_send_packet(struct qeth_card *card, struct qeth_qdio_out_q *queue,
 			struct sk_buff *skb, struct qeth_hdr *hdr,
@@ -1048,6 +1035,9 @@ netdev_features_t qeth_fix_features(struct net_device *, netdev_features_t);
 netdev_features_t qeth_features_check(struct sk_buff *skb,
 				      struct net_device *dev,
 				      netdev_features_t features);
+int qeth_open(struct net_device *dev);
+int qeth_stop(struct net_device *dev);
+
 int qeth_vm_request_mac(struct qeth_card *card);
 int qeth_xmit(struct qeth_card *card, struct sk_buff *skb,
 	      struct qeth_qdio_out_q *queue, int ipv, int cast_type,
