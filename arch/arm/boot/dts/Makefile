@@ -706,6 +706,7 @@ dtb-$(CONFIG_ARCH_OMAP3) += \
 	omap3-thunder.dtb \
 	omap3-zoom3.dtb
 dtb-$(CONFIG_SOC_TI81XX) += \
+	am3874-iceboard.dtb \
 	dm8148-evm.dtb \
 	dm8148-t410.dtb \
 	dm8168-evm.dtb \
@@ -725,6 +726,7 @@ dtb-$(CONFIG_SOC_AM33XX) += \
 	am335x-cm-t335.dtb \
 	am335x-evm.dtb \
 	am335x-evmsk.dtb \
+	am335x-guardian.dtb \
 	am335x-icev2.dtb \
 	am335x-lxm.dtb \
 	am335x-moxa-uc-2101.dtb \
