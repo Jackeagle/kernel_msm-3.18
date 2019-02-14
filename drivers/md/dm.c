@@ -580,7 +580,19 @@ out:
 	return r;
 }
 
-static void start_io_acct(struct dm_io *io);
+static void start_io_acct(struct mapped_device *md, struct bio *bio)
+{
+	generic_start_io_acct(md->queue, bio_op(bio), bio_sectors(bio), &dm_disk(md)->part0);
+}
+
+static void end_io_acct(struct mapped_device *md, struct bio *bio, unsigned long start_time)
+{
+	generic_end_io_acct(md->queue, bio_op(bio), &dm_disk(md)->part0, start_time);
+
+	/* nudge anyone waiting on suspend queue */
+	if (unlikely(wq_has_sleeper(&md->wait)))
+		wake_up(&md->wait);
+}
 
 static struct dm_io *alloc_io(struct mapped_device *md, struct bio *bio)
 {
@@ -604,7 +616,14 @@ static struct dm_io *alloc_io(struct mapped_device *md, struct bio *bio)
 	io->md = md;
 	spin_lock_init(&io->endio_lock);
 
-	start_io_acct(io);
+	io->start_time = jiffies;
+
+	start_io_acct(md, bio);
+
+	if (unlikely(dm_stats_used(&md->stats)))
+		dm_stats_account_io(&md->stats, bio_data_dir(bio),
+				    bio->bi_iter.bi_sector, bio_sectors(bio),
+				    false, 0, &io->stats_aux);
 
 	return io;
 }
@@ -666,41 +685,6 @@ static bool md_in_flight(struct mapped_device *md)
 		return blk_mq_queue_inflight(md->queue);
 	else
 		return md_in_flight_bios(md);
-}
-
-static void start_io_acct(struct dm_io *io)
-{
-	struct mapped_device *md = io->md;
-	struct bio *bio = io->orig_bio;
-
-	io->start_time = jiffies;
-
-	generic_start_io_acct(md->queue, bio_op(bio), bio_sectors(bio),
-			      &dm_disk(md)->part0);
-
-	if (unlikely(dm_stats_used(&md->stats)))
-		dm_stats_account_io(&md->stats, bio_data_dir(bio),
-				    bio->bi_iter.bi_sector, bio_sectors(bio),
-				    false, 0, &io->stats_aux);
-}
-
-static void end_io_acct(struct dm_io *io)
-{
-	struct mapped_device *md = io->md;
-	struct bio *bio = io->orig_bio;
-	unsigned long duration = jiffies - io->start_time;
-
-	generic_end_io_acct(md->queue, bio_op(bio), &dm_disk(md)->part0,
-			    io->start_time);
-
-	if (unlikely(dm_stats_used(&md->stats)))
-		dm_stats_account_io(&md->stats, bio_data_dir(bio),
-				    bio->bi_iter.bi_sector, bio_sectors(bio),
-				    true, duration, &io->stats_aux);
-
-	/* nudge anyone waiting on suspend queue */
-	if (unlikely(wq_has_sleeper(&md->wait)))
-		wake_up(&md->wait);
 }
 
 /*
@@ -941,7 +925,15 @@ static void dec_pending(struct dm_io *io, blk_status_t error)
 
 		io_error = io->status;
 		bio = io->orig_bio;
-		end_io_acct(io);
+
+		if (unlikely(dm_stats_used(&md->stats))) {
+			unsigned long duration = jiffies - io->start_time;
+			dm_stats_account_io(&md->stats, bio_data_dir(bio),
+					    bio->bi_iter.bi_sector, bio_sectors(bio),
+					    true, duration, &io->stats_aux);
+		}
+
+		end_io_acct(md, bio, io->start_time);
 		free_io(md, io);
 
 		if (io_error == BLK_STS_DM_REQUEUE)
