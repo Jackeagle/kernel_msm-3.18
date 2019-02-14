@@ -449,44 +449,30 @@ struct net_device *usnic_get_netdev(struct ib_device *device, u8 port_num)
 int usnic_ib_query_pkey(struct ib_device *ibdev, u8 port, u16 index,
 				u16 *pkey)
 {
-	if (index > 1)
+	if (index > 0)
 		return -EINVAL;
 
 	*pkey = 0xffff;
 	return 0;
 }
 
-struct ib_pd *usnic_ib_alloc_pd(struct ib_device *ibdev,
-					struct ib_ucontext *context,
-					struct ib_udata *udata)
+int usnic_ib_alloc_pd(struct ib_pd *ibpd, struct ib_ucontext *context,
+		      struct ib_udata *udata)
 {
-	struct usnic_ib_pd *pd;
+	struct usnic_ib_pd *pd = to_upd(ibpd);
 	void *umem_pd;
-
-	usnic_dbg("\n");
-
-	pd = kzalloc(sizeof(*pd), GFP_KERNEL);
-	if (!pd)
-		return ERR_PTR(-ENOMEM);
 
 	umem_pd = pd->umem_pd = usnic_uiom_alloc_pd();
 	if (IS_ERR_OR_NULL(umem_pd)) {
-		kfree(pd);
-		return ERR_PTR(umem_pd ? PTR_ERR(umem_pd) : -ENOMEM);
+		return umem_pd ? PTR_ERR(umem_pd) : -ENOMEM;
 	}
 
-	usnic_info("domain 0x%p allocated for context 0x%p and device %s\n",
-		   pd, context, dev_name(&ibdev->dev));
-	return &pd->ibpd;
+	return 0;
 }
 
-int usnic_ib_dealloc_pd(struct ib_pd *pd)
+void usnic_ib_dealloc_pd(struct ib_pd *pd)
 {
-	usnic_info("freeing domain 0x%p\n", pd);
-
 	usnic_uiom_dealloc_pd((to_upd(pd))->umem_pd);
-	kfree(pd);
-	return 0;
 }
 
 struct ib_qp *usnic_ib_create_qp(struct ib_pd *pd,
@@ -683,7 +669,7 @@ struct ib_ucontext *usnic_ib_alloc_ucontext(struct ib_device *ibdev,
 	struct usnic_ib_dev *us_ibdev = to_usdev(ibdev);
 	usnic_dbg("\n");
 
-	context = kmalloc(sizeof(*context), GFP_KERNEL);
+	context = kzalloc(sizeof(*context), GFP_KERNEL);
 	if (!context)
 		return ERR_PTR(-ENOMEM);
 
@@ -760,57 +746,4 @@ int usnic_ib_mmap(struct ib_ucontext *context,
 	return -EINVAL;
 }
 
-/* In ib callbacks section -  Start of stub funcs */
-struct ib_ah *usnic_ib_create_ah(struct ib_pd *pd,
-				 struct rdma_ah_attr *ah_attr,
-				 u32 flags,
-				 struct ib_udata *udata)
-
-{
-	usnic_dbg("\n");
-	return ERR_PTR(-EPERM);
-}
-
-int usnic_ib_destroy_ah(struct ib_ah *ah, u32 flags)
-{
-	usnic_dbg("\n");
-	return -EINVAL;
-}
-
-int usnic_ib_post_send(struct ib_qp *ibqp, const struct ib_send_wr *wr,
-		       const struct ib_send_wr **bad_wr)
-{
-	usnic_dbg("\n");
-	return -EINVAL;
-}
-
-int usnic_ib_post_recv(struct ib_qp *ibqp, const struct ib_recv_wr *wr,
-		       const struct ib_recv_wr **bad_wr)
-{
-	usnic_dbg("\n");
-	return -EINVAL;
-}
-
-int usnic_ib_poll_cq(struct ib_cq *ibcq, int num_entries,
-				struct ib_wc *wc)
-{
-	usnic_dbg("\n");
-	return -EINVAL;
-}
-
-int usnic_ib_req_notify_cq(struct ib_cq *cq,
-					enum ib_cq_notify_flags flags)
-{
-	usnic_dbg("\n");
-	return -EINVAL;
-}
-
-struct ib_mr *usnic_ib_get_dma_mr(struct ib_pd *pd, int acc)
-{
-	usnic_dbg("\n");
-	return ERR_PTR(-ENOMEM);
-}
-
-
-/* In ib callbacks section - End of stub funcs */
 /* End of ib callbacks section */
