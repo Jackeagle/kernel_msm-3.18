@@ -102,6 +102,16 @@ struct dm_io {
 	struct dm_target_io tio;
 };
 
+/*
+ * One of these is allocated per noclone bio.
+ */
+struct dm_noclone {
+	struct mapped_device *md;
+	bio_end_io_t *orig_bi_end_io;
+	void *orig_bi_private;
+	unsigned long start_time;
+};
+
 void *dm_per_bio_data(struct bio *bio, size_t data_size)
 {
 	struct dm_target_io *tio = container_of(bio, struct dm_target_io, clone);
@@ -1009,6 +1019,20 @@ static void clone_endio(struct bio *bio)
 	dec_pending(io, error);
 }
 
+static void noclone_endio(struct bio *bio)
+{
+	struct dm_noclone *noclone = bio->bi_private;
+	struct mapped_device *md = noclone->md;
+
+	end_io_acct(md, bio, noclone->start_time);
+
+	bio->bi_end_io = noclone->orig_bi_end_io;
+	bio->bi_private = noclone->orig_bi_private;
+	kfree(noclone);
+
+	bio_endio(bio);
+}
+
 /*
  * Return maximum size of I/O possible at the supplied sector up to the current
  * target boundary.
@@ -1777,8 +1801,48 @@ static blk_qc_t dm_make_request(struct request_queue *q, struct bio *bio)
 		return ret;
 	}
 
+	if (dm_table_supports_noclone(map) &&
+	    (bio_op(bio) == REQ_OP_READ || bio_op(bio) == REQ_OP_WRITE) &&
+	    likely(!(bio->bi_opf & REQ_PREFLUSH)) &&
+	    !bio_flagged(bio, BIO_CHAIN) &&
+	    likely(!bio_integrity(bio)) &&
+	    likely(!dm_stats_used(&md->stats))) {
+		int r;
+		struct dm_noclone *noclone;
+		struct dm_target *ti = dm_table_find_target(map, bio->bi_iter.bi_sector);
+		if (unlikely(!dm_target_is_valid(ti)))
+			goto no_fast_path;
+		if (unlikely(bio_sectors(bio) > max_io_len(bio->bi_iter.bi_sector, ti)))
+			goto no_fast_path;
+		noclone = kmalloc_node(sizeof(*noclone), GFP_NOWAIT, md->numa_node_id);
+		if (unlikely(!noclone))
+			goto no_fast_path;
+		noclone->md = md;
+		noclone->start_time = jiffies;
+		noclone->orig_bi_end_io = bio->bi_end_io;
+		noclone->orig_bi_private = bio->bi_private;
+		bio->bi_end_io = noclone_endio;
+		bio->bi_private = noclone;
+		start_io_acct(md, bio);
+		r = ti->type->map(ti, bio);
+		ret = BLK_QC_T_NONE;
+		if (likely(r == DM_MAPIO_REMAPPED)) {
+			ret = generic_make_request(bio);
+		} else if (likely(r == DM_MAPIO_SUBMITTED)) {
+		} else if (r == DM_MAPIO_KILL) {
+			bio->bi_status = BLK_STS_IOERR;
+			noclone_endio(bio);
+		} else {
+			DMWARN("unimplemented target map return value: %d", r);
+			BUG();
+		}
+		goto put_table_ret;
+	}
+
+no_fast_path:
 	ret = dm_process_bio(md, map, bio);
 
+put_table_ret:
 	dm_put_live_table(md, srcu_idx);
 	return ret;
 }

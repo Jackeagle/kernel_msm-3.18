@@ -172,6 +172,7 @@ static int stripe_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	ti->num_secure_erase_bios = stripes;
 	ti->num_write_same_bios = stripes;
 	ti->num_write_zeroes_bios = stripes;
+	ti->no_clone = true;
 
 	sc->chunk_size = chunk_size;
 	if (chunk_size & (chunk_size - 1))
@@ -486,7 +487,7 @@ static void stripe_io_hints(struct dm_target *ti,
 
 static struct target_type stripe_target = {
 	.name   = "striped",
-	.version = {1, 6, 0},
+	.version = {1, 7, 0},
 	.features = DM_TARGET_PASSES_INTEGRITY,
 	.module = THIS_MODULE,
 	.ctr    = stripe_ctr,
