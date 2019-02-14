@@ -47,6 +47,7 @@ struct dm_table {
 
 	bool integrity_supported:1;
 	bool singleton:1;
+	bool no_clone:1;
 	unsigned integrity_added:1;
 
 	/*
@@ -190,6 +191,8 @@ int dm_table_create(struct dm_table **result, fmode_t mode,
 
 	if (!t)
 		return -ENOMEM;
+
+	t->no_clone = true;
 
 	INIT_LIST_HEAD(&t->devices);
 	INIT_LIST_HEAD(&t->target_callbacks);
@@ -789,6 +792,9 @@ int dm_table_add_target(struct dm_table *t, const char *type,
 	if (r)
 		goto bad;
 
+	if (!tgt->no_clone)
+		t->no_clone = false;
+
 	t->highs[t->num_targets++] = tgt->begin + tgt->len - 1;
 
 	if (!tgt->num_discard_bios && tgt->discards_supported)
@@ -1374,6 +1380,11 @@ static int count_device(struct dm_target *ti, struct dm_dev *dev,
 	(*num_devices)++;
 
 	return 0;
+}
+
+bool dm_table_supports_noclone(struct dm_table *table)
+{
+	return table->no_clone;
 }
 
 /*
