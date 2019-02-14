@@ -2080,7 +2080,7 @@ int cifs_getattr(const struct path *path, struct kstat *stat,
 		return rc;
 
 	generic_fillattr(inode, stat);
-	stat->blksize = CIFS_MAX_MSGSIZE;
+	stat->blksize = min(cifs_sb->rsize, cifs_sb->wsize);
 	stat->ino = CIFS_I(inode)->uniqueid;
 
 	/* old CIFS Unix Extensions doesn't return create time */
