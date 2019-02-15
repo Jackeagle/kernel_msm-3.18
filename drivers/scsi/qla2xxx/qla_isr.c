@@ -834,7 +834,8 @@ skip_rio:
 			 * Restore for Physical Port only
 			 */
 			if (!vha->vp_idx) {
-				if (ha->flags.fawwpn_enabled) {
+				if (ha->flags.fawwpn_enabled &&
+				    (ha->current_topology == ISP_CFG_F)) {
 					void *wwpn = ha->init_cb->port_name;
 					memcpy(vha->port_name, wwpn, WWN_SIZE);
 					fc_host_port_name(vha->host) =
@@ -2725,6 +2726,17 @@ check_scsi_status:
 			    cp->device->vendor);
 		break;
 
+	case CS_DMA:
+		ql_log(ql_log_info, fcport->vha, 0x3022,
+		    "CS_DMA error: 0x%x-0x%x (0x%x) nexus=%ld:%d:%llu portid=%06x oxid=0x%x cdb=%10phN len=0x%x rsp_info=0x%x resid=0x%x fw_resid=0x%x sp=%p cp=%p.\n",
+		    comp_status, scsi_status, res, vha->host_no,
+		    cp->device->id, cp->device->lun, fcport->d_id.b24,
+		    ox_id, cp->cmnd, scsi_bufflen(cp), rsp_info_len,
+		    resid_len, fw_resid_len, sp, cp);
+		ql_dump_buffer(ql_dbg_tgt + ql_dbg_verbose, vha, 0xe0ee,
+		    pkt, sizeof(*sts24));
+		res = DID_ERROR << 16;
+		break;
 	default:
 		res = DID_ERROR << 16;
 		break;
