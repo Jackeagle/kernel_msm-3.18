@@ -436,7 +436,7 @@ static int _rtl92e_qos_handle_probe_response(struct r8192_priv *priv,
 				network->qos_data.param_count)) {
 			network->qos_data.old_param_count =
 				network->qos_data.param_count;
-	priv->rtllib->wmm_acm = network->qos_data.wmm_acm;
+			priv->rtllib->wmm_acm = network->qos_data.wmm_acm;
 			schedule_work(&priv->qos_activate);
 			RT_TRACE(COMP_QOS,
 				 "QoS parameters change call qos_activate\n");
@@ -1049,7 +1049,7 @@ static short _rtl92e_get_channel_map(struct net_device *dev)
 	}
 	RT_TRACE(COMP_INIT, "Channel plan is %d\n", priv->ChannelPlan);
 	dot11d_init(priv->rtllib);
-	Dot11d_Channelmap(priv->ChannelPlan, priv->rtllib);
+	dot11d_channel_map(priv->ChannelPlan, priv->rtllib);
 	for (i = 1; i <= 11; i++)
 		(priv->rtllib->active_channel_map)[i] = 1;
 	(priv->rtllib->active_channel_map)[12] = 2;
@@ -1573,7 +1573,7 @@ static void _rtl92e_free_rx_ring(struct net_device *dev)
 			pci_unmap_single(priv->pdev,
 				*((dma_addr_t *)skb->cb),
 				priv->rxbuffersize, PCI_DMA_FROMDEVICE);
-				kfree_skb(skb);
+			kfree_skb(skb);
 		}
 
 		pci_free_consistent(priv->pdev,
@@ -2515,7 +2515,7 @@ static int _rtl92e_pci_probe(struct pci_dev *pdev,
 	if (dev_alloc_name(dev, ifname) < 0) {
 		RT_TRACE(COMP_INIT,
 			 "Oops: devname already taken! Trying wlan%%d...\n");
-			dev_alloc_name(dev, ifname);
+		dev_alloc_name(dev, ifname);
 	}
 
 	RT_TRACE(COMP_INIT, "Driver probe completed1\n");
