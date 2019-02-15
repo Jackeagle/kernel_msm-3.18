@@ -521,7 +521,44 @@ out:
 }
 
 static DEVICE_ATTR_WO(probe);
-#endif
+
+#ifdef CONFIG_MEMORY_HOTREMOVE
+static ssize_t remove_store(struct device *dev, struct device_attribute *attr,
+			    const char *buf, size_t count)
+{
+	struct memory_block *mem = to_memory_block(dev);
+	unsigned long start_pfn = section_nr_to_pfn(mem->start_section_nr);
+	bool remove;
+	int ret;
+
+	ret = kstrtobool(buf, &remove);
+	if (ret)
+		return ret;
+	if (!remove)
+		return count;
+
+	if (!is_memblock_offlined(mem))
+		return -EBUSY;
+
+	ret = lock_device_hotplug_sysfs();
+	if (ret)
+		return ret;
+
+	if (device_remove_file_self(dev, attr)) {
+		__remove_memory(pfn_to_nid(start_pfn), PFN_PHYS(start_pfn),
+				MIN_MEMORY_BLOCK_SIZE * sections_per_block);
+		ret = count;
+	} else {
+		ret = -EBUSY;
+	}
+
+	unlock_device_hotplug();
+	return ret;
+}
+
+static DEVICE_ATTR_WO(remove);
+#endif /* CONFIG_MEMORY_HOTREMOVE */
+#endif /* CONFIG_ARCH_MEMORY_PROBE */
 
 #ifdef CONFIG_MEMORY_FAILURE
 /*
@@ -615,6 +652,9 @@ static struct attribute *memory_memblk_attrs[] = {
 	&dev_attr_removable.attr,
 #ifdef CONFIG_MEMORY_HOTREMOVE
 	&dev_attr_valid_zones.attr,
+#ifdef CONFIG_ARCH_MEMORY_PROBE
+	&dev_attr_remove.attr,
+#endif
 #endif
 	NULL
 };
