@@ -1715,6 +1715,15 @@ qla24xx_logio_entry(scsi_qla_host_t *vha, struct req_que *req,
 
 		vha->hw->exch_starvation = 0;
 		data[0] = MBS_COMMAND_COMPLETE;
+
+		if (sp->type == SRB_PRLI_CMD) {
+			lio->u.logio.iop[0] =
+			    le32_to_cpu(logio->io_parameter[0]);
+			lio->u.logio.iop[1] =
+			    le32_to_cpu(logio->io_parameter[1]);
+			goto logio_done;
+		}
+
 		if (sp->type != SRB_LOGIN_CMD)
 			goto logio_done;
 
@@ -3422,7 +3431,7 @@ qla24xx_enable_msix(struct qla_hw_data *ha, struct rsp_que *rsp)
 		min_vecs++;
 	}
 
-	if (USER_CTRL_IRQ(ha)) {
+	if (USER_CTRL_IRQ(ha) || !ha->mqiobase) {
 		/* user wants to control IRQ setting for target mode */
 		ret = pci_alloc_irq_vectors(ha->pdev, min_vecs,
 		    ha->msix_count, PCI_IRQ_MSIX);

@@ -270,8 +270,8 @@ extern void qla24xx_build_scsi_iocbs(srb_t *, struct cmd_type_7 *,
 	uint16_t, struct req_que *);
 extern int qla2x00_start_scsi(srb_t *sp);
 extern int qla24xx_start_scsi(srb_t *sp);
-int qla2x00_marker(struct scsi_qla_host *, struct req_que *, struct rsp_que *,
-						uint16_t, uint64_t, uint8_t);
+int qla2x00_marker(struct scsi_qla_host *, struct qla_qpair *,
+    uint16_t, uint64_t, uint8_t);
 extern int qla2x00_start_sp(srb_t *);
 extern int qla24xx_dif_start_scsi(srb_t *);
 extern int qla2x00_start_bidir(srb_t *, struct scsi_qla_host *, uint32_t);
@@ -899,5 +899,6 @@ void qlt_update_host_map(struct scsi_qla_host *, port_id_t);
 void qlt_remove_target_resources(struct qla_hw_data *);
 void qlt_clr_qp_table(struct scsi_qla_host *vha);
 void qlt_set_mode(struct scsi_qla_host *);
+int qla2x00_set_data_rate(scsi_qla_host_t *vha, uint16_t mode);
 
 #endif /* _QLA_GBL_H */

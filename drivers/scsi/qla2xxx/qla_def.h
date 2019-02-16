@@ -2367,7 +2367,9 @@ typedef struct fc_port {
 #define NVME_PRLI_SP_INITIATOR  BIT_5
 #define NVME_PRLI_SP_TARGET     BIT_4
 #define NVME_PRLI_SP_DISCOVERY  BIT_3
+#define NVME_PRLI_SP_FIRST_BURST	BIT_0
 	uint8_t nvme_flag;
+	uint32_t nvme_first_burst_size;
 #define NVME_FLAG_REGISTERED 4
 #define NVME_FLAG_DELETING 2
 #define NVME_FLAG_RESETTING 1
@@ -3696,12 +3698,14 @@ struct qla_hw_data {
 #define PORT_SPEED_UNKNOWN 0xFFFF
 #define PORT_SPEED_1GB  0x00
 #define PORT_SPEED_2GB  0x01
+#define PORT_SPEED_AUTO 0x02
 #define PORT_SPEED_4GB  0x03
 #define PORT_SPEED_8GB  0x04
 #define PORT_SPEED_16GB 0x05
 #define PORT_SPEED_32GB 0x06
 #define PORT_SPEED_10GB	0x13
 	uint16_t	link_data_rate;         /* F/W operating speed */
+	uint16_t	set_data_rate;		/* Set by user */
 
 	uint8_t		current_topology;
 	uint8_t		prev_topology;
@@ -3966,6 +3970,7 @@ struct qla_hw_data {
 	uint16_t	fw_subminor_version;
 	uint16_t	fw_attributes;
 	uint16_t	fw_attributes_h;
+#define FW_ATTR_H_NVME_FBURST 	BIT_1
 #define FW_ATTR_H_NVME		BIT_10
 #define FW_ATTR_H_NVME_UPDATED  BIT_14
 
@@ -4229,6 +4234,10 @@ struct qla_hw_data {
 #define FW_ABILITY_MAX_SPEED(ha)	\
 	(ha->fw_ability_mask & FW_ABILITY_MAX_SPEED_MASK)
 
+#define QLA_GET_DATA_RATE	0
+#define QLA_SET_DATA_RATE_NOLR	1
+#define QLA_SET_DATA_RATE_LR	2 /* Set speed and initiate LR */
+
 /*
  * Qlogic scsi host structure
  */
@@ -4260,6 +4269,7 @@ typedef struct scsi_qla_host {
 		uint32_t	qpairs_req_created:1;
 		uint32_t	qpairs_rsp_created:1;
 		uint32_t	nvme_enabled:1;
+		uint32_t        nvme_first_burst:1;
 	} flags;
 
 	atomic_t	loop_state;
