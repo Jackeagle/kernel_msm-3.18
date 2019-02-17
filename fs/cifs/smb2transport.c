@@ -615,6 +615,10 @@ smb2_get_mid_entry(struct cifs_ses *ses, struct smb2_sync_hdr *shdr,
 		return -EAGAIN;
 	}
 
+	if ((ses->server->tcpStatus == CifsNeedNegotiate) &&
+	    (shdr->Command != SMB2_NEGOTIATE))
+		return -EAGAIN;
+
 	if (ses->status == CifsNew) {
 		if ((shdr->Command != SMB2_SESSION_SETUP) &&
 		    (shdr->Command != SMB2_NEGOTIATE))

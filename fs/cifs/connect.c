@@ -4930,6 +4930,8 @@ cifs_negotiate_protocol(const unsigned int xid, struct cifs_ses *ses)
 	if (!server->ops->need_neg(server))
 		return 0;
 
+	set_credits(server, 1);
+
 	rc = server->ops->negotiate(xid, ses);
 	if (rc == 0) {
 		spin_lock(&GlobalMid_Lock);
