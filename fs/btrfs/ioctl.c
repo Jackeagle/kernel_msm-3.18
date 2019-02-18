@@ -83,6 +83,17 @@ struct btrfs_ioctl_send_args_32 {
 			       struct btrfs_ioctl_send_args_32)
 #endif
 
+/*
+ * 1 - parent dir inode
+ * 2 - dir entries
+ * 1 - root item
+ * 2 - root ref/backref
+ * 1 - root of snapshot
+ * 1 - UUID item
+ * 1 - properties
+ */
+#define BTRFS_NEW_ROOT_ITEMS 9
+
 static int btrfs_clone(struct inode *src, struct inode *inode,
 		       u64 off, u64 olen, u64 olen_aligned, u64 destoff,
 		       int no_time_update);
@@ -596,7 +607,8 @@ static noinline int create_subvol(struct inode *dir,
 	 * The same as the snapshot creation, please see the comment
 	 * of create_snapshot().
 	 */
-	ret = btrfs_subvolume_reserve_metadata(root, &block_rsv, 8, false);
+	ret = btrfs_subvolume_reserve_metadata(root, &block_rsv,
+					       BTRFS_NEW_ROOT_ITEMS, false);
 	if (ret)
 		goto fail_free;
 
@@ -804,17 +816,10 @@ static int create_snapshot(struct btrfs_root *root, struct inode *dir,
 
 	btrfs_init_block_rsv(&pending_snapshot->block_rsv,
 			     BTRFS_BLOCK_RSV_TEMP);
-	/*
-	 * 1 - parent dir inode
-	 * 2 - dir entries
-	 * 1 - root item
-	 * 2 - root ref/backref
-	 * 1 - root of snapshot
-	 * 1 - UUID item
-	 */
+
 	ret = btrfs_subvolume_reserve_metadata(BTRFS_I(dir)->root,
-					&pending_snapshot->block_rsv, 8,
-					false);
+					&pending_snapshot->block_rsv,
+					BTRFS_NEW_ROOT_ITEMS, false);
 	if (ret)
 		goto dec_and_free;
 
@@ -3242,32 +3247,17 @@ static void btrfs_double_extent_lock(struct inode *inode1, u64 loff1,
 	lock_extent(&BTRFS_I(inode2)->io_tree, loff2, loff2 + len - 1);
 }
 
-static int btrfs_extent_same_range(struct inode *src, u64 loff, u64 olen,
+static int btrfs_extent_same_range(struct inode *src, u64 loff, u64 len,
 				   struct inode *dst, u64 dst_loff)
 {
-	u64 bs = BTRFS_I(src)->root->fs_info->sb->s_blocksize;
 	int ret;
-	u64 len = olen;
-
-	if (loff + len == src->i_size)
-		len = ALIGN(src->i_size, bs) - loff;
-	/*
-	 * For same inode case we don't want our length pushed out past i_size
-	 * as comparing that data range makes no sense.
-	 *
-	 * This effectively means we require aligned extents for the single
-	 * inode case, whereas the other cases allow an unaligned length so long
-	 * as it ends at i_size.
-	 */
-	if (dst == src && len != olen)
-		return -EINVAL;
 
 	/*
 	 * Lock destination range to serialize with concurrent readpages() and
 	 * source range to serialize with relocation.
 	 */
 	btrfs_double_extent_lock(src, loff, dst, dst_loff, len);
-	ret = btrfs_clone(src, dst, loff, olen, len, dst_loff, 1);
+	ret = btrfs_clone(src, dst, loff, len, len, dst_loff, 1);
 	btrfs_double_extent_unlock(src, loff, dst, dst_loff, len);
 
 	return ret;
