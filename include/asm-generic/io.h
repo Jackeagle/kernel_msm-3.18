@@ -811,7 +811,7 @@ static inline void iowrite64be(u64 value, volatile void __iomem *addr)
 #ifndef ioread8_rep
 #define ioread8_rep ioread8_rep
 static inline void ioread8_rep(const volatile void __iomem *addr, void *buffer,
-			       unsigned int count)
+			       unsigned long count)
 {
 	readsb(addr, buffer, count);
 }
@@ -820,7 +820,7 @@ static inline void ioread8_rep(const volatile void __iomem *addr, void *buffer,
 #ifndef ioread16_rep
 #define ioread16_rep ioread16_rep
 static inline void ioread16_rep(const volatile void __iomem *addr,
-				void *buffer, unsigned int count)
+				void *buffer, unsigned long count)
 {
 	readsw(addr, buffer, count);
 }
@@ -829,7 +829,7 @@ static inline void ioread16_rep(const volatile void __iomem *addr,
 #ifndef ioread32_rep
 #define ioread32_rep ioread32_rep
 static inline void ioread32_rep(const volatile void __iomem *addr,
-				void *buffer, unsigned int count)
+				void *buffer, unsigned long count)
 {
 	readsl(addr, buffer, count);
 }
@@ -839,7 +839,7 @@ static inline void ioread32_rep(const volatile void __iomem *addr,
 #ifndef ioread64_rep
 #define ioread64_rep ioread64_rep
 static inline void ioread64_rep(const volatile void __iomem *addr,
-				void *buffer, unsigned int count)
+				void *buffer, unsigned long count)
 {
 	readsq(addr, buffer, count);
 }
@@ -850,7 +850,7 @@ static inline void ioread64_rep(const volatile void __iomem *addr,
 #define iowrite8_rep iowrite8_rep
 static inline void iowrite8_rep(volatile void __iomem *addr,
 				const void *buffer,
-				unsigned int count)
+				unsigned long count)
 {
 	writesb(addr, buffer, count);
 }
@@ -860,7 +860,7 @@ static inline void iowrite8_rep(volatile void __iomem *addr,
 #define iowrite16_rep iowrite16_rep
 static inline void iowrite16_rep(volatile void __iomem *addr,
 				 const void *buffer,
-				 unsigned int count)
+				 unsigned long count)
 {
 	writesw(addr, buffer, count);
 }
@@ -870,7 +870,7 @@ static inline void iowrite16_rep(volatile void __iomem *addr,
 #define iowrite32_rep iowrite32_rep
 static inline void iowrite32_rep(volatile void __iomem *addr,
 				 const void *buffer,
-				 unsigned int count)
+				 unsigned long count)
 {
 	writesl(addr, buffer, count);
 }
@@ -881,7 +881,7 @@ static inline void iowrite32_rep(volatile void __iomem *addr,
 #define iowrite64_rep iowrite64_rep
 static inline void iowrite64_rep(volatile void __iomem *addr,
 				 const void *buffer,
-				 unsigned int count)
+				 unsigned long count)
 {
 	writesq(addr, buffer, count);
 }
