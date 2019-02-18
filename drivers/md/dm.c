@@ -919,6 +919,28 @@ static int __noflush_suspending(struct mapped_device *md)
 	return test_bit(DMF_NOFLUSH_SUSPENDING, &md->flags);
 }
 
+static bool dm_bio_pushback_needed(struct mapped_device *md,
+				   struct bio *bio, blk_status_t *error)
+{
+	unsigned long flags;
+
+	/*
+	 * Target requested pushing back the I/O.
+	 */
+	if (__noflush_suspending(md)) {
+		spin_lock_irqsave(&md->deferred_lock, flags);
+		// FIXME: using bio_list_add_head() creates LIFO
+		bio_list_add_head(&md->deferred, bio);
+		spin_unlock_irqrestore(&md->deferred_lock, flags);
+		return true;
+	} else {
+		/* noflush suspend was interrupted. */
+		*error = BLK_STS_IOERR;
+	}
+
+	return false;
+}
+
 /*
  * Decrements the number of outstanding ios that a bio has been
  * cloned into, completing the original io if necc.
@@ -939,22 +961,12 @@ static void dec_pending(struct dm_io *io, blk_status_t error)
 	}
 
 	if (atomic_dec_and_test(&io->io_count)) {
-		if (io->status == BLK_STS_DM_REQUEUE) {
-			/*
-			 * Target requested pushing back the I/O.
-			 */
-			spin_lock_irqsave(&md->deferred_lock, flags);
-			if (__noflush_suspending(md))
-				/* NOTE early return due to BLK_STS_DM_REQUEUE below */
-				bio_list_add_head(&md->deferred, io->orig_bio);
-			else
-				/* noflush suspend was interrupted. */
-				io->status = BLK_STS_IOERR;
-			spin_unlock_irqrestore(&md->deferred_lock, flags);
-		}
+		bio = io->orig_bio;
+
+		if (unlikely(io->status == BLK_STS_DM_REQUEUE))
+			(void) dm_bio_pushback_needed(md, bio, &io->status);
 
 		io_error = io->status;
-		bio = io->orig_bio;
 
 		if (unlikely(dm_stats_used(&md->stats))) {
 			unsigned long duration = jiffies - io->start_time;
@@ -1041,14 +1053,44 @@ static void clone_endio(struct bio *bio)
 
 static void noclone_endio(struct bio *bio)
 {
+	blk_status_t error = bio->bi_status;
 	struct dm_noclone *noclone = bio->bi_private;
 	struct mapped_device *md = noclone->md;
+	struct dm_target *ti = NULL;
+	dm_endio_fn endio = NULL;
+
+	if (md->immutable_target) {
+		ti = md->immutable_target;
+		endio = ti->type->end_io;
+	}
+
+	if (endio) {
+		int r = endio(ti, bio, &error);
+		switch (r) {
+		case DM_ENDIO_REQUEUE:
+			error = BLK_STS_DM_REQUEUE;
+			/*FALLTHRU*/
+		case DM_ENDIO_DONE:
+			break;
+		case DM_ENDIO_INCOMPLETE:
+			/* The target will handle the io */
+			return;
+		default:
+			DMWARN("unimplemented target endio return value: %d", r);
+			BUG();
+		}
+	}
 
 	end_io_acct(md, bio, noclone->start_time);
 
 	bio->bi_end_io = noclone->orig_bi_end_io;
 	bio->bi_private = noclone->orig_bi_private;
 	kfree(noclone);
+
+	if (unlikely(error == BLK_STS_DM_REQUEUE)) {
+		if (dm_bio_pushback_needed(md, bio, &bio->bi_status))
+			return;
+	}
 
 	bio_endio(bio);
 }
@@ -2252,15 +2294,7 @@ static struct dm_table *__bind(struct mapped_device *md, struct dm_table *t,
 	if (request_based)
 		dm_stop_queue(q);
 
-	if (request_based || md->type == DM_TYPE_NVME_BIO_BASED) {
-		/*
-		 * Leverage the fact that request-based DM targets and
-		 * NVMe bio based targets are immutable singletons
-		 * - used to optimize both dm_request_fn and dm_mq_queue_rq;
-		 *   and __process_bio.
-		 */
-		md->immutable_target = dm_table_get_immutable_target(t);
-	}
+	md->immutable_target = dm_table_get_immutable_target(t);
 
 	ret = __bind_mempools(md, t);
 	if (ret) {
