@@ -91,3 +91,28 @@ Description:
 		memory section directory.  For example, the following symbolic
 		link is created for memory section 9 on node0.
 		/sys/devices/system/node/node0/memory9 -> ../../memory/memory9
+
+What:		/sys/devices/system/memory/probe
+Date:		October 2005
+Contact:	Linux Memory Management list <linux-mm@kvack.org>
+Description:
+		The file /sys/devices/system/memory/probe is write-only, and
+		when written will simulate a physical hot-add of a memory
+		section at the given address. For example, assuming a section
+		of unused memory exists at physical address 0x80000000, it can
+		be introduced to the kernel with the following command:
+		# echo 0x80000000 > /sys/devices/system/memory/probe
+Users:		Memory hotplug testing and development
+
+What:		/sys/devices/system/memory/memoryX/remove
+Date:		February 2019
+Contact:	Linux Memory Management list <linux-mm@kvack.org>
+Description:
+		The file /sys/devices/system/memory/memoryX/remove is
+		write-only, and when written with a boolean 'true' value will
+		simulate a physical hot-remove of that memory section. For
+		example, assuming a 1GB section size, the section added by the
+		above "probe" example could be removed again with the following
+		command:
+		# echo 1 > /sys/devices/system/memory/memory2/remove
+Users:		Memory hotplug testing and development

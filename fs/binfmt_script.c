@@ -20,6 +20,7 @@ static int load_script(struct linux_binprm *bprm)
 	char *cp;
 	struct file *file;
 	int retval;
+	bool truncated = false, end_of_interp = false;
 
 	if ((bprm->buf[0] != '#') || (bprm->buf[1] != '!'))
 		return -ENOEXEC;
@@ -42,28 +43,56 @@ static int load_script(struct linux_binprm *bprm)
 	fput(bprm->file);
 	bprm->file = NULL;
 
-	bprm->buf[BINPRM_BUF_SIZE - 1] = '\0';
-	if ((cp = strchr(bprm->buf, '\n')) == NULL)
-		cp = bprm->buf+BINPRM_BUF_SIZE-1;
+	/*
+	 * Truncating interpreter arguments is okay: the interpreter
+	 * can re-read the script to parse them on its own. Truncating
+	 * the interpreter path itself, though, is bad. Note truncation
+	 * here, and check for either newline or start of arguments
+	 * below.
+	 */
+	for (cp = bprm->buf+2;; cp++) {
+		if (!*cp || (*cp == '\n')) {
+			end_of_interp = true;
+			break;
+		}
+		if (cp == bprm->buf + BINPRM_BUF_SIZE - 1) {
+			truncated = true;
+			break;
+		}
+	}
 	*cp = '\0';
+
+	/* Truncate trailing whitespace */
 	while (cp > bprm->buf) {
 		cp--;
-		if ((*cp == ' ') || (*cp == '\t'))
+		if ((*cp == ' ') || (*cp == '\t')) {
+			end_of_interp = true;
 			*cp = '\0';
-		else
+		} else
 			break;
 	}
+	/* Skip leading whitespace */
 	for (cp = bprm->buf+2; (*cp == ' ') || (*cp == '\t'); cp++);
 	if (*cp == '\0')
 		return -ENOEXEC; /* No interpreter name found */
 	i_name = cp;
 	i_arg = NULL;
+	/*
+	 * Skip until end of string or finding whitespace which
+	 * signals the start of interpreter arguments.
+	 */
 	for ( ; *cp && (*cp != ' ') && (*cp != '\t'); cp++)
 		/* nothing */ ;
-	while ((*cp == ' ') || (*cp == '\t'))
+	/* Truncate and skip any whitespace in front of arguments */
+	while ((*cp == ' ') || (*cp == '\t')) {
+		end_of_interp = true;
 		*cp++ = '\0';
+	}
 	if (*cp)
 		i_arg = cp;
+	/* Fail exec if the name of the interpreter was cut off. */
+	if (truncated && !end_of_interp)
+		return -ENOEXEC;
 	/*
 	 * OK, we've parsed out the interpreter name and
 	 * (optional) argument.
