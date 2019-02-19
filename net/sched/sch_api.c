@@ -758,8 +758,7 @@ static u32 qdisc_alloc_handle(struct net_device *dev)
 	return 0;
 }
 
-void qdisc_tree_reduce_backlog(struct Qdisc *sch, unsigned int n,
-			       unsigned int len)
+void qdisc_tree_reduce_backlog(struct Qdisc *sch, int n, int len)
 {
 	bool qdisc_is_offloaded = sch->flags & TCQ_F_OFFLOADED;
 	const struct Qdisc_class_ops *cops;
@@ -1202,9 +1201,11 @@ static struct Qdisc *qdisc_create(struct net_device *dev,
 	} else {
 		if (handle == 0) {
 			handle = qdisc_alloc_handle(dev);
-			err = -ENOMEM;
-			if (handle == 0)
+			if (handle == 0) {
+				NL_SET_ERR_MSG(extack, "Maximum number of qdisc handles was exceeded");
+				err = -ENOSPC;
 				goto err_out3;
+			}
 		}
 		if (!netif_is_multiqueue(dev))
 			sch->flags |= TCQ_F_ONETXQUEUE;
@@ -1910,17 +1911,19 @@ static void tc_bind_tclass(struct Qdisc *q, u32 portid, u32 clid,
 	block = cops->tcf_block(q, cl, NULL);
 	if (!block)
 		return;
-	list_for_each_entry(chain, &block->chain_list, list) {
+	for (chain = tcf_get_next_chain(block, NULL);
+	     chain;
+	     chain = tcf_get_next_chain(block, chain)) {
 		struct tcf_proto *tp;
 
-		for (tp = rtnl_dereference(chain->filter_chain);
-		     tp; tp = rtnl_dereference(tp->next)) {
+		for (tp = tcf_get_next_proto(chain, NULL, true);
+		     tp; tp = tcf_get_next_proto(chain, tp, true)) {
 			struct tcf_bind_args arg = {};
 
 			arg.w.fn = tcf_node_bind;
 			arg.classid = clid;
 			arg.cl = new_cl;
-			tp->ops->walk(tp, &arg.w);
+			tp->ops->walk(tp, &arg.w, true);
 		}
 	}
 }
