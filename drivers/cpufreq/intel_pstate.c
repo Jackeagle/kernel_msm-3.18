@@ -50,6 +50,8 @@
 #define int_tofp(X) ((int64_t)(X) << FRAC_BITS)
 #define fp_toint(X) ((X) >> FRAC_BITS)
 
+#define ONE_EIGHTH_FP ((int64_t)1 << (FRAC_BITS - 3))
+
 #define EXT_BITS 6
 #define EXT_FRAC_BITS (EXT_BITS + FRAC_BITS)
 #define fp_ext_toint(X) ((X) >> EXT_FRAC_BITS)
@@ -1445,12 +1447,6 @@ static int knl_get_turbo_pstate(void)
 	return ret;
 }
 
-static int intel_pstate_get_base_pstate(struct cpudata *cpu)
-{
-	return global.no_turbo || global.turbo_disabled ?
-			cpu->pstate.max_pstate : cpu->pstate.turbo_pstate;
-}
-
 static void intel_pstate_set_pstate(struct cpudata *cpu, int pstate)
 {
 	trace_cpu_frequency(pstate * cpu->pstate.scaling, cpu->cpu);
@@ -1471,11 +1467,9 @@ static void intel_pstate_set_min_pstate(struct cpudata *cpu)
 
 static void intel_pstate_max_within_limits(struct cpudata *cpu)
 {
-	int pstate;
+	int pstate = max(cpu->pstate.min_pstate, cpu->max_perf_ratio);
 
 	update_turbo_state();
-	pstate = intel_pstate_get_base_pstate(cpu);
-	pstate = max(cpu->pstate.min_pstate, cpu->max_perf_ratio);
 	intel_pstate_set_pstate(cpu, pstate);
 }
 
@@ -1679,17 +1673,14 @@ static inline int32_t get_avg_pstate(struct cpudata *cpu)
 static inline int32_t get_target_pstate(struct cpudata *cpu)
 {
 	struct sample *sample = &cpu->sample;
-	int32_t busy_frac, boost;
+	int32_t busy_frac;
 	int target, avg_pstate;
 
 	busy_frac = div_fp(sample->mperf << cpu->aperf_mperf_shift,
 			   sample->tsc);
 
-	boost = cpu->iowait_boost;
-	cpu->iowait_boost >>= 1;
-
-	if (busy_frac < boost)
-		busy_frac = boost;
+	if (busy_frac < cpu->iowait_boost)
+		busy_frac = cpu->iowait_boost;
 
 	sample->busy_scaled = busy_frac * 100;
 
@@ -1716,11 +1707,9 @@ static inline int32_t get_target_pstate(struct cpudata *cpu)
 
 static int intel_pstate_prepare_request(struct cpudata *cpu, int pstate)
 {
-	int max_pstate = intel_pstate_get_base_pstate(cpu);
-	int min_pstate;
+	int min_pstate = max(cpu->pstate.min_pstate, cpu->min_perf_ratio);
+	int max_pstate = max(min_pstate, cpu->max_perf_ratio);
 
-	min_pstate = max(cpu->pstate.min_pstate, cpu->min_perf_ratio);
-	max_pstate = max(min_pstate, cpu->max_perf_ratio);
 	return clamp_t(int, pstate, min_pstate, max_pstate);
 }
 
@@ -1768,29 +1757,30 @@ static void intel_pstate_update_util(struct update_util_data *data, u64 time,
 	if (smp_processor_id() != cpu->cpu)
 		return;
 
+	delta_ns = time - cpu->last_update;
 	if (flags & SCHED_CPUFREQ_IOWAIT) {
-		cpu->iowait_boost = int_tofp(1);
-		cpu->last_update = time;
-		/*
-		 * The last time the busy was 100% so P-state was max anyway
-		 * so avoid overhead of computation.
-		 */
-		if (fp_toint(cpu->sample.busy_scaled) == 100)
-			return;
-
-		goto set_pstate;
+		/* Start over if the CPU may have been idle. */
+		if (delta_ns > TICK_NSEC) {
+			cpu->iowait_boost = ONE_EIGHTH_FP;
+		} else if (cpu->iowait_boost) {
+			cpu->iowait_boost <<= 1;
+			if (cpu->iowait_boost > int_tofp(1))
+				cpu->iowait_boost = int_tofp(1);
+		} else {
+			cpu->iowait_boost = ONE_EIGHTH_FP;
+		}
 	} else if (cpu->iowait_boost) {
 		/* Clear iowait_boost if the CPU may have been idle. */
-		delta_ns = time - cpu->last_update;
 		if (delta_ns > TICK_NSEC)
 			cpu->iowait_boost = 0;
+		else
+			cpu->iowait_boost >>= 1;
 	}
 	cpu->last_update = time;
 	delta_ns = time - cpu->sample.time;
 	if ((s64)delta_ns < INTEL_PSTATE_SAMPLING_INTERVAL)
 		return;
 
-set_pstate:
 	if (intel_pstate_sample(cpu, time))
 		intel_pstate_adjust_pstate(cpu);
 }
@@ -1977,7 +1967,8 @@ static void intel_pstate_update_perf_limits(struct cpufreq_policy *policy,
 	if (hwp_active) {
 		intel_pstate_get_hwp_max(cpu->cpu, &turbo_max, &max_state);
 	} else {
-		max_state = intel_pstate_get_base_pstate(cpu);
+		max_state = global.no_turbo || global.turbo_disabled ?
+			cpu->pstate.max_pstate : cpu->pstate.turbo_pstate;
 		turbo_max = cpu->pstate.turbo_pstate;
 	}
 
