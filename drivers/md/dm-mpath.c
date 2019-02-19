@@ -1178,9 +1178,10 @@ static int multipath_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	ti->num_discard_bios = 1;
 	ti->num_write_same_bios = 1;
 	ti->num_write_zeroes_bios = 1;
-	if (m->queue_mode == DM_TYPE_BIO_BASED)
+	if (m->queue_mode == DM_TYPE_BIO_BASED) {
+		ti->no_clone = true;
 		ti->per_io_data_size = multipath_per_bio_data_size();
-	else
+	} else
 		ti->per_io_data_size = sizeof(struct dm_mpath_io);
 
 	return 0;
@@ -1584,11 +1585,11 @@ static int multipath_end_io(struct dm_target *ti, struct request *clone,
 	return r;
 }
 
-static int multipath_end_io_bio(struct dm_target *ti, struct bio *clone,
+static int multipath_end_io_bio(struct dm_target *ti, struct bio *bio,
 				blk_status_t *error)
 {
 	struct multipath *m = ti->private;
-	struct dm_mpath_io *mpio = get_mpio_from_bio(clone);
+	struct dm_mpath_io *mpio = get_mpio_from_bio(bio);
 	struct pgpath *pgpath = mpio->pgpath;
 	unsigned long flags;
 	int r = DM_ENDIO_DONE;
@@ -1611,7 +1612,7 @@ static int multipath_end_io_bio(struct dm_target *ti, struct bio *clone,
 	}
 
 	spin_lock_irqsave(&m->lock, flags);
-	bio_list_add(&m->queued_bios, clone);
+	bio_list_add(&m->queued_bios, bio);
 	spin_unlock_irqrestore(&m->lock, flags);
 	if (!test_bit(MPATHF_QUEUE_IO, &m->flags))
 		queue_work(kmultipathd, &m->process_queued_bios);
@@ -2011,7 +2012,7 @@ static int multipath_busy(struct dm_target *ti)
  *---------------------------------------------------------------*/
 static struct target_type multipath_target = {
 	.name = "multipath",
-	.version = {1, 13, 0},
+	.version = {1, 14, 0},
 	.features = DM_TARGET_SINGLETON | DM_TARGET_IMMUTABLE |
 		    DM_TARGET_PASSES_INTEGRITY,
 	.module = THIS_MODULE,
