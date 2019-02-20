@@ -2544,26 +2544,6 @@ done:
 	return ret;
 }
 
-static void key_search_validate(struct extent_buffer *b,
-				const struct btrfs_key *key,
-				int level)
-{
-#ifdef CONFIG_BTRFS_ASSERT
-	struct btrfs_disk_key disk_key;
-
-	btrfs_cpu_key_to_disk(&disk_key, key);
-
-	if (level == 0)
-		ASSERT(!memcmp_extent_buffer(b, &disk_key,
-		    offsetof(struct btrfs_leaf, items[0].key),
-		    sizeof(disk_key)));
-	else
-		ASSERT(!memcmp_extent_buffer(b, &disk_key,
-		    offsetof(struct btrfs_node, ptrs[0].key),
-		    sizeof(disk_key)));
-#endif
-}
-
 static int key_search(struct extent_buffer *b, const struct btrfs_key *key,
 		      int level, int *prev_cmp, int *slot)
 {
@@ -2572,7 +2552,6 @@ static int key_search(struct extent_buffer *b, const struct btrfs_key *key,
 		return *prev_cmp;
 	}
 
-	key_search_validate(b, key, level);
 	*slot = 0;
 
 	return 0;
@@ -3020,6 +2999,8 @@ again:
 		 */
 		prev_cmp = -1;
 		ret = key_search(b, key, level, &prev_cmp, &slot);
+		if (ret < 0)
+			goto done;
 
 		if (level != 0) {
 			int dec = 0;
@@ -5171,6 +5152,10 @@ again:
 		nritems = btrfs_header_nritems(cur);
 		level = btrfs_header_level(cur);
 		sret = btrfs_bin_search(cur, min_key, level, &slot);
+		if (sret < 0) {
+			ret = sret;
+			goto out;
+		}
 
 		/* at the lowest level, we're done, setup the path and exit */
 		if (level == path->lowest_level) {
