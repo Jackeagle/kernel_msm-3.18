@@ -52,6 +52,16 @@
 #define cache_line_size()	SMP_CACHE_BYTES
 #define ARCH_DMA_MINALIGN	SMP_CACHE_BYTES
 
+/*
+ * Make sure slab-allocated buffers are 64-bit aligned.
+ * This is required for llockd/scondd to deal with 64-bit aligned dwords.
+ * By default ARCH_SLAB_MINALIGN is __alignof__(long long) which in
+ * case of ARC is 4 instead of 8!
+ */
+#ifdef CONFIG_ARC_HAS_LL64
+#define ARCH_SLAB_MINALIGN	8
+#endif
+
 extern void arc_cache_init(void);
 extern char *arc_cache_mumbojumbo(int cpu_id, char *buf, int len);
 extern void read_decode_cache_bcr(void);
