@@ -533,7 +533,27 @@ struct sk_filter {
 	struct bpf_prog	*prog;
 };
 
-#define BPF_PROG_RUN(filter, ctx)  ({ cant_sleep(); (*(filter)->bpf_func)(ctx, (filter)->insnsi); })
+#define __bpf_prog_run(prog, ctx)		\
+	(*(prog)->bpf_func)(ctx, (prog)->insnsi)
+#define __bpf_prog_run__may_preempt(prog, ctx)	\
+	({ __bpf_prog_run(prog, ctx); })
+#define __bpf_prog_run__non_preempt(prog, ctx)	\
+	({ cant_sleep(); __bpf_prog_run(prog, ctx); })
+
+/* Preemption must be disabled when native eBPF programs are run in
+ * order to not break per CPU data structures, for example; make
+ * sure to throw a stack trace under CONFIG_DEBUG_ATOMIC_SLEEP when
+ * we find that preemption is still enabled.
+ *
+ * Only exception today is seccomp, where progs have transitioned
+ * from cBPF to eBPF, and native eBPF is _not_ supported. They can
+ * safely run with preemption enabled.
+ */
+#define BPF_PROG_RUN(prog, ctx)			\
+	__bpf_prog_run__non_preempt(prog, ctx)
+
+#define SECCOMP_RUN(prog, ctx)			\
+	__bpf_prog_run__may_preempt(prog, ctx)
 
 #define BPF_SKB_CB_LEN QDISC_CB_PRIV_LEN
 
