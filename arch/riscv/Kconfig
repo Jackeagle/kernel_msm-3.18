@@ -93,9 +93,6 @@ config PGTABLE_LEVELS
 	default 3 if 64BIT
 	default 2
 
-config HAVE_KPROBES
-	def_bool n
-
 menu "Platform type"
 
 choice
