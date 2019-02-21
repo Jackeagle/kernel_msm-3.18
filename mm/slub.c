@@ -1643,12 +1643,15 @@ static struct page *allocate_slab(struct kmem_cache *s, gfp_t flags, int node)
 	if (page_is_pfmemalloc(page))
 		SetPageSlabPfmemalloc(page);
 
+	kasan_poison_slab(page);
+
 	start = page_address(page);
 
-	if (unlikely(s->flags & SLAB_POISON))
+	if (unlikely(s->flags & SLAB_POISON)) {
+		metadata_access_enable();
 		memset(start, POISON_INUSE, PAGE_SIZE << order);
-
-	kasan_poison_slab(page);
+		metadata_access_disable();
+	}
 
 	shuffle = shuffle_freelist(s, page);
 
