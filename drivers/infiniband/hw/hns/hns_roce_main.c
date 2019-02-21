@@ -226,6 +226,11 @@ static int hns_roce_query_device(struct ib_device *ib_dev,
 		props->max_srq_sge = hr_dev->caps.max_srq_sges;
 	}
 
+	if (hr_dev->caps.flags & HNS_ROCE_CAP_FLAG_FRMR) {
+		props->device_cap_flags |= IB_DEVICE_MEM_MGT_EXTENSIONS;
+		props->max_fast_reg_page_list_len = HNS_ROCE_FRMR_MAX_PA;
+	}
+
 	return 0;
 }
 
@@ -343,7 +348,7 @@ static struct ib_ucontext *hns_roce_alloc_ucontext(struct ib_device *ib_dev,
 
 	resp.qp_tab_size = hr_dev->caps.num_qps;
 
-	context = kmalloc(sizeof(*context), GFP_KERNEL);
+	context = kzalloc(sizeof(*context), GFP_KERNEL);
 	if (!context)
 		return ERR_PTR(-ENOMEM);
 
@@ -472,6 +477,7 @@ static const struct ib_device_ops hns_roce_dev_ops = {
 	.query_pkey = hns_roce_query_pkey,
 	.query_port = hns_roce_query_port,
 	.reg_user_mr = hns_roce_reg_user_mr,
+	INIT_RDMA_OBJ_SIZE(ib_pd, hns_roce_pd, ibpd),
 };
 
 static const struct ib_device_ops hns_roce_dev_mr_ops = {
@@ -564,7 +570,7 @@ static int hns_roce_register_device(struct hns_roce_dev *hr_dev)
 	ib_dev->driver_id = RDMA_DRIVER_HNS;
 	ib_set_device_ops(ib_dev, hr_dev->hw->hns_roce_dev_ops);
 	ib_set_device_ops(ib_dev, &hns_roce_dev_ops);
-	ret = ib_register_device(ib_dev, "hns_%d", NULL);
+	ret = ib_register_device(ib_dev, "hns_%d");
 	if (ret) {
 		dev_err(dev, "ib_register_device failed!\n");
 		return ret;
@@ -702,7 +708,61 @@ static int hns_roce_init_hem(struct hns_roce_dev *hr_dev)
 		}
 	}
 
+	if (hr_dev->caps.sccc_entry_sz) {
+		ret = hns_roce_init_hem_table(hr_dev,
+					      &hr_dev->qp_table.sccc_table,
+					      HEM_TYPE_SCCC,
+					      hr_dev->caps.sccc_entry_sz,
+					      hr_dev->caps.num_qps, 1);
+		if (ret) {
+			dev_err(dev,
+			      "Failed to init SCC context memory, aborting.\n");
+			goto err_unmap_idx;
+		}
+	}
+
+	if (hr_dev->caps.qpc_timer_entry_sz) {
+		ret = hns_roce_init_hem_table(hr_dev,
+					      &hr_dev->qpc_timer_table,
+					      HEM_TYPE_QPC_TIMER,
+					      hr_dev->caps.qpc_timer_entry_sz,
+					      hr_dev->caps.num_qpc_timer, 1);
+		if (ret) {
+			dev_err(dev,
+			      "Failed to init QPC timer memory, aborting.\n");
+			goto err_unmap_ctx;
+		}
+	}
+
+	if (hr_dev->caps.cqc_timer_entry_sz) {
+		ret = hns_roce_init_hem_table(hr_dev,
+					      &hr_dev->cqc_timer_table,
+					      HEM_TYPE_CQC_TIMER,
+					      hr_dev->caps.cqc_timer_entry_sz,
+					      hr_dev->caps.num_cqc_timer, 1);
+		if (ret) {
+			dev_err(dev,
+			      "Failed to init CQC timer memory, aborting.\n");
+			goto err_unmap_qpc_timer;
+		}
+	}
+
 	return 0;
+
+err_unmap_qpc_timer:
+	if (hr_dev->caps.qpc_timer_entry_sz)
+		hns_roce_cleanup_hem_table(hr_dev,
+					   &hr_dev->qpc_timer_table);
+
+err_unmap_ctx:
+	if (hr_dev->caps.sccc_entry_sz)
+		hns_roce_cleanup_hem_table(hr_dev,
+					   &hr_dev->qp_table.sccc_table);
+
+err_unmap_idx:
+	if (hr_dev->caps.num_idx_segs)
+		hns_roce_cleanup_hem_table(hr_dev,
+					   &hr_dev->mr_table.mtt_idx_table);
 
 err_unmap_srqwqe:
 	if (hr_dev->caps.num_srqwqe_segs)
