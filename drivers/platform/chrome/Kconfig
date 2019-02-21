@@ -83,7 +83,7 @@ config CROS_EC_LPC
 
 config CROS_EC_LPC_MEC
 	bool "ChromeOS Embedded Controller LPC Microchip EC (MEC) variant"
-	depends on CROS_EC_LPC
+	depends on CROS_EC_LPC || WILCO_EC
 	default n
 	help
 	  If you say Y here, a variant LPC protocol for the Microchip EC
@@ -151,5 +151,7 @@ config CROS_EC_SYSFS
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called cros_ec_sysfs.
+
+source "drivers/platform/chrome/wilco_ec/Kconfig"
 
 endif # CHROMEOS_PLATFORMS
