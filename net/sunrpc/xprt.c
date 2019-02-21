@@ -49,6 +49,7 @@
 #include <linux/sunrpc/metrics.h>
 #include <linux/sunrpc/bc_xprt.h>
 #include <linux/rcupdate.h>
+#include <linux/sched/mm.h>
 
 #include <trace/events/sunrpc.h>
 
@@ -643,11 +644,13 @@ static void xprt_autoclose(struct work_struct *work)
 {
 	struct rpc_xprt *xprt =
 		container_of(work, struct rpc_xprt, task_cleanup);
+	unsigned int pflags = memalloc_nofs_save();
 
 	clear_bit(XPRT_CLOSE_WAIT, &xprt->state);
 	xprt->ops->close(xprt);
 	xprt_release_write(xprt, NULL);
 	wake_up_bit(&xprt->state, XPRT_LOCKED);
+	memalloc_nofs_restore(pflags);
 }
 
 /**
@@ -1599,7 +1602,6 @@ xprt_request_init(struct rpc_task *task)
 	req->rq_buffer  = NULL;
 	req->rq_xid	= xprt_alloc_xid(xprt);
 	xprt_init_connect_cookie(req, xprt);
-	req->rq_bytes_sent = 0;
 	req->rq_snd_buf.len = 0;
 	req->rq_snd_buf.buflen = 0;
 	req->rq_rcv_buf.len = 0;
@@ -1721,6 +1723,7 @@ void xprt_release(struct rpc_task *task)
 		xprt->ops->buf_free(task);
 	xprt_inject_disconnect(xprt);
 	xdr_free_bvec(&req->rq_rcv_buf);
+	xdr_free_bvec(&req->rq_snd_buf);
 	if (req->rq_cred != NULL)
 		put_rpccred(req->rq_cred);
 	task->tk_rqstp = NULL;
@@ -1749,7 +1752,6 @@ xprt_init_bc_request(struct rpc_rqst *req, struct rpc_task *task)
 	 */
 	xbufp->len = xbufp->head[0].iov_len + xbufp->page_len +
 		xbufp->tail[0].iov_len;
-	req->rq_bytes_sent = 0;
 }
 #endif
 
