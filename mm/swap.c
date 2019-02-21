@@ -660,6 +660,7 @@ static void lru_add_drain_per_cpu(struct work_struct *dummy)
 
 static DEFINE_PER_CPU(struct work_struct, lru_add_drain_work);
 
+#ifdef CONFIG_SMP
 /*
  * Doesn't need any cpu hotplug locking because we do rely on per-cpu
  * kworkers being shut down before our page_alloc_cpu_dead callback is
@@ -702,6 +703,12 @@ void lru_add_drain_all(void)
 
 	mutex_unlock(&lock);
 }
+#else
+void lru_add_drain_all(void)
+{
+	lru_add_drain();
+}
+#endif
 
 /**
  * release_pages - batched put_page()
