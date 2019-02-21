@@ -2218,12 +2218,25 @@ int cpufreq_get_policy(struct cpufreq_policy *policy, unsigned int cpu)
 }
 EXPORT_SYMBOL(cpufreq_get_policy);
 
-/*
- * policy : current policy.
- * new_policy: policy to be set.
+/**
+ * cpufreq_set_policy - Modify cpufreq policy parameters.
+ * @policy: Policy object to modify.
+ * @new_policy: New policy data.
+ *
+ * Pass @new_policy to the cpufreq driver's ->verify() callback, run the
+ * installed policy notifiers for it with the CPUFREQ_ADJUST value, pass it to
+ * the driver's ->verify() callback again and run the notifiers for it again
+ * with the CPUFREQ_NOTIFY value.  Next, copy the min and max parameters
+ * of @new_policy to @policy and either invoke the driver's ->setpolicy()
+ * callback (if present) or carry out a governor update for @policy.  That is,
+ * run the current governor's ->limits() callback (if the governor field in
+ * @new_policy points to the same object as the one in @policy) or replace the
+ * governor for @policy with the new one stored in @new_policy.
+ *
+ * The cpuinfo part of @policy is not updated by this function.
  */
 static int cpufreq_set_policy(struct cpufreq_policy *policy,
-				struct cpufreq_policy *new_policy)
+			      struct cpufreq_policy *new_policy)
 {
 	struct cpufreq_governor *old_gov;
 	int ret;
@@ -2273,11 +2286,11 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 	if (cpufreq_driver->setpolicy) {
 		policy->policy = new_policy->policy;
 		pr_debug("setting range\n");
-		return cpufreq_driver->setpolicy(new_policy);
+		return cpufreq_driver->setpolicy(policy);
 	}
 
 	if (new_policy->governor == policy->governor) {
-		pr_debug("cpufreq: governor limits update\n");
+		pr_debug("governor limits update\n");
 		cpufreq_governor_limits(policy);
 		return 0;
 	}
@@ -2298,7 +2311,7 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 	if (!ret) {
 		ret = cpufreq_start_governor(policy);
 		if (!ret) {
-			pr_debug("cpufreq: governor change\n");
+			pr_debug("governor change\n");
 			sched_cpufreq_governor_change(policy, old_gov);
 			return 0;
 		}
@@ -2319,11 +2332,14 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 }
 
 /**
- *	cpufreq_update_policy - re-evaluate an existing cpufreq policy
- *	@cpu: CPU which shall be re-evaluated
+ * cpufreq_update_policy - Re-evaluate an existing cpufreq policy.
+ * @cpu: CPU to re-evaluate the policy for.
  *
- *	Useful for policy notifiers which have different necessities
- *	at different times.
+ * Update the current frequency for the cpufreq policy of @cpu and use
+ * cpufreq_set_policy() to re-apply the min and max limits saved in the
+ * user_policy sub-structure of that policy, which triggers the evaluation
+ * of policy notifiers and the cpufreq driver's ->verify() callback for the
+ * policy in question, among other things.
  */
 void cpufreq_update_policy(unsigned int cpu)
 {
@@ -2338,23 +2354,18 @@ void cpufreq_update_policy(unsigned int cpu)
 	if (policy_is_inactive(policy))
 		goto unlock;
 
-	pr_debug("updating policy for CPU %u\n", cpu);
-	memcpy(&new_policy, policy, sizeof(*policy));
-	new_policy.min = policy->user_policy.min;
-	new_policy.max = policy->user_policy.max;
-
 	/*
 	 * BIOS might change freq behind our back
 	 * -> ask driver for current freq and notify governors about a change
 	 */
-	if (cpufreq_driver->get && !cpufreq_driver->setpolicy) {
-		if (cpufreq_suspended)
-			goto unlock;
+	if (cpufreq_driver->get && !cpufreq_driver->setpolicy &&
+	    (cpufreq_suspended || WARN_ON(!cpufreq_update_current_freq(policy))))
+		goto unlock;
 
-		new_policy.cur = cpufreq_update_current_freq(policy);
-		if (WARN_ON(!new_policy.cur))
-			goto unlock;
-	}
+	pr_debug("updating policy for CPU %u\n", cpu);
+	memcpy(&new_policy, policy, sizeof(*policy));
+	new_policy.min = policy->user_policy.min;
+	new_policy.max = policy->user_policy.max;
 
 	cpufreq_set_policy(policy, &new_policy);
 
