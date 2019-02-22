@@ -1831,15 +1831,16 @@ static blk_qc_t dm_process_bio(struct mapped_device *md,
 	    likely(!bio_integrity(bio)) && /* integrity requires specialized processing */
 	    likely(!dm_stats_used(&md->stats))) { /* noclone doesn't support dm-stats */
 		int r;
-		struct dm_noclone *noclone;
-
-		/* Already been here if bio->bi_end_io is noclone_endio, reentered via dm_wq_work() */
-		if (bio->bi_end_io != noclone_endio) {
+		/*
+		 * Only allocate noclone if in ->make_request_fn, otherwise
+		 * leak could occur due to reentering (e.g. from dm_wq_work)
+		 */
+		if (current->bio_list) {
+			struct dm_noclone *noclone;
 			noclone = kmalloc_node(sizeof(*noclone) + ti->per_io_data_size + sizeof(unsigned),
 					       GFP_NOWAIT, md->numa_node_id);
 			if (unlikely(!noclone))
 				goto no_fast_path;
-
 			noclone->md = md;
 			noclone->start_time = jiffies;
 			noclone->orig_bi_end_io = bio->bi_end_io;
