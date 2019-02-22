@@ -1820,9 +1820,8 @@ static blk_qc_t dm_process_bio(struct mapped_device *md,
 		 *   require late _DM_ initiated splitting (e.g. dm_accept_partial_bio()
 		 *   callers) shouldn't set ti->no_clone.
 		 */
-		if (is_abnormal_io(bio))
-			blk_queue_split(md->queue, &bio);
-		else
+		blk_queue_split(md->queue, &bio);
+		if (!is_abnormal_io(bio))
 			dm_queue_split(md, ti, &bio);
 	}
 
@@ -1847,8 +1846,7 @@ static blk_qc_t dm_process_bio(struct mapped_device *md,
 			noclone->orig_bi_private = bio->bi_private;
 			bio->bi_end_io = noclone_endio;
 			bio->bi_private = noclone;
-		} else
-			noclone = bio->bi_private;
+		}
 
 		start_io_acct(md, bio);
 		r = ti->type->map(ti, bio);
