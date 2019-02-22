@@ -317,10 +317,13 @@ struct dm_target {
 	bool discards_supported:1;
 
 	/*
-	 * Set if the target required discard bios to be split
-	 * on max_io_len boundary.
+	 * Set if this target can process bios without cloning them.
+	 * The target's per bio processing must be fast enough that DM core's
+	 * cloning is not dwarfed by per-bio work in the target.
+	 * This also implies the target is sufficiently simple so as not to
+	 * require complex block capabilities (e.g. integrity, cloning, etc).
 	 */
-	bool split_discard_bios:1;
+	bool no_clone:1;
 };
 
 /* Each target can link one of these into the table */
@@ -609,7 +612,7 @@ do {									\
  */
 #define dm_target_offset(ti, sector) ((sector) - (ti)->begin)
 
-static inline sector_t to_sector(unsigned long n)
+static inline sector_t to_sector(unsigned long long n)
 {
 	return (n >> SECTOR_SHIFT);
 }
