@@ -1832,6 +1832,15 @@ static blk_qc_t dm_process_bio(struct mapped_device *md,
 	    likely(!dm_stats_used(&md->stats))) { /* noclone doesn't support dm-stats */
 		int r;
 		/*
+		 * dm_queue_split() is not possible in the case of stacked noclone
+		 * (e.g. noclone linear on noclone striped device) because noclone
+		 * support and bio_chain() are mutually exclussive IFF noclone
+		 * precedes bio_chain() -- due to bio_chain() (ab)using ->bi_private
+		 * and ->bi_end_io without first saving them!
+		 */
+		if (unlikely(bio_sectors(bio) > max_io_len(bio->bi_iter.bi_sector, ti)))
+			goto no_fast_path;
+		/*
 		 * Only allocate noclone if in ->make_request_fn, otherwise
 		 * leak could occur due to reentering (e.g. from dm_wq_work)
 		 */
