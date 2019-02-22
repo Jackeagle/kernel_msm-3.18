@@ -1784,6 +1784,73 @@ static void dm_queue_split(struct mapped_device *md, struct dm_target *ti, struc
 	}
 }
 
+static bool dm_noclone_process_bio(struct mapped_device *md, struct dm_target *ti,
+				   struct bio *bio, blk_qc_t *ret)
+{
+	int r;
+
+	if ((bio_op(bio) == REQ_OP_READ || bio_op(bio) == REQ_OP_WRITE) &&
+	    likely(!(bio->bi_opf & REQ_PREFLUSH)) &&
+	    likely(!bio_integrity(bio)) && /* integrity requires specialized processing */
+	    likely(!dm_stats_used(&md->stats))) { /* noclone doesn't support dm-stats */
+		/*
+		 * dm_queue_split() is not possible in the case of stacked noclone
+		 * (e.g. noclone linear on noclone striped device) because noclone
+		 * support and bio_chain() are mutually exclussive IFF noclone
+		 * precedes bio_chain() -- due to bio_chain() (ab)using ->bi_private
+		 * and ->bi_end_io without first saving them!
+		 */
+		if (unlikely(bio_sectors(bio) > max_io_len(bio->bi_iter.bi_sector, ti)))
+			return false;
+		/*
+		 * Only allocate noclone if in ->make_request_fn, otherwise
+		 * leak could occur due to reentering (e.g. from dm_wq_work)
+		 */
+		if (current->bio_list) {
+			struct dm_noclone *noclone;
+			noclone = kmalloc_node(sizeof(*noclone) + ti->per_io_data_size + sizeof(unsigned),
+					       GFP_NOWAIT, md->numa_node_id);
+			if (unlikely(!noclone))
+				return false;
+
+			noclone->md = md;
+			noclone->start_time = jiffies;
+			noclone->orig_bi_end_io = bio->bi_end_io;
+			noclone->orig_bi_private = bio->bi_private;
+			bio->bi_end_io = noclone_endio;
+			bio->bi_private = noclone;
+		}
+
+		start_io_acct(md, bio);
+		r = ti->type->map(ti, bio);
+		switch (r) {
+		case DM_MAPIO_SUBMITTED:
+			break;
+		case DM_MAPIO_REMAPPED:
+			/* the bio has been remapped so dispatch it */
+			if (md->type == DM_TYPE_NVME_BIO_BASED)
+				*ret = direct_make_request(bio);
+			else
+				*ret = generic_make_request(bio);
+			break;
+		case DM_MAPIO_KILL:
+			bio_io_error(bio);
+			break;
+		case DM_MAPIO_REQUEUE:
+			bio->bi_status = BLK_STS_DM_REQUEUE;
+			noclone_endio(bio);
+			break;
+		default:
+			DMWARN("unimplemented target map return value: %d", r);
+			BUG();
+		}
+
+		return true;
+	}
+
+	return false;
+}
+
 static blk_qc_t dm_process_bio(struct mapped_device *md,
 			       struct dm_table *map, struct bio *bio)
 {
@@ -1809,12 +1876,12 @@ static blk_qc_t dm_process_bio(struct mapped_device *md,
 	 * won't be imposed.
 	 *
 	 * For normal READ and WRITE requests we benefit from upfront splitting
-	 * via dm_queue_split() because we can then leverage noclone support below.
+	 * via dm_queue_split() because we can then leverage noclone support.
 	 */
 	if (current->bio_list && (bio->bi_end_io != noclone_endio)) {
 		/*
 		 * It is fine to use {blk,dm}_queue_split() before opting to use noclone
-		 * because any ->bi_private and ->bi_end_io will get saved off below.
+		 * because any ->bi_private and ->bi_end_io will get saved off in noclone.
 		 * Once noclone_endio() is called the bio_chain's endio will kick in.
 		 * - __split_and_process_bio() can split further, but any targets that
 		 *   require late _DM_ initiated splitting (e.g. dm_accept_partial_bio()
@@ -1825,66 +1892,11 @@ static blk_qc_t dm_process_bio(struct mapped_device *md,
 			dm_queue_split(md, ti, &bio);
 	}
 
-	if (dm_table_supports_noclone(map) &&
-	    (bio_op(bio) == REQ_OP_READ || bio_op(bio) == REQ_OP_WRITE) &&
-	    likely(!(bio->bi_opf & REQ_PREFLUSH)) &&
-	    likely(!bio_integrity(bio)) && /* integrity requires specialized processing */
-	    likely(!dm_stats_used(&md->stats))) { /* noclone doesn't support dm-stats */
-		int r;
-		/*
-		 * dm_queue_split() is not possible in the case of stacked noclone
-		 * (e.g. noclone linear on noclone striped device) because noclone
-		 * support and bio_chain() are mutually exclussive IFF noclone
-		 * precedes bio_chain() -- due to bio_chain() (ab)using ->bi_private
-		 * and ->bi_end_io without first saving them!
-		 */
-		if (unlikely(bio_sectors(bio) > max_io_len(bio->bi_iter.bi_sector, ti)))
-			goto no_fast_path;
-		/*
-		 * Only allocate noclone if in ->make_request_fn, otherwise
-		 * leak could occur due to reentering (e.g. from dm_wq_work)
-		 */
-		if (current->bio_list) {
-			struct dm_noclone *noclone;
-			noclone = kmalloc_node(sizeof(*noclone) + ti->per_io_data_size + sizeof(unsigned),
-					       GFP_NOWAIT, md->numa_node_id);
-			if (unlikely(!noclone))
-				goto no_fast_path;
-			noclone->md = md;
-			noclone->start_time = jiffies;
-			noclone->orig_bi_end_io = bio->bi_end_io;
-			noclone->orig_bi_private = bio->bi_private;
-			bio->bi_end_io = noclone_endio;
-			bio->bi_private = noclone;
-		}
-
-		start_io_acct(md, bio);
-		r = ti->type->map(ti, bio);
-		switch (r) {
-		case DM_MAPIO_SUBMITTED:
-			break;
-		case DM_MAPIO_REMAPPED:
-			/* the bio has been remapped so dispatch it */
-			if (md->type == DM_TYPE_NVME_BIO_BASED)
-				ret = direct_make_request(bio);
-			else
-				ret = generic_make_request(bio);
-			break;
-		case DM_MAPIO_KILL:
-			bio_io_error(bio);
-			break;
-		case DM_MAPIO_REQUEUE:
-			bio->bi_status = BLK_STS_DM_REQUEUE;
-			noclone_endio(bio);
-			break;
-		default:
-			DMWARN("unimplemented target map return value: %d", r);
-			BUG();
-		}
-
-		return ret;
+	if (dm_table_supports_noclone(map)) {
+		if (dm_noclone_process_bio(md, ti, bio, &ret))
+			return ret;
 	}
-no_fast_path:
+
 	if (dm_get_md_type(md) == DM_TYPE_NVME_BIO_BASED)
 		return __process_bio(md, map, bio, ti);
 	else
