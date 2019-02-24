@@ -121,7 +121,7 @@ EXPORT_SYMBOL_GPL(pm_runtime_suspended_time);
 static void pm_runtime_deactivate_timer(struct device *dev)
 {
 	if (dev->power.timer_expires > 0) {
-		hrtimer_cancel(&dev->power.suspend_timer);
+		hrtimer_try_to_cancel(&dev->power.suspend_timer);
 		dev->power.timer_expires = 0;
 	}
 }
