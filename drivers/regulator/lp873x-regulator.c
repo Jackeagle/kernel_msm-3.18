@@ -61,7 +61,7 @@ static const struct regulator_linear_range ldo0_ldo1_ranges[] = {
 	REGULATOR_LINEAR_RANGE(800000, 0x0, 0x19, 100000),
 };
 
-static unsigned int lp873x_buck_ramp_delay[] = {
+static const unsigned int lp873x_buck_ramp_delay[] = {
 	30000, 15000, 10000, 7500, 3800, 1900, 940, 470
 };
 
@@ -146,7 +146,7 @@ static int lp873x_buck_get_current_limit(struct regulator_dev *rdev)
 }
 
 /* Operations permitted on BUCK0, BUCK1 */
-static struct regulator_ops lp873x_buck01_ops = {
+static const struct regulator_ops lp873x_buck01_ops = {
 	.is_enabled		= regulator_is_enabled_regmap,
 	.enable			= regulator_enable_regmap,
 	.disable		= regulator_disable_regmap,
@@ -161,7 +161,7 @@ static struct regulator_ops lp873x_buck01_ops = {
 };
 
 /* Operations permitted on LDO0 and LDO1 */
-static struct regulator_ops lp873x_ldo01_ops = {
+static const struct regulator_ops lp873x_ldo01_ops = {
 	.is_enabled		= regulator_is_enabled_regmap,
 	.enable			= regulator_enable_regmap,
 	.disable		= regulator_disable_regmap,
