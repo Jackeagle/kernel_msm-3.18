@@ -3729,6 +3729,7 @@ static vm_fault_t hugetlb_no_page(struct mm_struct *mm,
 	pte_t new_pte;
 	spinlock_t *ptl;
 	unsigned long haddr = address & huge_page_mask(h);
+	bool new_page = false;
 
 	/*
 	 * Currently, we are forced to kill the process in the event the
@@ -3790,6 +3791,7 @@ retry:
 		}
 		clear_huge_page(page, address, pages_per_huge_page(h));
 		__SetPageUptodate(page);
+		new_page = true;
 
 		if (vma->vm_flags & VM_MAYSHARE) {
 			int err = huge_add_to_page_cache(page, mapping, idx);
@@ -3861,8 +3863,9 @@ retry:
 
 	spin_unlock(ptl);
 
-	/* May already be set if not newly allocated page */
-	set_page_huge_active(page);
+	/* Make newly allocated pages active */
+	if (new_page)
+		set_page_huge_active(page);
 
 	unlock_page(page);
 out:
