@@ -29,6 +29,8 @@
 #include "util/evlist.h"
 #include <subcmd/exec-cmd.h>
 #include "util/machine.h"
+#include "util/map.h"
+#include "util/symbol.h"
 #include "util/path.h"
 #include "util/session.h"
 #include "util/thread.h"
@@ -1039,6 +1041,9 @@ static const size_t trace__entry_str_size = 2048;
 
 static struct file *thread_trace__files_entry(struct thread_trace *ttrace, int fd)
 {
+	if (fd < 0)
+		return NULL;
+
 	if (fd > ttrace->files.max) {
 		struct file *nfiles = realloc(ttrace->files.table, (fd + 1) * sizeof(struct file));
 
@@ -2766,7 +2771,8 @@ static int trace__set_filter_loop_pids(struct trace *trace)
 		if (parent == NULL)
 			break;
 
-		if (!strcmp(thread__comm_str(parent), "sshd")) {
+		if (!strcmp(thread__comm_str(parent), "sshd") ||
+		    strstarts(thread__comm_str(parent), "gnome-terminal")) {
 			pids[nr++] = parent->tid;
 			break;
 		}
@@ -3865,7 +3871,8 @@ int cmd_trace(int argc, const char **argv)
 				goto init_augmented_syscall_tp;
 			}
 
-			if (strcmp(perf_evsel__name(evsel), "raw_syscalls:sys_enter") == 0) {
+			if (trace.syscalls.events.augmented->priv == NULL &&
+			    strstr(perf_evsel__name(evsel), "syscalls:sys_enter")) {
 				struct perf_evsel *augmented = trace.syscalls.events.augmented;
 				if (perf_evsel__init_augmented_syscall_tp(augmented, evsel) ||
 				    perf_evsel__init_augmented_syscall_tp_args(augmented))
