@@ -177,7 +177,7 @@ struct pcie_port {
 	struct irq_domain	*msi_domain;
 	dma_addr_t		msi_data;
 	u32			num_vectors;
-	u32			irq_status[MAX_MSI_CTRLS];
+	u32			irq_mask[MAX_MSI_CTRLS];
 	raw_spinlock_t		lock;
 	DECLARE_BITMAP(msi_irq_in_use, MAX_MSI_IRQS);
 };
@@ -192,6 +192,7 @@ struct dw_pcie_ep_ops {
 	void	(*ep_init)(struct dw_pcie_ep *ep);
 	int	(*raise_irq)(struct dw_pcie_ep *ep, u8 func_no,
 			     enum pci_epc_irq_type type, u16 interrupt_num);
+	const struct pci_epc_features* (*get_features)(struct dw_pcie_ep *ep);
 };
 
 struct dw_pcie_ep {
