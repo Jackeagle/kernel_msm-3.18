@@ -171,6 +171,10 @@ static ssize_t monitor_id_show(struct device *dev,
 
 	if (!hv_dev->channel)
 		return -ENODEV;
+
+	if (!hv_dev->channel->offermsg.monitor_allocated)
+		return -EINVAL;
+
 	return sprintf(buf, "%d\n", hv_dev->channel->offermsg.monitorid);
 }
 static DEVICE_ATTR_RO(monitor_id);
@@ -232,9 +236,13 @@ static ssize_t server_monitor_pending_show(struct device *dev,
 
 	if (!hv_dev->channel)
 		return -ENODEV;
+
+	if (!hv_dev->channel->offermsg.monitor_allocated)
+		return -EINVAL;
+
 	return sprintf(buf, "%d\n",
 		       channel_pending(hv_dev->channel,
-				       vmbus_connection.monitor_pages[1]));
+				       vmbus_connection.monitor_pages[0]));
 }
 static DEVICE_ATTR_RO(server_monitor_pending);
 
@@ -246,6 +254,10 @@ static ssize_t client_monitor_pending_show(struct device *dev,
 
 	if (!hv_dev->channel)
 		return -ENODEV;
+
+	if (!hv_dev->channel->offermsg.monitor_allocated)
+		return -EINVAL;
+
 	return sprintf(buf, "%d\n",
 		       channel_pending(hv_dev->channel,
 				       vmbus_connection.monitor_pages[1]));
@@ -260,6 +272,10 @@ static ssize_t server_monitor_latency_show(struct device *dev,
 
 	if (!hv_dev->channel)
 		return -ENODEV;
+
+	if (!hv_dev->channel->offermsg.monitor_allocated)
+		return -EINVAL;
+
 	return sprintf(buf, "%d\n",
 		       channel_latency(hv_dev->channel,
 				       vmbus_connection.monitor_pages[0]));
@@ -274,6 +290,10 @@ static ssize_t client_monitor_latency_show(struct device *dev,
 
 	if (!hv_dev->channel)
 		return -ENODEV;
+
+	if (!hv_dev->channel->offermsg.monitor_allocated)
+		return -EINVAL;
+
 	return sprintf(buf, "%d\n",
 		       channel_latency(hv_dev->channel,
 				       vmbus_connection.monitor_pages[1]));
@@ -288,6 +308,10 @@ static ssize_t server_monitor_conn_id_show(struct device *dev,
 
 	if (!hv_dev->channel)
 		return -ENODEV;
+
+	if (!hv_dev->channel->offermsg.monitor_allocated)
+		return -EINVAL;
+
 	return sprintf(buf, "%d\n",
 		       channel_conn_id(hv_dev->channel,
 				       vmbus_connection.monitor_pages[0]));
@@ -302,6 +326,10 @@ static ssize_t client_monitor_conn_id_show(struct device *dev,
 
 	if (!hv_dev->channel)
 		return -ENODEV;
+
+	if (!hv_dev->channel->offermsg.monitor_allocated)
+		return -EINVAL;
+
 	return sprintf(buf, "%d\n",
 		       channel_conn_id(hv_dev->channel,
 				       vmbus_connection.monitor_pages[1]));
@@ -1469,6 +1497,9 @@ static VMBUS_CHAN_ATTR(cpu, S_IRUGO, show_target_cpu, NULL);
 static ssize_t channel_pending_show(const struct vmbus_channel *channel,
 				    char *buf)
 {
+	if (!channel->offermsg.monitor_allocated)
+		return -EINVAL;
+
 	return sprintf(buf, "%d\n",
 		       channel_pending(channel,
 				       vmbus_connection.monitor_pages[1]));
@@ -1478,6 +1509,9 @@ static VMBUS_CHAN_ATTR(pending, S_IRUGO, channel_pending_show, NULL);
 static ssize_t channel_latency_show(const struct vmbus_channel *channel,
 				    char *buf)
 {
+	if (!channel->offermsg.monitor_allocated)
+		return -EINVAL;
+
 	return sprintf(buf, "%d\n",
 		       channel_latency(channel,
 				       vmbus_connection.monitor_pages[1]));
@@ -1499,6 +1533,9 @@ static VMBUS_CHAN_ATTR(events, S_IRUGO, channel_events_show, NULL);
 static ssize_t subchannel_monitor_id_show(const struct vmbus_channel *channel,
 					  char *buf)
 {
+	if (!channel->offermsg.monitor_allocated)
+		return -EINVAL;
+
 	return sprintf(buf, "%u\n", channel->offermsg.monitorid);
 }
 static VMBUS_CHAN_ATTR(monitor_id, S_IRUGO, subchannel_monitor_id_show, NULL);
