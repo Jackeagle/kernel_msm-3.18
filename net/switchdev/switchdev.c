@@ -174,48 +174,6 @@ static int switchdev_deferred_enqueue(struct net_device *dev,
 	return 0;
 }
 
-/**
- *	switchdev_port_attr_get - Get port attribute
- *
- *	@dev: port device
- *	@attr: attribute to get
- */
-int switchdev_port_attr_get(struct net_device *dev, struct switchdev_attr *attr)
-{
-	const struct switchdev_ops *ops = dev->switchdev_ops;
-	struct net_device *lower_dev;
-	struct list_head *iter;
-	struct switchdev_attr first = {
-		.id = SWITCHDEV_ATTR_ID_UNDEFINED
-	};
-	int err = -EOPNOTSUPP;
-
-	if (ops && ops->switchdev_port_attr_get)
-		return ops->switchdev_port_attr_get(dev, attr);
-
-	if (attr->flags & SWITCHDEV_F_NO_RECURSE)
-		return err;
-
-	/* Switch device port(s) may be stacked under
-	 * bond/team/vlan dev, so recurse down to get attr on
-	 * each port.  Return -ENODATA if attr values don't
-	 * compare across ports.
-	 */
-
-	netdev_for_each_lower_dev(dev, lower_dev, iter) {
-		err = switchdev_port_attr_get(lower_dev, attr);
-		if (err)
-			break;
-		if (first.id == SWITCHDEV_ATTR_ID_UNDEFINED)
-			first = *attr;
-		else if (memcmp(&first, attr, sizeof(*attr)))
-			return -ENODATA;
-	}
-
-	return err;
-}
-EXPORT_SYMBOL_GPL(switchdev_port_attr_get);
-
 static int __switchdev_port_attr_set(struct net_device *dev,
 				     const struct switchdev_attr *attr,
 				     struct switchdev_trans *trans)
@@ -556,10 +514,11 @@ EXPORT_SYMBOL_GPL(unregister_switchdev_notifier);
  *	Call all network notifier blocks.
  */
 int call_switchdev_notifiers(unsigned long val, struct net_device *dev,
-			     struct switchdev_notifier_info *info)
+			     struct switchdev_notifier_info *info,
+			     struct netlink_ext_ack *extack)
 {
 	info->dev = dev;
-	info->extack = NULL;
+	info->extack = extack;
 	return atomic_notifier_call_chain(&switchdev_notif_chain, val, info);
 }
 EXPORT_SYMBOL_GPL(call_switchdev_notifiers);
@@ -590,26 +549,6 @@ int call_switchdev_blocking_notifiers(unsigned long val, struct net_device *dev,
 					    val, info);
 }
 EXPORT_SYMBOL_GPL(call_switchdev_blocking_notifiers);
-
-bool switchdev_port_same_parent_id(struct net_device *a,
-				   struct net_device *b)
-{
-	struct switchdev_attr a_attr = {
-		.orig_dev = a,
-		.id = SWITCHDEV_ATTR_ID_PORT_PARENT_ID,
-	};
-	struct switchdev_attr b_attr = {
-		.orig_dev = b,
-		.id = SWITCHDEV_ATTR_ID_PORT_PARENT_ID,
-	};
-
-	if (switchdev_port_attr_get(a, &a_attr) ||
-	    switchdev_port_attr_get(b, &b_attr))
-		return false;
-
-	return netdev_phys_item_id_same(&a_attr.u.ppid, &b_attr.u.ppid);
-}
-EXPORT_SYMBOL_GPL(switchdev_port_same_parent_id);
 
 static int __switchdev_handle_port_obj_add(struct net_device *dev,
 			struct switchdev_notifier_port_obj_info *port_obj_info,
