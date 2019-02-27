@@ -62,16 +62,8 @@
 	.endm
 
 /*
- * Enable and disable interrupts.
+ * Save/restore interrupts.
  */
-	.macro	disable_irq
-	msr	daifset, #2
-	.endm
-
-	.macro	enable_irq
-	msr	daifclr, #2
-	.endm
-
 	.macro	save_and_disable_irq, flags
 	mrs	\flags, daif
 	msr	daifset, #2
@@ -536,9 +528,9 @@ USER(\label, ic	ivau, \tmp2)			// invalidate I line PoU
 	.endm
 
 /*
- * Return the current thread_info.
+ * Return the current task_struct.
  */
-	.macro	get_thread_info, rd
+	.macro	get_current_task, rd
 	mrs	\rd, sp_el0
 	.endm
 
@@ -721,7 +713,7 @@ USER(\label, ic	ivau, \tmp2)			// invalidate I line PoU
 
 	.macro		if_will_cond_yield_neon
 #ifdef CONFIG_PREEMPT
-	get_thread_info	x0
+	get_current_task	x0
 	ldr		x0, [x0, #TSK_TI_PREEMPT]
 	sub		x0, x0, #PREEMPT_DISABLE_OFFSET
 	cbz		x0, .Lyield_\@
