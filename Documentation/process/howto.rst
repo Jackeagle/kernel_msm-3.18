@@ -225,7 +225,7 @@ Cross-Reference project, which is able to present source code in a
 self-referential, indexed webpage format. An excellent up-to-date
 repository of the kernel code may be found at:
 
-	http://lxr.free-electrons.com/
+	https://elixir.bootlin.com/
 
 
 The development process
@@ -237,7 +237,6 @@ branches.  These different branches are:
 
   - main 4.x kernel tree
   - 4.x.y -stable kernel tree
-  - 4.x -git kernel patches
   - subsystem specific kernel trees and patches
   - the 4.x -next kernel tree for integration tests
 
@@ -301,15 +300,6 @@ instantly.
 The file :ref:`Documentation/process/stable-kernel-rules.rst <stable_kernel_rules>`
 in the kernel tree documents what kinds of changes are acceptable for
 the -stable tree, and how the release process works.
-
-4.x -git patches
-~~~~~~~~~~~~~~~~
-
-These are daily snapshots of Linus' kernel tree which are managed in a
-git repository (hence the name.) These patches are usually released
-daily and represent the current state of Linus' tree.  They are more
-experimental than -rc kernels since they are generated automatically
-without even a cursory glance to see if they are sane.
 
 Subsystem Specific kernel trees and patches
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
