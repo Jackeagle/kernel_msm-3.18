@@ -214,6 +214,7 @@ enum obj_operation_type {
 	OBJ_OP_READ = 1,
 	OBJ_OP_WRITE,
 	OBJ_OP_DISCARD,
+	OBJ_OP_ZEROOUT,
 };
 
 /*
@@ -291,7 +292,6 @@ struct rbd_img_request {
 	int			result;	/* first nonzero obj_request result */
 
 	struct list_head	object_extents;	/* obj_req.ex structs */
-	u32			obj_request_count;
 	u32			pending_count;
 
 	struct kref		kref;
@@ -733,6 +733,7 @@ static struct rbd_client *rbd_client_find(struct ceph_options *ceph_opts)
  */
 enum {
 	Opt_queue_depth,
+	Opt_alloc_size,
 	Opt_lock_timeout,
 	Opt_last_int,
 	/* int args above */
@@ -749,6 +750,7 @@ enum {
 
 static match_table_t rbd_opts_tokens = {
 	{Opt_queue_depth, "queue_depth=%d"},
+	{Opt_alloc_size, "alloc_size=%d"},
 	{Opt_lock_timeout, "lock_timeout=%d"},
 	/* int args above */
 	{Opt_pool_ns, "_pool_ns=%s"},
@@ -765,6 +767,7 @@ static match_table_t rbd_opts_tokens = {
 
 struct rbd_options {
 	int	queue_depth;
+	int	alloc_size;
 	unsigned long	lock_timeout;
 	bool	read_only;
 	bool	lock_on_read;
@@ -773,6 +776,7 @@ struct rbd_options {
 };
 
 #define RBD_QUEUE_DEPTH_DEFAULT	BLKDEV_MAX_RQ
+#define RBD_ALLOC_SIZE_DEFAULT	(64 * 1024)
 #define RBD_LOCK_TIMEOUT_DEFAULT 0  /* no timeout */
 #define RBD_READ_ONLY_DEFAULT	false
 #define RBD_LOCK_ON_READ_DEFAULT false
@@ -811,6 +815,17 @@ static int parse_rbd_opts_token(char *c, void *private)
 			return -EINVAL;
 		}
 		pctx->opts->queue_depth = intval;
+		break;
+	case Opt_alloc_size:
+		if (intval < 1) {
+			pr_err("alloc_size out of range\n");
+			return -EINVAL;
+		}
+		if (!is_power_of_2(intval)) {
+			pr_err("alloc_size must be a power of 2\n");
+			return -EINVAL;
+		}
+		pctx->opts->alloc_size = intval;
 		break;
 	case Opt_lock_timeout:
 		/* 0 is "wait forever" (i.e. infinite timeout) */
@@ -858,6 +873,8 @@ static char* obj_op_name(enum obj_operation_type op_type)
 		return "write";
 	case OBJ_OP_DISCARD:
 		return "discard";
+	case OBJ_OP_ZEROOUT:
+		return "zeroout";
 	default:
 		return "???";
 	}
@@ -1345,7 +1362,6 @@ static inline void rbd_img_obj_request_add(struct rbd_img_request *img_request,
 
 	/* Image request now owns object's original reference */
 	obj_request->img_request = img_request;
-	img_request->obj_request_count++;
 	img_request->pending_count++;
 	dout("%s: img %p obj %p\n", __func__, img_request, obj_request);
 }
@@ -1355,8 +1371,6 @@ static inline void rbd_img_obj_request_del(struct rbd_img_request *img_request,
 {
 	dout("%s: img %p obj %p\n", __func__, img_request, obj_request);
 	list_del(&obj_request->ex.oe_item);
-	rbd_assert(img_request->obj_request_count > 0);
-	img_request->obj_request_count--;
 	rbd_assert(obj_request->img_request == img_request);
 	rbd_obj_request_put(obj_request);
 }
@@ -1423,6 +1437,7 @@ static bool rbd_img_is_write(struct rbd_img_request *img_req)
 		return false;
 	case OBJ_OP_WRITE:
 	case OBJ_OP_DISCARD:
+	case OBJ_OP_ZEROOUT:
 		return true;
 	default:
 		BUG();
@@ -1672,7 +1687,6 @@ static void rbd_img_request_destroy(struct kref *kref)
 
 	for_each_obj_request_safe(img_request, obj_request, next_obj_request)
 		rbd_img_obj_request_del(img_request, obj_request);
-	rbd_assert(img_request->obj_request_count == 0);
 
 	if (img_request_layered_test(img_request)) {
 		img_request_layered_clear(img_request);
@@ -1846,7 +1860,61 @@ static int rbd_obj_setup_write(struct rbd_obj_request *obj_req)
 	return 0;
 }
 
-static void __rbd_obj_setup_discard(struct rbd_obj_request *obj_req,
+static u16 truncate_or_zero_opcode(struct rbd_obj_request *obj_req)
+{
+	return rbd_obj_is_tail(obj_req) ? CEPH_OSD_OP_TRUNCATE :
+					  CEPH_OSD_OP_ZERO;
+}
+
+static int rbd_obj_setup_discard(struct rbd_obj_request *obj_req)
+{
+	struct rbd_device *rbd_dev = obj_req->img_request->rbd_dev;
+	u64 off = obj_req->ex.oe_off;
+	u64 next_off = obj_req->ex.oe_off + obj_req->ex.oe_len;
+	int ret;
+
+	/*
+	 * Align the range to alloc_size boundary and punt on discards
+	 * that are too small to free up any space.
+	 *
+	 * alloc_size == object_size && is_tail() is a special case for
+	 * filestore with filestore_punch_hole = false, needed to allow
+	 * truncate (in addition to delete).
+	 */
+	if (rbd_dev->opts->alloc_size != rbd_dev->layout.object_size ||
+	    !rbd_obj_is_tail(obj_req)) {
+		off = round_up(off, rbd_dev->opts->alloc_size);
+		next_off = round_down(next_off, rbd_dev->opts->alloc_size);
+		if (off >= next_off)
+			return 1;
+	}
+
+	/* reverse map the entire object onto the parent */
+	ret = rbd_obj_calc_img_extents(obj_req, true);
+	if (ret)
+		return ret;
+
+	obj_req->osd_req = rbd_osd_req_create(obj_req, 1);
+	if (!obj_req->osd_req)
+		return -ENOMEM;
+
+	if (rbd_obj_is_entire(obj_req) && !obj_req->num_img_extents) {
+		osd_req_op_init(obj_req->osd_req, 0, CEPH_OSD_OP_DELETE, 0);
+	} else {
+		dout("%s %p %llu~%llu -> %llu~%llu\n", __func__,
+		     obj_req, obj_req->ex.oe_off, obj_req->ex.oe_len,
+		     off, next_off - off);
+		osd_req_op_extent_init(obj_req->osd_req, 0,
+				       truncate_or_zero_opcode(obj_req),
+				       off, next_off - off, 0, 0);
+	}
+
+	obj_req->write_state = RBD_OBJ_WRITE_FLAT;
+	rbd_osd_req_format_write(obj_req);
+	return 0;
+}
+
+static void __rbd_obj_setup_zeroout(struct rbd_obj_request *obj_req,
 				    unsigned int which)
 {
 	u16 opcode;
@@ -1861,10 +1929,8 @@ static void __rbd_obj_setup_discard(struct rbd_obj_request *obj_req,
 					CEPH_OSD_OP_DELETE, 0);
 			opcode = 0;
 		}
-	} else if (rbd_obj_is_tail(obj_req)) {
-		opcode = CEPH_OSD_OP_TRUNCATE;
 	} else {
-		opcode = CEPH_OSD_OP_ZERO;
+		opcode = truncate_or_zero_opcode(obj_req);
 	}
 
 	if (opcode)
@@ -1876,7 +1942,7 @@ static void __rbd_obj_setup_discard(struct rbd_obj_request *obj_req,
 	rbd_osd_req_format_write(obj_req);
 }
 
-static int rbd_obj_setup_discard(struct rbd_obj_request *obj_req)
+static int rbd_obj_setup_zeroout(struct rbd_obj_request *obj_req)
 {
 	unsigned int num_osd_ops, which = 0;
 	int ret;
@@ -1912,7 +1978,7 @@ static int rbd_obj_setup_discard(struct rbd_obj_request *obj_req)
 			return ret;
 	}
 
-	__rbd_obj_setup_discard(obj_req, which);
+	__rbd_obj_setup_zeroout(obj_req, which);
 	return 0;
 }
 
@@ -1923,10 +1989,10 @@ static int rbd_obj_setup_discard(struct rbd_obj_request *obj_req)
  */
 static int __rbd_img_fill_request(struct rbd_img_request *img_req)
 {
-	struct rbd_obj_request *obj_req;
+	struct rbd_obj_request *obj_req, *next_obj_req;
 	int ret;
 
-	for_each_obj_request(img_req, obj_req) {
+	for_each_obj_request_safe(img_req, obj_req, next_obj_req) {
 		switch (img_req->op_type) {
 		case OBJ_OP_READ:
 			ret = rbd_obj_setup_read(obj_req);
@@ -1937,11 +2003,20 @@ static int __rbd_img_fill_request(struct rbd_img_request *img_req)
 		case OBJ_OP_DISCARD:
 			ret = rbd_obj_setup_discard(obj_req);
 			break;
+		case OBJ_OP_ZEROOUT:
+			ret = rbd_obj_setup_zeroout(obj_req);
+			break;
 		default:
 			rbd_assert(0);
 		}
-		if (ret)
+		if (ret < 0)
 			return ret;
+		if (ret > 0) {
+			img_req->xferred += obj_req->ex.oe_len;
+			img_req->pending_count--;
+			rbd_img_obj_request_del(img_req, obj_req);
+			continue;
+		}
 
 		ret = ceph_osdc_alloc_messages(obj_req->osd_req, GFP_NOIO);
 		if (ret)
@@ -2397,9 +2472,9 @@ static int rbd_obj_issue_copyup(struct rbd_obj_request *obj_req, u32 bytes)
 	case OBJ_OP_WRITE:
 		__rbd_obj_setup_write(obj_req, 1);
 		break;
-	case OBJ_OP_DISCARD:
+	case OBJ_OP_ZEROOUT:
 		rbd_assert(!rbd_obj_is_entire(obj_req));
-		__rbd_obj_setup_discard(obj_req, 1);
+		__rbd_obj_setup_zeroout(obj_req, 1);
 		break;
 	default:
 		rbd_assert(0);
@@ -2529,6 +2604,7 @@ static bool __rbd_obj_handle_request(struct rbd_obj_request *obj_req)
 	case OBJ_OP_WRITE:
 		return rbd_obj_handle_write(obj_req);
 	case OBJ_OP_DISCARD:
+	case OBJ_OP_ZEROOUT:
 		if (rbd_obj_handle_write(obj_req)) {
 			/*
 			 * Hide -ENOENT from delete/truncate/zero -- discarding
@@ -3641,8 +3717,10 @@ static void rbd_queue_workfn(struct work_struct *work)
 
 	switch (req_op(rq)) {
 	case REQ_OP_DISCARD:
-	case REQ_OP_WRITE_ZEROES:
 		op_type = OBJ_OP_DISCARD;
+		break;
+	case REQ_OP_WRITE_ZEROES:
+		op_type = OBJ_OP_ZEROOUT;
 		break;
 	case REQ_OP_WRITE:
 		op_type = OBJ_OP_WRITE;
@@ -3723,12 +3801,12 @@ static void rbd_queue_workfn(struct work_struct *work)
 	img_request->rq = rq;
 	snapc = NULL; /* img_request consumes a ref */
 
-	if (op_type == OBJ_OP_DISCARD)
+	if (op_type == OBJ_OP_DISCARD || op_type == OBJ_OP_ZEROOUT)
 		result = rbd_img_fill_nodata(img_request, offset, length);
 	else
 		result = rbd_img_fill_from_bio(img_request, offset, length,
 					       rq->bio);
-	if (result)
+	if (result || !img_request->pending_count)
 		goto err_img_request;
 
 	rbd_img_request_submit(img_request);
@@ -5389,6 +5467,7 @@ static int rbd_add_parse_args(const char *buf,
 
 	pctx.opts->read_only = RBD_READ_ONLY_DEFAULT;
 	pctx.opts->queue_depth = RBD_QUEUE_DEPTH_DEFAULT;
+	pctx.opts->alloc_size = RBD_ALLOC_SIZE_DEFAULT;
 	pctx.opts->lock_timeout = RBD_LOCK_TIMEOUT_DEFAULT;
 	pctx.opts->lock_on_read = RBD_LOCK_ON_READ_DEFAULT;
 	pctx.opts->exclusive = RBD_EXCLUSIVE_DEFAULT;
@@ -5796,14 +5875,6 @@ static int rbd_dev_image_probe(struct rbd_device *rbd_dev, int depth)
 		ret = rbd_dev_v2_parent_info(rbd_dev);
 		if (ret)
 			goto err_out_probe;
-
-		/*
-		 * Need to warn users if this image is the one being
-		 * mapped and has a parent.
-		 */
-		if (!depth && rbd_dev->parent_spec)
-			rbd_warn(rbd_dev,
-				 "WARNING: kernel layering is EXPERIMENTAL!");
 	}
 
 	ret = rbd_dev_probe_parent(rbd_dev, depth);
@@ -5885,6 +5956,12 @@ static ssize_t do_rbd_add(struct bus_type *bus,
 	/* If we are mapping a snapshot it must be marked read-only */
 	if (rbd_dev->spec->snap_id != CEPH_NOSNAP)
 		rbd_dev->opts->read_only = true;
+
+	if (rbd_dev->opts->alloc_size > rbd_dev->layout.object_size) {
+		rbd_warn(rbd_dev, "alloc_size adjusted to %u",
+			 rbd_dev->layout.object_size);
+		rbd_dev->opts->alloc_size = rbd_dev->layout.object_size;
+	}
 
 	rc = rbd_dev_device_setup(rbd_dev);
 	if (rc)
