@@ -365,7 +365,6 @@ static bool hrtimer_fixup_activate(void *addr, enum debug_obj_state state)
 	case ODEBUG_STATE_ACTIVE:
 		WARN_ON(1);
 		/* fall through */
-
 	default:
 		return false;
 	}
@@ -1772,7 +1771,7 @@ SYSCALL_DEFINE2(nanosleep, struct __kernel_timespec __user *, rqtp,
 
 #ifdef CONFIG_COMPAT_32BIT_TIME
 
-COMPAT_SYSCALL_DEFINE2(nanosleep, struct old_timespec32 __user *, rqtp,
+SYSCALL_DEFINE2(nanosleep_time32, struct old_timespec32 __user *, rqtp,
 		       struct old_timespec32 __user *, rmtp)
 {
 	struct timespec64 tu;
