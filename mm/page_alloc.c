@@ -8411,6 +8411,7 @@ __offline_isolated_pages(unsigned long start_pfn, unsigned long end_pfn)
 		for (i = 0; i < (1 << order); i++)
 			SetPageReserved((page+i));
 		pfn += (1 << order);
+		kernel_map_pages(page, 1 << order, 1);
 	}
 	spin_unlock_irqrestore(&zone->lock, flags);
 }
