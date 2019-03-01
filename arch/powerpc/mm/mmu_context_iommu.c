@@ -96,7 +96,7 @@ static long mm_iommu_do_alloc(struct mm_struct *mm, unsigned long ua,
 			      struct mm_iommu_table_group_mem_t **pmem)
 {
 	struct mm_iommu_table_group_mem_t *mem;
-	long i, ret = 0, locked_entries = 0;
+	long i, ret, locked_entries = 0;
 	unsigned int pageshift;
 	unsigned long flags;
 	unsigned long cur_ua;
@@ -161,8 +161,6 @@ static long mm_iommu_do_alloc(struct mm_struct *mm, unsigned long ua,
 		kfree(mem);
 		ret = -EFAULT;
 		goto unlock_exit;
-	} else {
-		ret = 0;
 	}
 
 	pageshift = PAGE_SHIFT;
@@ -195,6 +193,7 @@ static long mm_iommu_do_alloc(struct mm_struct *mm, unsigned long ua,
 	}
 
 good_exit:
+	ret = 0;
 	atomic64_set(&mem->mapped, 1);
 	mem->used = 1;
 	mem->ua = ua;
