@@ -76,9 +76,11 @@ out:
 	return ret;
 }
 
-static int do_setxattr(struct btrfs_trans_handle *trans,
-		       struct inode *inode, const char *name,
-		       const void *value, size_t size, int flags)
+/*
+ * @value: "" makes the attribute empty, NULL removes it
+ */
+int btrfs_setxattr(struct btrfs_trans_handle *trans, struct inode *inode,
+		   const char *name, const void *value, size_t size, int flags)
 {
 	struct btrfs_dir_item *di = NULL;
 	struct btrfs_root *root = BTRFS_I(inode)->root;
@@ -217,22 +219,6 @@ out:
 	return ret;
 }
 
-/*
- * @value: "" makes the attribute to empty, NULL removes it
- */
-int btrfs_setxattr(struct btrfs_trans_handle *trans,
-		     struct inode *inode, const char *name,
-		     const void *value, size_t size, int flags)
-{
-	struct btrfs_root *root = BTRFS_I(inode)->root;
-
-	if (btrfs_root_readonly(root))
-		return -EROFS;
-
-	ASSERT(trans);
-	return do_setxattr(trans, inode, name, value, size, flags);
-}
-
 ssize_t btrfs_listxattr(struct dentry *dentry, char *buffer, size_t size)
 {
 	struct btrfs_key key;
@@ -354,6 +340,9 @@ static int btrfs_xattr_handler_set(const struct xattr_handler *handler,
 	int ret;
 	struct btrfs_trans_handle *trans;
 	struct btrfs_root *root = BTRFS_I(inode)->root;
+
+	if (btrfs_root_readonly(root))
+		return -EROFS;
 
 	name = xattr_full_name(handler, name);
 
