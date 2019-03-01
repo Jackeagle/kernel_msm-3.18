@@ -1878,6 +1878,7 @@ config TEST_LKM
 config TEST_VMALLOC
 	tristate "Test module for stress/performance analysis of vmalloc allocator"
 	default n
+       depends on MMU
 	depends on m
 	help
 	  This builds the "test_vmalloc" module that should be used for
