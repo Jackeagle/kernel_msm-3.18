@@ -4,6 +4,7 @@
  */
 
 #include <linux/hashtable.h>
+#include <linux/iversion.h>
 #include "props.h"
 #include "btrfs_inode.h"
 #include "transaction.h"
@@ -103,7 +104,26 @@ static int btrfs_set_prop(struct btrfs_trans_handle *trans, struct inode *inode,
 int btrfs_set_prop_trans(struct inode *inode, const char *name,
 			 const char *value, size_t value_len, int flags)
 {
-	return btrfs_set_prop(NULL, inode, name, value, value_len, flags);
+	struct btrfs_root *root = BTRFS_I(inode)->root;
+	struct btrfs_trans_handle *trans;
+	int ret;
+
+	trans = btrfs_start_transaction(root, 2);
+	if (IS_ERR(trans))
+		return PTR_ERR(trans);
+
+	ret = btrfs_set_prop(trans, inode, name, value, value_len, flags);
+
+	if (!ret) {
+		inode_inc_iversion(inode);
+		inode->i_ctime = current_time(inode);
+		set_bit(BTRFS_INODE_COPY_EVERYTHING,
+			&BTRFS_I(inode)->runtime_flags);
+		ret = btrfs_update_inode(trans, root, inode);
+		BUG_ON(ret);
+	}
+	btrfs_end_transaction(trans);
+	return ret;
 }
 
 static int iterate_object_props(struct btrfs_root *root,
