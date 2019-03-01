@@ -11,10 +11,12 @@
 #include <linux/sched.h>
 #include <linux/sched/mm.h>
 #include <linux/slab.h>
+#include <linux/iversion.h>
 
 #include "ctree.h"
 #include "btrfs_inode.h"
 #include "xattr.h"
+#include "transaction.h"
 
 struct posix_acl *btrfs_get_acl(struct inode *inode, int type)
 {
@@ -52,8 +54,8 @@ struct posix_acl *btrfs_get_acl(struct inode *inode, int type)
 	return acl;
 }
 
-static int __btrfs_set_acl(struct btrfs_trans_handle *trans,
-			 struct inode *inode, struct posix_acl *acl, int type)
+static int do_set_acl(struct btrfs_trans_handle *trans, struct inode *inode,
+		      struct posix_acl *acl, int type)
 {
 	int ret, size = 0;
 	const char *name;
@@ -107,20 +109,38 @@ int btrfs_set_acl(struct inode *inode, struct posix_acl *acl, int type)
 {
 	int ret;
 	umode_t old_mode = inode->i_mode;
+	struct btrfs_trans_handle *trans;
+	struct btrfs_root *root = BTRFS_I(inode)->root;
 
 	if (type == ACL_TYPE_ACCESS && acl) {
 		ret = posix_acl_update_mode(inode, &inode->i_mode, &acl);
 		if (ret)
 			return ret;
 	}
-	ret = __btrfs_set_acl(NULL, inode, acl, type);
-	if (ret)
+
+	trans = btrfs_start_transaction(root, 2);
+	if (IS_ERR(trans)) {
 		inode->i_mode = old_mode;
+		return PTR_ERR(trans);
+	}
+
+	ret = do_set_acl(trans, inode, acl, type);
+	if (ret) {
+		inode->i_mode = old_mode;
+	} else {
+		inode_inc_iversion(inode);
+		inode->i_ctime = current_time(inode);
+		set_bit(BTRFS_INODE_COPY_EVERYTHING, &BTRFS_I(inode)->runtime_flags);
+		ret = btrfs_update_inode(trans, root, inode);
+		BUG_ON(ret);
+	}
+
+	btrfs_end_transaction(trans);
 	return ret;
 }
 
-int btrfs_init_acl(struct btrfs_trans_handle *trans,
-		   struct inode *inode, struct inode *dir)
+int btrfs_init_acl(struct btrfs_trans_handle *trans, struct inode *inode,
+		   struct inode *dir)
 {
 	struct posix_acl *default_acl, *acl;
 	int ret = 0;
@@ -134,15 +154,13 @@ int btrfs_init_acl(struct btrfs_trans_handle *trans,
 		return ret;
 
 	if (default_acl) {
-		ret = __btrfs_set_acl(trans, inode, default_acl,
-				      ACL_TYPE_DEFAULT);
+		ret = do_set_acl(trans, inode, default_acl, ACL_TYPE_DEFAULT);
 		posix_acl_release(default_acl);
 	}
 
 	if (acl) {
 		if (!ret)
-			ret = __btrfs_set_acl(trans, inode, acl,
-					      ACL_TYPE_ACCESS);
+			ret = do_set_acl(trans, inode, acl, ACL_TYPE_ACCESS);
 		posix_acl_release(acl);
 	}
 
