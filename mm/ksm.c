@@ -2082,10 +2082,6 @@ static void cmp_and_merge_page(struct page *page, struct rmap_item *rmap_item)
 
 	/* We first start with searching the page inside the stable tree */
 	kpage = stable_tree_search(page);
-
-	if (PTR_ERR(kpage) == -EBUSY)
-		return;
-
 	if (kpage == page && rmap_item->head == stable_node) {
 		put_page(kpage);
 		return;
@@ -2094,6 +2090,9 @@ static void cmp_and_merge_page(struct page *page, struct rmap_item *rmap_item)
 	remove_rmap_item_from_tree(rmap_item);
 
 	if (kpage) {
+		if (PTR_ERR(kpage) == -EBUSY)
+			return;
+
 		err = try_to_merge_with_ksm_page(rmap_item, page, kpage);
 		if (!err) {
 			/*
