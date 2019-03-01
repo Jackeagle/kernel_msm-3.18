@@ -63,6 +63,9 @@ static int btrfs_set_prop(struct btrfs_trans_handle *trans, struct inode *inode,
 	const struct prop_handler *handler;
 	int ret;
 
+	if (btrfs_root_readonly(BTRFS_I(inode)->root))
+		return -EROFS;
+
 	if (strlen(name) <= XATTR_BTRFS_PREFIX_LEN)
 		return -EINVAL;
 

@@ -61,6 +61,9 @@ static int do_set_acl(struct btrfs_trans_handle *trans, struct inode *inode,
 	const char *name;
 	char *value = NULL;
 
+	if (btrfs_root_readonly(BTRFS_I(inode)->root))
+		return -EROFS;
+
 	switch (type) {
 	case ACL_TYPE_ACCESS:
 		name = XATTR_NAME_POSIX_ACL_ACCESS;
@@ -96,6 +99,7 @@ static int do_set_acl(struct btrfs_trans_handle *trans, struct inode *inode,
 	}
 
 	ret = btrfs_setxattr(trans, inode, name, value, size, 0);
+
 out:
 	kfree(value);
 
