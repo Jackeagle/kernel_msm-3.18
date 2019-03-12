@@ -33,6 +33,7 @@ enum dw_mci_state {
 
 enum {
 	EVENT_CMD_COMPLETE = 0,
+	EVENT_UNBUSY_COMPLETE,
 	EVENT_XFER_COMPLETE,
 	EVENT_DATA_COMPLETE,
 	EVENT_DATA_ERROR,
@@ -124,6 +125,7 @@ struct dw_mci_dma_slave {
  * @irq_flags: The flags to be passed to request_irq.
  * @irq: The irq value to be passed to request_irq.
  * @sdio_id0: Number of slot0 in the SDIO interrupt registers.
+ * @hw_unbusy_int: Number of unbusy interrupt in the interrupt registers.
  * @cmd11_timer: Timer for SD3.0 voltage switch over scheme.
  * @cto_timer: Timer for broken command transfer over scheme.
  * @dto_timer: Timer for broken data transfer over scheme.
@@ -230,6 +232,7 @@ struct dw_mci {
 	int			irq;
 
 	int			sdio_id0;
+	int                     hw_unbusy_int;
 
 	struct timer_list       cmd11_timer;
 	struct timer_list       cto_timer;
@@ -551,6 +554,8 @@ struct dw_mci_slot {
  * @set_ios: handle bus specific extensions.
  * @parse_dt: parse implementation specific device tree properties.
  * @execute_tuning: implementation specific tuning procedure.
+ * @prepare_hw_unbusy: implementation specific procedure for
+ *                    controlling hw unbusy interrupt.
  *
  * Provide controller implementation specific extensions. The usage of this
  * data structure is fully optional and usage of each member in this structure
@@ -565,6 +570,7 @@ struct dw_mci_drv_data {
 	int		(*execute_tuning)(struct dw_mci_slot *slot, u32 opcode);
 	int		(*prepare_hs400_tuning)(struct dw_mci *host,
 						struct mmc_ios *ios);
+	int             (*prepare_hw_unbusy)(struct dw_mci *host, bool enable);
 	int		(*switch_voltage)(struct mmc_host *mmc,
 					  struct mmc_ios *ios);
 };
