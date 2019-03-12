@@ -426,7 +426,6 @@ static void dw_mci_start_command(struct dw_mci *host,
 
 	mci_writel(host, CMDARG, cmd->arg);
 	wmb(); /* drain writebuffer */
-	dw_mci_wait_while_busy(host, cmd_flags);
 
 	mci_writel(host, CMD, cmd_flags | SDMMC_CMD_START);
 
@@ -1418,6 +1417,10 @@ static void dw_mci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		mmc_request_done(mmc, mrq);
 		return;
 	}
+
+	if ((mrq->cmd->opcode != MMC_SEND_STATUS && mrq->cmd->data) &&
+	    !(mrq->cmd->opcode == SD_SWITCH_VOLTAGE))
+		dw_mci_wait_while_busy(host, SDMMC_CMD_PRV_DAT_WAIT);
 
 	spin_lock_bh(&host->lock);
 
