@@ -1,9 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Driver for the RTC in Marvell SoCs.
- *
- * This file is licensed under the terms of the GNU General Public
- * License version 2.  This program is licensed "as is" without any
- * warranty of any kind, whether express or implied.
  */
 
 #include <linux/init.h>
@@ -322,5 +319,5 @@ module_platform_driver_probe(mv_rtc_driver, mv_rtc_probe);
 
 MODULE_AUTHOR("Saeed Bishara <saeed@marvell.com>");
 MODULE_DESCRIPTION("Marvell RTC driver");
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("GPL v2");
 MODULE_ALIAS("platform:rtc-mv");
