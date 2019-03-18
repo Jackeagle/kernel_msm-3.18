@@ -31,6 +31,8 @@
 #include "opp.h"
 #include "timing_generator.h"
 #include "transform.h"
+#include "dccg.h"
+#include "dchubbub.h"
 #include "dpp.h"
 #include "core_types.h"
 #include "set_mode_types.h"
@@ -163,7 +165,28 @@ struct resource_pool *dc_create_resource_pool(
 
 		if (dc->ctx->dc_bios->funcs->get_firmware_info(
 				dc->ctx->dc_bios, &fw_info) == BP_RESULT_OK) {
-				res_pool->ref_clock_inKhz = fw_info.pll_info.crystal_frequency;
+				res_pool->ref_clocks.xtalin_clock_inKhz = fw_info.pll_info.crystal_frequency;
+
+				if (IS_FPGA_MAXIMUS_DC(dc->ctx->dce_environment)) {
+					// On FPGA these dividers are currently not configured by GDB
+					res_pool->ref_clocks.dccg_ref_clock_inKhz = res_pool->ref_clocks.xtalin_clock_inKhz;
+					res_pool->ref_clocks.dchub_ref_clock_inKhz = res_pool->ref_clocks.xtalin_clock_inKhz;
+				} else if (res_pool->dccg && res_pool->hubbub) {
+					// If DCCG reference frequency cannot be determined (usually means not set to xtalin) then this is a critical error
+					// as this value must be known for DCHUB programming
+					(res_pool->dccg->funcs->get_dccg_ref_freq)(res_pool->dccg,
+							fw_info.pll_info.crystal_frequency,
+							&res_pool->ref_clocks.dccg_ref_clock_inKhz);
+
+					// Similarly, if DCHUB reference frequency cannot be determined, then it is also a critical error
+					(res_pool->hubbub->funcs->get_dchub_ref_freq)(res_pool->hubbub,
+							res_pool->ref_clocks.dccg_ref_clock_inKhz,
+							&res_pool->ref_clocks.dchub_ref_clock_inKhz);
+				} else {
+					// Not all ASICs have DCCG sw component
+					res_pool->ref_clocks.dccg_ref_clock_inKhz = res_pool->ref_clocks.xtalin_clock_inKhz;
+					res_pool->ref_clocks.dchub_ref_clock_inKhz = res_pool->ref_clocks.xtalin_clock_inKhz;
+				}
 			} else
 				ASSERT_CRITICAL(false);
 	}
@@ -260,6 +283,7 @@ bool resource_construct(
 			pool->stream_enc_count++;
 		}
 	}
+
 	dc->caps.dynamic_audio = false;
 	if (pool->audio_count < pool->stream_enc_count) {
 		dc->caps.dynamic_audio = true;
@@ -1214,6 +1238,9 @@ bool dc_add_plane_to_context(
 		free_pipe->clock_source = tail_pipe->clock_source;
 		free_pipe->top_pipe = tail_pipe;
 		tail_pipe->bottom_pipe = free_pipe;
+	} else if (free_pipe->bottom_pipe && free_pipe->bottom_pipe->plane_state == NULL) {
+		ASSERT(free_pipe->bottom_pipe->stream_res.opp != free_pipe->stream_res.opp);
+		free_pipe->bottom_pipe->plane_state = plane_state;
 	}
 
 	/* assign new surfaces*/
@@ -1855,6 +1882,7 @@ enum dc_status resource_map_pool_resources(
 	struct dc_context *dc_ctx = dc->ctx;
 	struct pipe_ctx *pipe_ctx = NULL;
 	int pipe_idx = -1;
+	struct dc_bios *dcb = dc->ctx->dc_bios;
 
 	/* TODO Check if this is needed */
 	/*if (!resource_is_stream_unchanged(old_context, stream)) {
@@ -1868,6 +1896,13 @@ enum dc_status resource_map_pool_resources(
 	*/
 
 	calculate_phy_pix_clks(stream);
+
+	/* TODO: Check Linux */
+	if (dc->config.allow_seamless_boot_optimization &&
+			!dcb->funcs->is_accelerated_mode(dcb)) {
+		if (dc_validate_seamless_boot_timing(dc, stream->sink, &stream->timing))
+			stream->apply_seamless_boot_optimization = true;
+	}
 
 	if (stream->apply_seamless_boot_optimization)
 		pipe_idx = acquire_resource_from_hw_enabled_state(
