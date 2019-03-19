@@ -51,6 +51,11 @@
 	};
 };
 
+&adc {
+	vdd-supply = <&ldo4_reg>;
+	status = "okay";
+};
+
 &cci {
 	status = "disabled";
 };
@@ -367,12 +372,19 @@
 				regulator-name = "PVDD_APIO_1V8";
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <1800000>;
+				regulator-always-on;
 			};
 
 			ldo3_reg: LDO3 {
 				regulator-name = "PVDD_APIO_MMCON_1V8";
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <1800000>;
+				/*
+				 * Must be always on, even though there is
+				 * a consumer (mmc_0).  Otherwise the board
+				 * does not reboot with vendor U-Boot
+				 * (Linaro for Arndale Octa, v2012.07).
+				 */
 				regulator-always-on;
 			};
 
@@ -405,6 +417,7 @@
 				regulator-name = "PVDD_ABB_1V8";
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <1800000>;
+				regulator-always-on;
 			};
 
 			ldo9_reg: LDO9 {
@@ -436,7 +449,7 @@
 
 			ldo13_reg: LDO13 {
 				regulator-name = "PVDD_APIO_MMCOFF_2V8";
-				regulator-min-microvolt = <2800000>;
+				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <2800000>;
 			};
 
@@ -499,8 +512,8 @@
 
 			ldo23_reg: LDO23 {
 				regulator-name = "PVDD_MIFS_1V1";
-				regulator-min-microvolt = <1200000>;
-				regulator-max-microvolt = <1200000>;
+				regulator-min-microvolt = <800000>;
+				regulator-max-microvolt = <1100000>;
 				regulator-always-on;
 			};
 
@@ -525,8 +538,8 @@
 
 			ldo27_reg: LDO27 {
 				regulator-name = "PVDD_G3DS_1V0";
-				regulator-min-microvolt = <1200000>;
-				regulator-max-microvolt = <1200000>;
+				regulator-min-microvolt = <800000>;
+				regulator-max-microvolt = <1100000>;
 			};
 
 			ldo28_reg: LDO28 {
@@ -680,7 +693,7 @@
 
 &mmc_0 {
 	status = "okay";
-	broken-cd;
+	non-removable;
 	card-detect-delay = <200>;
 	samsung,dw-mshc-ciu-div = <3>;
 	samsung,dw-mshc-sdr-timing = <0 4>;
@@ -688,22 +701,27 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&sd0_clk &sd0_cmd &sd0_bus1 &sd0_bus4 &sd0_bus8>;
 	vmmc-supply = <&ldo10_reg>;
+	vqmmc-supply = <&ldo3_reg>;
 	bus-width = <8>;
 	cap-mmc-highspeed;
+	mmc-hs200-1_8v;
 };
 
 &mmc_2 {
 	status = "okay";
 	card-detect-delay = <200>;
 	samsung,dw-mshc-ciu-div = <3>;
-	samsung,dw-mshc-sdr-timing = <2 3>;
-	samsung,dw-mshc-ddr-timing = <1 2>;
+	samsung,dw-mshc-sdr-timing = <0 4>;
+	samsung,dw-mshc-ddr-timing = <0 2>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&sd2_clk &sd2_cmd &sd2_cd &sd2_bus1 &sd2_bus4>;
 	vmmc-supply = <&ldo19_reg>;
 	vqmmc-supply = <&ldo13_reg>;
 	bus-width = <4>;
 	cap-sd-highspeed;
+	sd-uhs-sdr50;
+	sd-uhs-sdr104;
+	sd-uhs-ddr50;
 };
 
 &pinctrl_0 {
