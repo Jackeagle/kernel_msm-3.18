@@ -107,6 +107,8 @@ struct idmac_desc {
 /* Each descriptor can transfer up to 4KB of data in chained mode */
 #define DW_MCI_DESC_DATA_LENGTH	0x1000
 
+DECLARE_WAIT_QUEUE_HEAD(unbusy_waiter);
+
 #if defined(CONFIG_DEBUG_FS)
 static int dw_mci_req_show(struct seq_file *s, void *v)
 {
@@ -231,9 +233,35 @@ static bool dw_mci_ctrl_reset(struct dw_mci *host, u32 reset)
 	return true;
 }
 
+static inline int dw_mci_wait_hw_unbusy(struct dw_mci *host,
+					unsigned long timeout)
+{
+	unsigned long irqflags;
+	int err;
+
+	set_bit(EVENT_UNBUSY_COMPLETE, &host->pending_events);
+	err = host->drv_data->prepare_hw_unbusy(host, true);
+	if (err)
+		return err;
+
+	wait_event_interruptible_timeout(unbusy_waiter,
+					 !test_bit(EVENT_UNBUSY_COMPLETE,
+						   &host->pending_events),
+					 timeout);
+
+	if (test_and_clear_bit(EVENT_UNBUSY_COMPLETE,
+			       &host->pending_events)) {
+		dev_err(host->dev, "Busy; trying anyway\n");
+		host->drv_data->prepare_hw_unbusy(host, false);
+	}
+
+	return 0;
+}
+
 static void dw_mci_wait_while_busy(struct dw_mci *host, u32 cmd_flags)
 {
 	u32 status;
+	int err;
 
 	/*
 	 * Databook says that before issuing a new data transfer command
@@ -245,6 +273,14 @@ static void dw_mci_wait_while_busy(struct dw_mci *host, u32 cmd_flags)
 	 */
 	if ((cmd_flags & SDMMC_CMD_PRV_DAT_WAIT) &&
 	    !(cmd_flags & SDMMC_CMD_VOLT_SWITCH)) {
+		/* Resort to hw unbusy interrupt first */
+		if (host->drv_data->prepare_hw_unbusy) {
+			err = dw_mci_wait_hw_unbusy(host,
+					jiffies + msecs_to_jiffies(500));
+			if (!err)
+				return;
+		}
+
 		if (readl_poll_timeout_atomic(host->regs + SDMMC_STATUS,
 					      status,
 					      !(status & SDMMC_STATUS_BUSY),
@@ -426,7 +462,6 @@ static void dw_mci_start_command(struct dw_mci *host,
 
 	mci_writel(host, CMDARG, cmd->arg);
 	wmb(); /* drain writebuffer */
-	dw_mci_wait_while_busy(host, cmd_flags);
 
 	mci_writel(host, CMD, cmd_flags | SDMMC_CMD_START);
 
@@ -1418,6 +1453,10 @@ static void dw_mci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		mmc_request_done(mmc, mrq);
 		return;
 	}
+
+	if ((mrq->cmd->opcode != MMC_SEND_STATUS && mrq->cmd->data) &&
+	    !(mrq->cmd->opcode == SD_SWITCH_VOLTAGE))
+		dw_mci_wait_while_busy(host, SDMMC_CMD_PRV_DAT_WAIT);
 
 	spin_lock_bh(&host->lock);
 
@@ -2731,6 +2770,14 @@ static irqreturn_t dw_mci_interrupt(int irq, void *dev_id)
 			dw_mci_handle_cd(host);
 		}
 
+		/* Check hardware unbusy interrupt */
+		if (host->hw_unbusy_int != -EINVAL &&
+		    pending & BIT(host->hw_unbusy_int)) {
+			mci_writel(host, RINTSTS, BIT(host->hw_unbusy_int));
+			clear_bit(EVENT_UNBUSY_COMPLETE, &host->pending_events);
+			wake_up_interruptible(&unbusy_waiter);
+		}
+
 		if (pending & SDMMC_INT_SDIO(slot->sdio_id)) {
 			mci_writel(host, RINTSTS,
 				   SDMMC_INT_SDIO(slot->sdio_id));
@@ -3246,6 +3293,8 @@ int dw_mci_probe(struct dw_mci *host)
 		reset_control_deassert(host->pdata->rstc);
 	}
 
+	host->hw_unbusy_int = -EINVAL;
+
 	if (drv_data && drv_data->init) {
 		ret = drv_data->init(host);
 		if (ret) {
@@ -3357,6 +3406,11 @@ int dw_mci_probe(struct dw_mci *host)
 	mci_writel(host, INTMASK, SDMMC_INT_CMD_DONE | SDMMC_INT_DATA_OVER |
 		   SDMMC_INT_TXDR | SDMMC_INT_RXDR |
 		   DW_MCI_ERROR_FLAGS);
+
+	if (host->hw_unbusy_int != -EINVAL)
+		mci_writel(host, INTMASK,
+			   mci_readl(host, INTMASK) | BIT(host->hw_unbusy_int));
+
 	/* Enable mci interrupt */
 	mci_writel(host, CTRL, SDMMC_CTRL_INT_ENABLE);
 

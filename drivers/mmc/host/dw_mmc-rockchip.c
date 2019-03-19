@@ -20,6 +20,9 @@
 #include "dw_mmc-pltfm.h"
 
 #define RK3288_CLKGEN_DIV       2
+#define RKMMC_RDYINT_GEN	0x120
+#define RKMMC_RDYINT_GEN_WORKING BIT(8)
+#define RKMMC_RDYINT_GEN_MAXVAL GENMASK(7, 0)
 
 struct dw_mci_rockchip_priv_data {
 	struct clk		*drv_clk;
@@ -27,6 +30,23 @@ struct dw_mci_rockchip_priv_data {
 	int			default_sample_phase;
 	int			num_phases;
 };
+
+static int dw_mci_rockchip_prepare_hw_unbusy(struct dw_mci *host,
+					     bool enable)
+{
+	u32 reg = readl(host->regs + RKMMC_RDYINT_GEN);
+
+	if (enable)
+		/* Self-clean when generating unbusy int */
+		reg |= RKMMC_RDYINT_GEN_WORKING;
+	else
+		/* Otherwise do it manually to avoid racing condition */
+		reg &= ~RKMMC_RDYINT_GEN_WORKING;
+
+	writel(reg, host->regs + RKMMC_RDYINT_GEN);
+
+	return 0;
+}
 
 static void dw_mci_rk3288_set_ios(struct dw_mci *host, struct mmc_ios *ios)
 {
@@ -301,6 +321,15 @@ static int dw_mci_rockchip_init(struct dw_mci *host)
 				    "rockchip,rk3288-dw-mshc"))
 		host->bus_hz /= RK3288_CLKGEN_DIV;
 
+	/* Some Rockchip SoCs use hw unbusy int */
+	if (of_device_is_compatible(host->dev->of_node,
+				    "rockchip,rk1808-dw-mshc")) {
+		host->hw_unbusy_int = 16;
+		writel(~(RKMMC_RDYINT_GEN_WORKING |
+			 RKMMC_RDYINT_GEN_MAXVAL),
+		       host->regs + RKMMC_RDYINT_GEN);
+	}
+
 	return 0;
 }
 
@@ -322,6 +351,7 @@ static const struct dw_mci_drv_data rk3288_drv_data = {
 	.set_ios		= dw_mci_rk3288_set_ios,
 	.execute_tuning		= dw_mci_rk3288_execute_tuning,
 	.parse_dt		= dw_mci_rk3288_parse_dt,
+	.prepare_hw_unbusy      = dw_mci_rockchip_prepare_hw_unbusy,
 	.init			= dw_mci_rockchip_init,
 };
 
