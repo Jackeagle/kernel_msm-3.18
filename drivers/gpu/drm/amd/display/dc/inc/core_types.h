@@ -144,7 +144,7 @@ struct resource_pool {
 	struct stream_encoder *stream_enc[MAX_PIPES * 2];
 	struct hubbub *hubbub;
 	struct mpc *mpc;
-	struct pp_smu_funcs_rv *pp_smu;
+	struct pp_smu_funcs *pp_smu;
 	struct pp_smu_display_requirement_rv pp_smu_req;
 	struct dce_aux *engines[MAX_PIPES];
 	struct dce_i2c_hw *hw_i2cs[MAX_PIPES];
@@ -154,7 +154,12 @@ struct resource_pool {
 	unsigned int pipe_count;
 	unsigned int underlay_pipe_index;
 	unsigned int stream_enc_count;
-	unsigned int ref_clock_inKhz;
+
+	struct {
+		unsigned int xtalin_clock_inKhz;
+		unsigned int dccg_ref_clock_inKhz;
+		unsigned int dchub_ref_clock_inKhz;
+	} ref_clocks;
 	unsigned int timing_generator_count;
 
 	/*
@@ -294,6 +299,10 @@ struct dc_state {
 #endif
 
 	struct clk_mgr *dccg;
+
+	struct {
+		bool full_update_needed : 1;
+	} commit_hints;
 
 	struct kref refcount;
 };

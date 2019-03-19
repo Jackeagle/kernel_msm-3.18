@@ -61,7 +61,6 @@ struct kgd_mem {
 
 	atomic_t invalid;
 	struct amdkfd_process_info *process_info;
-	struct page **user_pages;
 
 	struct amdgpu_sync sync;
 
@@ -230,5 +229,6 @@ int kgd2kfd_quiesce_mm(struct mm_struct *mm);
 int kgd2kfd_resume_mm(struct mm_struct *mm);
 int kgd2kfd_schedule_evict_and_restore_process(struct mm_struct *mm,
 					       struct dma_fence *fence);
+void kgd2kfd_set_sram_ecc_flag(struct kfd_dev *kfd);
 
 #endif /* AMDGPU_AMDKFD_H_INCLUDED */
