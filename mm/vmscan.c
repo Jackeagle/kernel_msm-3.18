@@ -2257,8 +2257,7 @@ enum scan_balance {
  * nr[2] = file inactive pages to scan; nr[3] = file active pages to scan
  */
 static void get_scan_count(struct lruvec *lruvec, struct mem_cgroup *memcg,
-			   struct scan_control *sc, unsigned long *nr,
-			   unsigned long *lru_pages)
+			   struct scan_control *sc, unsigned long *nr)
 {
 	int swappiness = mem_cgroup_swappiness(memcg);
 	struct zone_reclaim_stat *reclaim_stat = &lruvec->reclaim_stat;
@@ -2409,20 +2408,93 @@ static void get_scan_count(struct lruvec *lruvec, struct mem_cgroup *memcg,
 	fraction[1] = fp;
 	denominator = ap + fp + 1;
 out:
-	*lru_pages = 0;
 	for_each_evictable_lru(lru) {
 		int file = is_file_lru(lru);
-		unsigned long size;
+		unsigned long lruvec_size;
 		unsigned long scan;
+		unsigned long min, low;
 
-		size = lruvec_lru_size(lruvec, lru, sc->reclaim_idx);
-		scan = size >> sc->priority;
+		lruvec_size = lruvec_lru_size(lruvec, lru, sc->reclaim_idx);
+		mem_cgroup_protection(memcg, &min, &low);
+
+		if (min || low) {
+			/*
+			 * Scale a cgroup's reclaim pressure by proportioning
+			 * its current usage to its memory.low or memory.min
+			 * setting.
+			 *
+			 * This is important, as otherwise scanning aggression
+			 * becomes extremely binary -- from nothing as we
+			 * approach the memory protection threshold, to totally
+			 * nominal as we exceed it.  This results in requiring
+			 * setting extremely liberal protection thresholds. It
+			 * also means we simply get no protection at all if we
+			 * set it too low, which is not ideal.
+			 */
+			unsigned long cgroup_size = mem_cgroup_size(memcg);
+
+			/*
+			 * If there is any protection in place, we adjust scan
+			 * pressure in proportion to how much a group's current
+			 * usage exceeds that, in percent.
+			 *
+			 * There is one special case: in the first reclaim pass,
+			 * we skip over all groups that are within their low
+			 * protection. If that fails to reclaim enough pages to
+			 * satisfy the reclaim goal, we come back and override
+			 * the best-effort low protection. However, we still
+			 * ideally want to honor how well-behaved groups are in
+			 * that case instead of simply punishing them all
+			 * equally. As such, we reclaim them based on how much
+			 * of their best-effort protection they are using. Usage
+			 * below memory.min is excluded from consideration when
+			 * calculating utilisation, as it isn't ever
+			 * reclaimable, so it might as well not exist for our
+			 * purposes.
+			 */
+			if (sc->memcg_low_reclaim && low > min) {
+				/*
+				 * Reclaim according to utilisation between min
+				 * and low
+				 */
+				scan = lruvec_size * (cgroup_size - min) /
+					(low - min);
+			} else {
+				/* Reclaim according to protection overage */
+				scan = lruvec_size * cgroup_size /
+					max(min, low) - lruvec_size;
+			}
+
+			/*
+			 * Don't allow the scan target to exceed the lruvec
+			 * size, which otherwise could happen if we have >200%
+			 * overage in the normal case, or >100% overage when
+			 * sc->memcg_low_reclaim is set.
+			 *
+			 * This is important because other cgroups without
+			 * memory.low have their scan target initially set to
+			 * their lruvec size, so allowing values >100% of the
+			 * lruvec size here could result in penalising cgroups
+			 * with memory.low set even *more* than their peers in
+			 * some cases in the case of large overages.
+			 *
+			 * Also, minimally target SWAP_CLUSTER_MAX pages to keep
+			 * reclaim moving forwards, avoiding decremeting
+			 * sc->priority further than desirable.
+			 */
+			scan = clamp(scan, SWAP_CLUSTER_MAX, lruvec_size);
+		} else {
+			scan = lruvec_size;
+		}
+
+		scan >>= sc->priority;
+
 		/*
 		 * If the cgroup's already been deleted, make sure to
 		 * scrape out the remaining cache.
 		 */
 		if (!scan && !mem_cgroup_online(memcg))
-			scan = min(size, SWAP_CLUSTER_MAX);
+			scan = min(lruvec_size, SWAP_CLUSTER_MAX);
 
 		switch (scan_balance) {
 		case SCAN_EQUAL:
@@ -2442,7 +2514,7 @@ out:
 		case SCAN_ANON:
 			/* Scan one type exclusively */
 			if ((scan_balance == SCAN_FILE) != file) {
-				size = 0;
+				lruvec_size = 0;
 				scan = 0;
 			}
 			break;
@@ -2451,7 +2523,6 @@ out:
 			BUG();
 		}
 
-		*lru_pages += size;
 		nr[lru] = scan;
 	}
 }
@@ -2460,7 +2531,7 @@ out:
  * This is a basic per-node page freer.  Used by both kswapd and direct reclaim.
  */
 static void shrink_node_memcg(struct pglist_data *pgdat, struct mem_cgroup *memcg,
-			      struct scan_control *sc, unsigned long *lru_pages)
+			      struct scan_control *sc)
 {
 	struct lruvec *lruvec = mem_cgroup_lruvec(pgdat, memcg);
 	unsigned long nr[NR_LRU_LISTS];
@@ -2472,7 +2543,7 @@ static void shrink_node_memcg(struct pglist_data *pgdat, struct mem_cgroup *memc
 	struct blk_plug plug;
 	bool scan_adjusted;
 
-	get_scan_count(lruvec, memcg, sc, nr, lru_pages);
+	get_scan_count(lruvec, memcg, sc, nr);
 
 	/* Record the original scan target for proportional adjustments later */
 	memcpy(targets, nr, sizeof(nr));
@@ -2677,7 +2748,6 @@ static bool shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 			.pgdat = pgdat,
 			.priority = sc->priority,
 		};
-		unsigned long node_lru_pages = 0;
 		struct mem_cgroup *memcg;
 
 		memset(&sc->nr, 0, sizeof(sc->nr));
@@ -2687,7 +2757,6 @@ static bool shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 
 		memcg = mem_cgroup_iter(root, NULL, &reclaim);
 		do {
-			unsigned long lru_pages;
 			unsigned long reclaimed;
 			unsigned long scanned;
 
@@ -2712,13 +2781,19 @@ static bool shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 				memcg_memory_event(memcg, MEMCG_LOW);
 				break;
 			case MEMCG_PROT_NONE:
+				/*
+				 * All protection thresholds breached. We may
+				 * still choose to vary the scan pressure
+				 * applied based on by how much the cgroup in
+				 * question has exceeded its protection
+				 * thresholds (see get_scan_count).
+				 */
 				break;
 			}
 
 			reclaimed = sc->nr_reclaimed;
 			scanned = sc->nr_scanned;
-			shrink_node_memcg(pgdat, memcg, sc, &lru_pages);
-			node_lru_pages += lru_pages;
+			shrink_node_memcg(pgdat, memcg, sc);
 
 			if (sc->may_shrinkslab) {
 				shrink_slab(sc->gfp_mask, pgdat->node_id,
@@ -3251,7 +3326,6 @@ unsigned long mem_cgroup_shrink_node(struct mem_cgroup *memcg,
 		.may_swap = !noswap,
 		.may_shrinkslab = 1,
 	};
-	unsigned long lru_pages;
 
 	sc.gfp_mask = (gfp_mask & GFP_RECLAIM_MASK) |
 			(GFP_HIGHUSER_MOVABLE & ~GFP_RECLAIM_MASK);
@@ -3268,7 +3342,7 @@ unsigned long mem_cgroup_shrink_node(struct mem_cgroup *memcg,
 	 * will pick up pages from other mem cgroup's as well. We hack
 	 * the priority and make it zero.
 	 */
-	shrink_node_memcg(pgdat, memcg, &sc, &lru_pages);
+	shrink_node_memcg(pgdat, memcg, &sc);
 
 	trace_mm_vmscan_memcg_softlimit_reclaim_end(sc.nr_reclaimed);
 
