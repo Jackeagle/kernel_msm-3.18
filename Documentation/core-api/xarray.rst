@@ -379,8 +379,10 @@ You can use :c:func:`xas_init_marks` to reset the marks on an entry
 to their default state.  This is usually all marks clear, unless the
 XArray is marked with ``XA_FLAGS_TRACK_FREE``, in which case mark 0 is set
 and all other marks are clear.  Replacing one entry with another using
-:c:func:`xas_store` will not reset the marks on that entry; if you want
-the marks reset, you should do that explicitly.
+:c:func:`xas_store` will reset the marks if the entry being stored is
+``NULL``.  You can use :c:func:`xas_replace` which will skip some of the
+work involved if you don't need the marks to be touched, and have already
+walked the xa_state to the appropriate place.
 
 The :c:func:`xas_load` will walk the xa_state as close to the entry
 as it can.  If you know the xa_state has already been walked to the

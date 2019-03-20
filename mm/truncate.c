@@ -39,7 +39,7 @@ static inline void __clear_shadow_entry(struct address_space *mapping,
 	xas_set_update(&xas, workingset_update_node);
 	if (xas_load(&xas) != entry)
 		return;
-	xas_store(&xas, NULL);
+	xas_replace(&xas, entry, NULL);
 	mapping->nrexceptional--;
 }
 
