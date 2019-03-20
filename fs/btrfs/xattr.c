@@ -176,7 +176,7 @@ int btrfs_setxattr(struct btrfs_trans_handle *trans, struct inode *inode,
 		char *ptr;
 
 		if (size > old_data_len) {
-			if (btrfs_leaf_free_space(fs_info, leaf) <
+			if (btrfs_leaf_free_space(leaf) <
 			    (size - old_data_len)) {
 				ret = -ENOSPC;
 				goto out;
