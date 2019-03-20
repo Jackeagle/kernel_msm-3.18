@@ -477,7 +477,7 @@ static int check_leaf_item(struct btrfs_fs_info *fs_info,
 }
 
 static int check_leaf(struct btrfs_fs_info *fs_info, struct extent_buffer *leaf,
-		      bool check_item_data)
+		      bool check_item_data, bool check_empty_leaf)
 {
 	/* No valid key type is 0, so all key should be larger than this key */
 	struct btrfs_key prev_key = {0, 0, 0};
@@ -516,6 +516,15 @@ static int check_leaf(struct btrfs_fs_info *fs_info, struct extent_buffer *leaf,
 				    owner);
 			return -EUCLEAN;
 		}
+
+		/*
+		 * Don't check empty leaves at write time for trees where we
+		 * can't use @owner to indicate the right owner. This happens
+		 * for reloc trees or for a new commit root.
+		 */
+		if (!check_empty_leaf)
+			return 0;
+
 		key.objectid = owner;
 		key.type = BTRFS_ROOT_ITEM_KEY;
 		key.offset = (u64)-1;
@@ -636,13 +645,24 @@ static int check_leaf(struct btrfs_fs_info *fs_info, struct extent_buffer *leaf,
 int btrfs_check_leaf_full(struct btrfs_fs_info *fs_info,
 			  struct extent_buffer *leaf)
 {
-	return check_leaf(fs_info, leaf, true);
+	return check_leaf(fs_info, leaf, true, true);
 }
 
 int btrfs_check_leaf_relaxed(struct btrfs_fs_info *fs_info,
 			     struct extent_buffer *leaf)
 {
-	return check_leaf(fs_info, leaf, false);
+	return check_leaf(fs_info, leaf, false, true);
+}
+
+/*
+ * Write time specific leaf checker.
+ * Don't check if the empty leaf belongs to a tree root. Mostly for balance
+ * and new tree created in current transaction.
+ */
+int btrfs_check_leaf_write(struct btrfs_fs_info *fs_info,
+			   struct extent_buffer *leaf)
+{
+	return check_leaf(fs_info, leaf, false, false);
 }
 
 int btrfs_check_node(struct btrfs_fs_info *fs_info, struct extent_buffer *node)
