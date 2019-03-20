@@ -302,6 +302,9 @@ struct key *key_alloc(struct key_type *type, const char *desc,
 
 	memset(&key->type_data, 0, sizeof(key->type_data));
 
+	if (flags & KEY_ALLOC_UID_KEYRING)
+		key->flags |= 1 << KEY_FLAG_UID_KEYRING;
+
 #ifdef KEY_DEBUGGING
 	key->magic = KEY_DEBUG_MAGIC;
 #endif
