@@ -3670,7 +3670,7 @@ lpfc_scsi_cmd_iocb_cmpl(struct lpfc_hba *phba, struct lpfc_iocbq *pIocbIn,
 #ifdef CONFIG_SCSI_LPFC_DEBUG_FS
 	if (phba->cpucheck_on & LPFC_CHECK_SCSI_IO) {
 		cpu = smp_processor_id();
-		if (cpu < LPFC_CHECK_CPU_CNT)
+		if (cpu < LPFC_CHECK_CPU_CNT && phba->sli4_hba.hdwq)
 			phba->sli4_hba.hdwq[idx].cpucheck_cmpl_io[cpu]++;
 	}
 #endif
@@ -5049,7 +5049,7 @@ lpfc_device_reset_handler(struct scsi_cmnd *cmnd)
 	rdata = lpfc_rport_data_from_scsi_device(cmnd->device);
 	if (!rdata || !rdata->pnode) {
 		lpfc_printf_vlog(vport, KERN_ERR, LOG_FCP,
-				 "0798 Device Reset rport failure: rdata x%p\n",
+				 "0798 Device Reset rdata failure: rdata x%p\n",
 				 rdata);
 		return FAILED;
 	}
@@ -5118,9 +5118,10 @@ lpfc_target_reset_handler(struct scsi_cmnd *cmnd)
 	int status;
 
 	rdata = lpfc_rport_data_from_scsi_device(cmnd->device);
-	if (!rdata) {
+	if (!rdata || !rdata->pnode) {
 		lpfc_printf_vlog(vport, KERN_ERR, LOG_FCP,
-			"0799 Target Reset rport failure: rdata x%p\n", rdata);
+				 "0799 Target Reset rdata failure: rdata x%p\n",
+				 rdata);
 		return FAILED;
 	}
 	pnode = rdata->pnode;
