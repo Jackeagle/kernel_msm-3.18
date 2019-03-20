@@ -1,20 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * PS3 RTC Driver
  *
  * Copyright 2009 Sony Corporation
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; version 2 of the License.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.
- * If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <linux/kernel.h>
@@ -77,6 +65,6 @@ static struct platform_driver ps3_rtc_driver = {
 module_platform_driver_probe(ps3_rtc_driver, ps3_rtc_probe);
 
 MODULE_AUTHOR("Sony Corporation");
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("ps3 RTC driver");
 MODULE_ALIAS("platform:rtc-ps3");
