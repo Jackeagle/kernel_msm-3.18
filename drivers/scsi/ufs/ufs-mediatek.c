@@ -16,7 +16,7 @@
 #include "unipro.h"
 #include "ufs-mediatek.h"
 
-void ufs_mtk_cfg_unipro_cg(struct ufs_hba *hba, bool enable)
+static void ufs_mtk_cfg_unipro_cg(struct ufs_hba *hba, bool enable)
 {
 	u32 tmp;
 
@@ -52,7 +52,7 @@ void ufs_mtk_cfg_unipro_cg(struct ufs_hba *hba, bool enable)
 	}
 }
 
-int ufs_mtk_bind_mphy(struct ufs_hba *hba)
+static int ufs_mtk_bind_mphy(struct ufs_hba *hba)
 {
 	struct ufs_mtk_host *host = ufshcd_get_variant(hba);
 	struct device *dev = hba->dev;
@@ -93,7 +93,7 @@ static int ufs_mtk_setup_clocks(struct ufs_hba *hba, bool on,
 				enum ufs_notify_change_status status)
 {
 	struct ufs_mtk_host *host = ufshcd_get_variant(hba);
-	int ret;
+	int ret = -EINVAL;
 
 	/*
 	 * In case ufs_mtk_init() is not yet done, simply ignore.
@@ -111,9 +111,6 @@ static int ufs_mtk_setup_clocks(struct ufs_hba *hba, bool on,
 	case POST_CHANGE:
 		if (on)
 			ret = phy_power_on(host->mphy);
-		break;
-	default:
-		ret = -EINVAL;
 		break;
 	}
 
@@ -339,7 +336,7 @@ static int ufs_mtk_remove(struct platform_device *pdev)
 	return 0;
 }
 
-const struct of_device_id ufs_mtk_of_match[] = {
+static const struct of_device_id ufs_mtk_of_match[] = {
 	{ .compatible = "mediatek,mt8183-ufshci"},
 	{},
 };

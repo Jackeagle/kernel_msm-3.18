@@ -1058,12 +1058,12 @@ void lpfc_sli_remove_dflt_fcf(struct lpfc_hba *);
 int lpfc_sli4_get_els_iocb_cnt(struct lpfc_hba *);
 int lpfc_sli4_get_iocb_cnt(struct lpfc_hba *phba);
 int lpfc_sli4_init_vpi(struct lpfc_vport *);
-inline void lpfc_sli4_eq_clr_intr(struct lpfc_queue *);
+void lpfc_sli4_eq_clr_intr(struct lpfc_queue *);
 void lpfc_sli4_write_cq_db(struct lpfc_hba *phba, struct lpfc_queue *q,
 			   uint32_t count, bool arm);
 void lpfc_sli4_write_eq_db(struct lpfc_hba *phba, struct lpfc_queue *q,
 			   uint32_t count, bool arm);
-inline void lpfc_sli4_if6_eq_clr_intr(struct lpfc_queue *q);
+void lpfc_sli4_if6_eq_clr_intr(struct lpfc_queue *q);
 void lpfc_sli4_if6_write_cq_db(struct lpfc_hba *phba, struct lpfc_queue *q,
 			       uint32_t count, bool arm);
 void lpfc_sli4_if6_write_eq_db(struct lpfc_hba *phba, struct lpfc_queue *q,
@@ -1080,4 +1080,8 @@ int lpfc_sli4_post_status_check(struct lpfc_hba *);
 uint8_t lpfc_sli_config_mbox_subsys_get(struct lpfc_hba *, LPFC_MBOXQ_t *);
 uint8_t lpfc_sli_config_mbox_opcode_get(struct lpfc_hba *, LPFC_MBOXQ_t *);
 void lpfc_sli4_ras_dma_free(struct lpfc_hba *phba);
-inline void *lpfc_sli4_qe(struct lpfc_queue *, uint16_t);
+static inline void *lpfc_sli4_qe(struct lpfc_queue *q, uint16_t idx)
+{
+	return q->q_pgs[idx / q->entry_cnt_per_pg] +
+		(q->entry_size * (idx % q->entry_cnt_per_pg));
+}

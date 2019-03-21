@@ -355,7 +355,7 @@ lpfc_sli4_eq_get(struct lpfc_queue *q)
  * @q: The Event Queue to disable interrupts
  *
  **/
-inline void
+void
 lpfc_sli4_eq_clr_intr(struct lpfc_queue *q)
 {
 	struct lpfc_register doorbell;
@@ -374,7 +374,7 @@ lpfc_sli4_eq_clr_intr(struct lpfc_queue *q)
  * @q: The Event Queue to disable interrupts
  *
  **/
-inline void
+void
 lpfc_sli4_if6_eq_clr_intr(struct lpfc_queue *q)
 {
 	struct lpfc_register doorbell;
@@ -14572,12 +14572,6 @@ lpfc_sli4_queue_alloc(struct lpfc_hba *phba, uint32_t page_size,
 out_fail:
 	lpfc_sli4_queue_free(queue);
 	return NULL;
-}
-
-inline void *lpfc_sli4_qe(struct lpfc_queue *q, uint16_t idx)
-{
-	return q->q_pgs[idx / q->entry_cnt_per_pg] +
-		(q->entry_size * (idx % q->entry_cnt_per_pg));
 }
 
 /**
