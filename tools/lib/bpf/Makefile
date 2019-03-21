@@ -80,6 +80,7 @@ libdir_SQ = $(subst ','\'',$(libdir))
 libdir_relative_SQ = $(subst ','\'',$(libdir_relative))
 
 LIB_FILE = libbpf.a libbpf.so
+PC_FILE = libbpf.pc
 
 VERSION		= $(BPF_VERSION)
 PATCHLEVEL	= $(BPF_PATCHLEVEL)
@@ -130,6 +131,7 @@ include $(srctree)/tools/build/Makefile.include
 
 BPF_IN    := $(OUTPUT)libbpf-in.o
 LIB_FILE := $(addprefix $(OUTPUT),$(LIB_FILE))
+PC_FILE := $(addprefix $(OUTPUT),$(PC_FILE))
 VERSION_SCRIPT := libbpf.map
 
 GLOBAL_SYM_COUNT = $(shell readelf -s --wide $(BPF_IN) | \
@@ -137,7 +139,7 @@ GLOBAL_SYM_COUNT = $(shell readelf -s --wide $(BPF_IN) | \
 VERSIONED_SYM_COUNT = $(shell readelf -s --wide $(OUTPUT)libbpf.so | \
 			      grep -Eo '[^ ]+@LIBBPF_' | cut -d@ -f1 | sort -u | wc -l)
 
-CMD_TARGETS = $(LIB_FILE)
+CMD_TARGETS = $(LIB_FILE) $(PC_FILE)
 
 CXX_TEST_TARGET = $(OUTPUT)test_libbpf
 
@@ -180,6 +182,12 @@ $(OUTPUT)libbpf.a: $(BPF_IN)
 $(OUTPUT)test_libbpf: test_libbpf.cpp $(OUTPUT)libbpf.a
 	$(QUIET_LINK)$(CXX) $(INCLUDES) $^ -lelf -o $@
 
+$(OUTPUT)libbpf.pc:
+	$(QUIET_GEN)sed -e "s|@PREFIX@|$(prefix)|" \
+		-e "s|@LIBDIR@|$(libdir_SQ)|" \
+		-e "s|@VERSION@|$(LIBBPF_VERSION)|" \
+		< libbpf.pc.template > $@
+
 check: check_abi
 
 check_abi: $(OUTPUT)libbpf.so
@@ -209,7 +217,12 @@ install_headers:
 		$(call do_install,libbpf.h,$(prefix)/include/bpf,644);
 		$(call do_install,btf.h,$(prefix)/include/bpf,644);
 
-install: install_lib
+install_pkgconfig: $(PC_FILE)
+	$(call QUIET_INSTALL, $(PC_FILE)) \
+		$(call do_install,$(PC_FILE),$(libdir_SQ)/pkgconfig,644)
+
+
+install: install_lib install_pkgconfig
 
 ### Cleaning rules
 
@@ -219,7 +232,7 @@ config-clean:
 
 clean:
 	$(call QUIET_CLEAN, libbpf) $(RM) $(TARGETS) $(CXX_TEST_TARGET) \
-		*.o *~ *.a *.so .*.d .*.cmd LIBBPF-CFLAGS
+		*.o *~ *.a *.so .*.d .*.cmd *.pc LIBBPF-CFLAGS
 	$(call QUIET_CLEAN, core-gen) $(RM) $(OUTPUT)FEATURE-DUMP.libbpf
 
 
