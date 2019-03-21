@@ -112,26 +112,26 @@ out:
 int btrfs_set_acl(struct inode *inode, struct posix_acl *acl, int type)
 {
 	int ret;
-	umode_t old_mode = inode->i_mode;
+	umode_t mode;
+	bool change_mode = false;
 	struct btrfs_trans_handle *trans;
 	struct btrfs_root *root = BTRFS_I(inode)->root;
 
 	if (type == ACL_TYPE_ACCESS && acl) {
-		ret = posix_acl_update_mode(inode, &inode->i_mode, &acl);
+		ret = posix_acl_update_mode(inode, &mode, &acl);
 		if (ret)
 			return ret;
+		change_mode = true;
 	}
 
 	trans = btrfs_start_transaction(root, 2);
-	if (IS_ERR(trans)) {
-		inode->i_mode = old_mode;
+	if (IS_ERR(trans))
 		return PTR_ERR(trans);
-	}
 
 	ret = do_set_acl(trans, inode, acl, type);
-	if (ret) {
-		inode->i_mode = old_mode;
-	} else {
+	if (!ret) {
+		if (change_mode)
+			inode->i_mode = mode;
 		inode_inc_iversion(inode);
 		inode->i_ctime = current_time(inode);
 		set_bit(BTRFS_INODE_COPY_EVERYTHING, &BTRFS_I(inode)->runtime_flags);
