@@ -1023,6 +1023,10 @@ static int posix_locks_deadlock(struct file_lock *caller_fl,
 	while ((block_fl = what_owner_is_waiting_for(block_fl))) {
 		if (i++ > MAX_DEADLK_ITERATIONS)
 			return 0;
+
+		if (caller_fl == block_fl)
+			return 0;
+
 		if (posix_same_owner(caller_fl, block_fl))
 			return 1;
 	}
