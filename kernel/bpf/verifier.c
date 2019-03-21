@@ -352,6 +352,14 @@ static bool reg_may_point_to_spin_lock(const struct bpf_reg_state *reg)
 		map_value_has_spin_lock(reg->map_ptr);
 }
 
+static bool reg_type_may_be_refcounted_or_null(enum bpf_reg_type type)
+{
+	return type == PTR_TO_SOCKET ||
+		type == PTR_TO_SOCKET_OR_NULL ||
+		type == PTR_TO_TCP_SOCK ||
+		type == PTR_TO_TCP_SOCK_OR_NULL;
+}
+
 static bool arg_type_may_be_refcounted(enum bpf_arg_type type)
 {
 	return type == ARG_PTR_TO_SOCK_COMMON;
@@ -451,8 +459,9 @@ static void print_verifier_state(struct bpf_verifier_env *env,
 			if (t == PTR_TO_STACK)
 				verbose(env, ",call_%d", func(env, reg)->callsite);
 		} else {
-			verbose(env, "(id=%d ref_obj_id=%d", reg->id,
-				reg->ref_obj_id);
+			verbose(env, "(id=%d", reg->id);
+			if (reg_type_may_be_refcounted_or_null(t))
+				verbose(env, ",ref_obj_id=%d", reg->ref_obj_id);
 			if (t != SCALAR_VALUE)
 				verbose(env, ",off=%d", reg->off);
 			if (type_is_pkt_pointer(t))
@@ -3372,7 +3381,7 @@ do_sim:
 		*dst_reg = *ptr_reg;
 	}
 	ret = push_stack(env, env->insn_idx + 1, env->insn_idx, true);
-	if (!ptr_is_dst_reg)
+	if (!ptr_is_dst_reg && ret)
 		*dst_reg = tmp;
 	return !ret ? -EFAULT : 0;
 }
