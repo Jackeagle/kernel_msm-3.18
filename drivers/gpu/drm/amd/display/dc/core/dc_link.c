@@ -1207,7 +1207,7 @@ static bool construct(
 	link->link_enc = link->dc->res_pool->funcs->link_enc_create(
 								&enc_init_data);
 
-	if( link->link_enc == NULL) {
+	if (link->link_enc == NULL) {
 		DC_ERROR("Failed to create link encoder!\n");
 		goto link_enc_create_fail;
 	}
@@ -1466,13 +1466,13 @@ static enum dc_status enable_link_dp_mst(
 	if (link->cur_link_settings.lane_count != LANE_COUNT_UNKNOWN)
 		return DC_OK;
 
-	/* to make sure the pending down rep can be processed
-	 * before clear payload table
-	 */
-	dm_helpers_dp_mst_poll_pending_down_reply(link->ctx, link);
-
 	/* clear payload table */
 	dm_helpers_dp_mst_clear_payload_allocation_table(link->ctx, link);
+
+	/* to make sure the pending down rep can be processed
+	 * before enabling the link
+	 */
+	dm_helpers_dp_mst_poll_pending_down_reply(link->ctx, link);
 
 	/* set the sink to MST mode before enabling the link */
 	dp_enable_mst_on_sink(link, true);
@@ -1982,7 +1982,7 @@ static void enable_link_hdmi(struct pipe_ctx *pipe_ctx)
 			pipe_ctx->stream->signal,
 			stream->phy_pix_clk);
 
-	if (pipe_ctx->stream->signal == SIGNAL_TYPE_HDMI_TYPE_A)
+	if (dc_is_hdmi_signal(pipe_ctx->stream->signal))
 		dal_ddc_service_read_scdc_data(link->ddc);
 }
 
@@ -2074,11 +2074,28 @@ static void disable_link(struct dc_link *link, enum signal_type signal)
 	}
 }
 
+static uint32_t get_timing_pixel_clock_100hz(const struct dc_crtc_timing *timing)
+{
+
+	uint32_t pxl_clk = timing->pix_clk_100hz;
+
+	if (timing->pixel_encoding == PIXEL_ENCODING_YCBCR420)
+		pxl_clk /= 2;
+	else if (timing->pixel_encoding == PIXEL_ENCODING_YCBCR422)
+		pxl_clk = pxl_clk * 2 / 3;
+
+	if (timing->display_color_depth == COLOR_DEPTH_101010)
+		pxl_clk = pxl_clk * 10 / 8;
+	else if (timing->display_color_depth == COLOR_DEPTH_121212)
+		pxl_clk = pxl_clk * 12 / 8;
+
+	return pxl_clk;
+}
+
 static bool dp_active_dongle_validate_timing(
 		const struct dc_crtc_timing *timing,
 		const struct dpcd_caps *dpcd_caps)
 {
-	unsigned int required_pix_clk_100hz = timing->pix_clk_100hz;
 	const struct dc_dongle_caps *dongle_caps = &dpcd_caps->dongle_caps;
 
 	switch (dpcd_caps->dongle_type) {
@@ -2115,13 +2132,6 @@ static bool dp_active_dongle_validate_timing(
 		return false;
 	}
 
-
-	/* Check Color Depth and Pixel Clock */
-	if (timing->pixel_encoding == PIXEL_ENCODING_YCBCR420)
-		required_pix_clk_100hz /= 2;
-	else if (timing->pixel_encoding == PIXEL_ENCODING_YCBCR422)
-		required_pix_clk_100hz = required_pix_clk_100hz * 2 / 3;
-
 	switch (timing->display_color_depth) {
 	case COLOR_DEPTH_666:
 	case COLOR_DEPTH_888:
@@ -2130,14 +2140,11 @@ static bool dp_active_dongle_validate_timing(
 	case COLOR_DEPTH_101010:
 		if (dongle_caps->dp_hdmi_max_bpc < 10)
 			return false;
-		required_pix_clk_100hz = required_pix_clk_100hz * 10 / 8;
 		break;
 	case COLOR_DEPTH_121212:
 		if (dongle_caps->dp_hdmi_max_bpc < 12)
 			return false;
-		required_pix_clk_100hz = required_pix_clk_100hz * 12 / 8;
 		break;
-
 	case COLOR_DEPTH_141414:
 	case COLOR_DEPTH_161616:
 	default:
@@ -2145,7 +2152,7 @@ static bool dp_active_dongle_validate_timing(
 		return false;
 	}
 
-	if (required_pix_clk_100hz > (dongle_caps->dp_hdmi_max_pixel_clk * 10))
+	if (get_timing_pixel_clock_100hz(timing) > (dongle_caps->dp_hdmi_max_pixel_clk * 10))
 		return false;
 
 	return true;
@@ -2166,7 +2173,7 @@ enum dc_status dc_link_validate_mode_timing(
 		return DC_OK;
 
 	/* Passive Dongle */
-	if (0 != max_pix_clk && timing->pix_clk_100hz > max_pix_clk)
+	if (max_pix_clk != 0 && get_timing_pixel_clock_100hz(timing) > max_pix_clk)
 		return DC_EXCEED_DONGLE_CAP;
 
 	/* Active Dongle*/
@@ -2551,7 +2558,7 @@ void core_link_enable_stream(
 		struct dc_state *state,
 		struct pipe_ctx *pipe_ctx)
 {
-	struct dc  *core_dc = pipe_ctx->stream->ctx->dc;
+	struct dc *core_dc = pipe_ctx->stream->ctx->dc;
 	struct dc_stream_state *stream = pipe_ctx->stream;
 	enum dc_status status;
 	DC_LOGGER_INIT(pipe_ctx->stream->ctx->logger);
@@ -2572,7 +2579,7 @@ void core_link_enable_stream(
 			&stream->timing,
 			stream->output_color_space);
 
-	if (dc_is_hdmi_signal(pipe_ctx->stream->signal))
+	if (dc_is_hdmi_tmds_signal(pipe_ctx->stream->signal))
 		pipe_ctx->stream_res.stream_enc->funcs->hdmi_set_stream_attribute(
 			pipe_ctx->stream_res.stream_enc,
 			&stream->timing,
