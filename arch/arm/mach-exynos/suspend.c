@@ -268,10 +268,8 @@ static int exynos5420_cpu_suspend(unsigned long arg)
 	unsigned int cluster = MPIDR_AFFINITY_LEVEL(mpidr, 1);
 	unsigned int cpu = MPIDR_AFFINITY_LEVEL(mpidr, 0);
 
-	if (IS_ENABLED(CONFIG_EXYNOS5420_MCPM)) {
-		mcpm_set_entry_vector(cpu, cluster, exynos_cpu_resume);
-		mcpm_cpu_suspend();
-	}
+	mcpm_set_entry_vector(cpu, cluster, exynos_cpu_resume);
+	mcpm_cpu_suspend();
 
 	pr_info("Failed to suspend the system\n");
 
@@ -351,8 +349,7 @@ static void exynos5420_pm_prepare(void)
 	exynos_pm_enter_sleep_mode();
 
 	/* ensure at least INFORM0 has the resume address */
-	if (IS_ENABLED(CONFIG_EXYNOS5420_MCPM))
-		pmu_raw_writel(__pa_symbol(mcpm_entry_point), S5P_INFORM0);
+	pmu_raw_writel(__pa_symbol(mcpm_entry_point), S5P_INFORM0);
 
 	tmp = pmu_raw_readl(EXYNOS_L2_OPTION(0));
 	tmp &= ~EXYNOS_L2_USE_RETENTION;
@@ -455,8 +452,7 @@ static void exynos5420_prepare_pm_resume(void)
 	mpidr = read_cpuid_mpidr();
 	cluster = MPIDR_AFFINITY_LEVEL(mpidr, 1);
 
-	if (IS_ENABLED(CONFIG_EXYNOS5420_MCPM))
-		WARN_ON(mcpm_cpu_powered_up());
+	WARN_ON(mcpm_cpu_powered_up());
 
 	if (IS_ENABLED(CONFIG_HW_PERF_EVENTS) && cluster != 0) {
 		/*
