@@ -1916,8 +1916,10 @@ static inline int btrfs_start_delalloc_flush(struct btrfs_trans_handle *trans)
 			int ret;
 
 			ret = btrfs_start_delalloc_snapshot(pending->root);
-			if (ret)
-				return ret;
+			if (ret < 0) {
+				writeback_inodes_sb(fs_info->sb, WB_REASON_SYNC);
+				break;
+			}
 		}
 	}
 	return 0;
