@@ -26,6 +26,7 @@
  *
  */
 
+#include <linux/anon_inodes.h>
 #include <linux/mm.h>
 #include <linux/export.h>
 #include <linux/slab.h>
@@ -40,6 +41,7 @@
 #include <linux/proc_fs.h>
 #include <linux/sched/task.h>
 #include <linux/idr.h>
+#include <linux/wait.h>
 
 struct pid init_struct_pid = {
 	.count 		= ATOMIC_INIT(1),
@@ -449,6 +451,171 @@ EXPORT_SYMBOL_GPL(task_active_pid_ns);
 struct pid *find_ge_pid(int nr, struct pid_namespace *ns)
 {
 	return idr_get_next(&ns->idr, &nr);
+}
+
+static int pidfd_release(struct inode *inode, struct file *file)
+{
+	struct pid *pid = file->private_data;
+
+	if (pid) {
+		file->private_data = NULL;
+		put_pid(pid);
+	}
+
+	return 0;
+}
+
+const struct file_operations pidfd_fops = {
+	.release = pidfd_release,
+	.llseek	 = no_llseek,
+};
+
+static int pidfd_create_fd(struct pid *pid, unsigned int o_flags)
+{
+	int fd;
+
+	fd = anon_inode_getfd("pidfd", &pidfd_fops, get_pid(pid),
+			      O_RDWR | o_flags);
+	if (fd < 0)
+		put_pid(pid);
+
+	return fd;
+}
+
+static struct pid_namespace *get_pid_ns_by_fd(int fd)
+{
+	struct pid_namespace *pidns = ERR_PTR(-EINVAL);
+
+	if (fd >= 0) {
+#ifdef CONFIG_PID_NS
+		struct ns_common *ns;
+		struct file *file = proc_ns_fget(fd);
+		if (IS_ERR(file))
+			return ERR_CAST(file);
+
+		ns = get_proc_ns(file_inode(file));
+		if (ns->ops->type == CLONE_NEWPID)
+			pidns = get_pid_ns(
+				container_of(ns, struct pid_namespace, ns));
+
+		fput(file);
+#endif
+	} else {
+		pidns = task_active_pid_ns(current);
+	}
+
+	return pidns;
+}
+
+#define TARGET_IS_ANCESTOR -1
+#define EQUAL               0
+#define SOURCE_IS_ANCESTOR  1
+#define UNREACHABLE         2
+static int pidns_related(struct pid_namespace *source,
+			 struct pid_namespace *target)
+{
+	int query;
+
+	query = pidnscmp(source, target);
+	switch (query) {
+	case 0:
+		return EQUAL;
+	case 1:
+		return SOURCE_IS_ANCESTOR;
+	}
+
+	query = pidnscmp(target, source);
+	if (query == 1)
+		return TARGET_IS_ANCESTOR;
+
+	return UNREACHABLE;
+}
+
+/*
+ * pidctl - perform operations on pids
+ * @cmd:    command to execute
+ * @pid:    pid for translation
+ * @source: pid-ns file descriptor or -1 for active namespace
+ * @target: pid-ns file descriptor or -1 for active namesapce
+ * @flags:  flags to pass
+ *
+ * If cmd is PIDCMD_QUERY_PID translates pid between pid namespaces
+ * identified by @source and @target. Returns pid if process has pid in
+ * @target, 0 if process has no pid in @target, -ESRCH if process does
+ * not have a pid in @source.
+ *
+ * If cmd is PIDCMD_QUERY_PIDNS determines the relations between two pid
+ * namespaces. Returns 1 if @source is an ancestor pid namespace
+ * of @target, 0 if @source and @target refer to the same pid namespace,
+ * -1 if @target is an ancestor pid namespace of @source, 2 if they have
+ * no parent-child relationship in either direction.
+ *
+ * If cmd is PIDCMD_GET_PIDFD returns pidfd for process in @target pid
+ * namespace. Returns pidfd if process has pid in @target, -ESRCH if
+ * process does not have a pid in @source, -ENOENT if process does not have a
+ * pid in @target pid namespace.
+ *
+ */
+SYSCALL_DEFINE5(pidctl, int, cmd, pid_t, pid, int, source, int, target,
+		unsigned int, flags)
+{
+	struct pid_namespace *source_ns = NULL, *target_ns = NULL;
+	struct pid *struct_pid;
+	pid_t result;
+
+	switch (cmd) {
+	case PIDCMD_QUERY_PIDNS:
+		if (pid != 0)
+			return -EINVAL;
+		pid = 1;
+		/* fall through */
+	case PIDCMD_QUERY_PID:
+		if (flags != 0)
+			return -EINVAL;
+		break;
+	case PIDCMD_GET_PIDFD:
+		if (flags & ~PIDCTL_CLOEXEC)
+			return -EINVAL;
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	source_ns = get_pid_ns_by_fd(source);
+	result = PTR_ERR(source_ns);
+	if (IS_ERR(source_ns))
+		goto err_source;
+
+	target_ns = get_pid_ns_by_fd(target);
+	result = PTR_ERR(target_ns);
+	if (IS_ERR(target_ns))
+		goto err_target;
+
+	if (cmd == PIDCMD_QUERY_PIDNS) {
+		result = pidns_related(source_ns, target_ns);
+	} else {
+		rcu_read_lock();
+		struct_pid = find_pid_ns(pid, source_ns);
+		result = struct_pid ? pid_nr_ns(struct_pid, target_ns) : -ESRCH;
+		rcu_read_unlock();
+
+		if (cmd == PIDCMD_GET_PIDFD) {
+			unsigned int cloexec = (flags & PIDCTL_CLOEXEC) ? O_CLOEXEC : 0;
+
+			if (result > 0) /* pid is reachable in target pidns */
+				result = pidfd_create_fd(struct_pid, cloexec);
+			else if (result == 0)
+				result = -ENOENT;
+		}
+	}
+
+	if (target)
+		put_pid_ns(target_ns);
+err_target:
+	if (source)
+		put_pid_ns(source_ns);
+err_source:
+	return result;
 }
 
 void __init pid_idr_init(void)
