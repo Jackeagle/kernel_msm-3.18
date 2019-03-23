@@ -159,7 +159,7 @@ COND_SYSCALL(init_module);
 COND_SYSCALL(delete_module);
 
 /* kernel/pid_namespace.c */
-COND_SYSCALL(translate_pid);
+COND_SYSCALL(pidctl);
 
 /* kernel/posix-timers.c */
 

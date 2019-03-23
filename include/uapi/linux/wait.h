@@ -18,5 +18,12 @@
 #define P_PID		1
 #define P_PGID		2
 
+/* Commands to pass to pidctl() */
+#define PIDCMD_QUERY_PID 0
+#define PIDCMD_QUERY_PIDNS 1
+#define PIDCMD_GET_PIDFD 2
+
+/* Flags to pass to pidctl() */
+#define PIDCTL_CLOEXEC 1
 
 #endif /* _UAPI_LINUX_WAIT_H */
