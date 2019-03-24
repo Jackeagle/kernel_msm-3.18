@@ -43,20 +43,13 @@
 #include <asm/io.h>
 
 #include "mmci.h"
-#include "mmci_qcom_dml.h"
 
 #define DRIVER_NAME "mmci-pl18x"
 
 #ifdef CONFIG_DMA_ENGINE
-void mmci_variant_init(struct mmci_host *host);
+static void mmci_variant_init(struct mmci_host *host);
 #else
 static inline void mmci_variant_init(struct mmci_host *host) {}
-#endif
-
-#ifdef CONFIG_MMC_STM32_SDMMC
-void sdmmc_variant_init(struct mmci_host *host);
-#else
-static inline void sdmmc_variant_init(struct mmci_host *host) {}
 #endif
 
 static unsigned int fmax = 515633;
@@ -886,14 +879,10 @@ int mmci_dmae_prep_data(struct mmci_host *host,
 int mmci_dmae_start(struct mmci_host *host, unsigned int *datactrl)
 {
 	struct mmci_dmae_priv *dmae = host->dma_priv;
-	struct mmc_data *data = host->data;
 
 	host->dma_in_progress = true;
 	dmaengine_submit(dmae->desc_current);
 	dma_async_issue_pending(dmae->cur);
-
-	if (host->variant->qcom_dml)
-		dml_start_xfer(host, data);
 
 	*datactrl |= MCI_DPSM_DMAENABLE;
 
