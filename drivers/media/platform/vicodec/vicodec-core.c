@@ -148,7 +148,6 @@ static struct vicodec_q_data *get_q_data(struct vicodec_ctx *ctx,
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE:
 		return &ctx->q_data[V4L2_M2M_DST];
 	default:
-		WARN_ON(1);
 		break;
 	}
 	return NULL;
@@ -1338,8 +1337,11 @@ static int vicodec_start_streaming(struct vb2_queue *q,
 	chroma_div = info->width_div * info->height_div;
 	q_data->sequence = 0;
 
-	ctx->last_src_buf = NULL;
-	ctx->last_dst_buf = NULL;
+	if (V4L2_TYPE_IS_OUTPUT(q->type))
+		ctx->last_src_buf = NULL;
+	else
+		ctx->last_dst_buf = NULL;
+
 	state->gop_cnt = 0;
 
 	if ((V4L2_TYPE_IS_OUTPUT(q->type) && !ctx->is_enc) ||
