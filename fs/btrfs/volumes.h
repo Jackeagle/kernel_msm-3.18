@@ -45,6 +45,7 @@ struct btrfs_pending_bios {
 struct btrfs_device {
 	struct list_head dev_list;
 	struct list_head dev_alloc_list;
+	struct list_head post_commit_list; /* chunk mutex */
 	struct btrfs_fs_devices *fs_devices;
 	struct btrfs_fs_info *fs_info;
 
@@ -102,18 +103,12 @@ struct btrfs_device {
 	 * size of the device on the current transaction
 	 *
 	 * This variant is update when committing the transaction,
-	 * and protected by device_list_mutex
+	 * and protected by chunk mutex
 	 */
 	u64 commit_total_bytes;
 
 	/* bytes used on the current transaction */
 	u64 commit_bytes_used;
-	/*
-	 * used to manage the device which is resized
-	 *
-	 * It is protected by chunk_lock.
-	 */
-	struct list_head resized_list;
 
 	/* for sending down flush barriers */
 	struct bio *flush_bio;
@@ -139,6 +134,8 @@ struct btrfs_device {
 	/* Counter to record the change of device stats */
 	atomic_t dev_stats_ccnt;
 	atomic_t dev_stat_values[BTRFS_DEV_STAT_VALUES_MAX];
+
+	struct extent_io_tree alloc_state;
 };
 
 /*
@@ -235,7 +232,6 @@ struct btrfs_fs_devices {
 	struct mutex device_list_mutex;
 	struct list_head devices;
 
-	struct list_head resized_devices;
 	/* devices not currently being allocated */
 	struct list_head alloc_list;
 
@@ -450,11 +446,9 @@ int btrfs_cancel_balance(struct btrfs_fs_info *fs_info);
 int btrfs_create_uuid_tree(struct btrfs_fs_info *fs_info);
 int btrfs_check_uuid_tree(struct btrfs_fs_info *fs_info);
 int btrfs_chunk_readonly(struct btrfs_fs_info *fs_info, u64 chunk_offset);
-int find_free_dev_extent_start(struct btrfs_transaction *transaction,
-			 struct btrfs_device *device, u64 num_bytes,
-			 u64 search_start, u64 *start, u64 *max_avail);
-int find_free_dev_extent(struct btrfs_trans_handle *trans,
-			 struct btrfs_device *device, u64 num_bytes,
+int find_free_dev_extent_start(struct btrfs_device *device, u64 num_bytes,
+			       u64 search_start, u64 *start, u64 *max_avail);
+int find_free_dev_extent(struct btrfs_device *device, u64 num_bytes,
 			 u64 *start, u64 *max_avail);
 void btrfs_dev_stat_inc_and_print(struct btrfs_device *dev, int index);
 int btrfs_get_dev_stats(struct btrfs_fs_info *fs_info,
@@ -559,8 +553,7 @@ static inline enum btrfs_raid_types btrfs_bg_flags_to_raid_index(u64 flags)
 
 const char *get_raid_name(enum btrfs_raid_types type);
 
-void btrfs_update_commit_device_size(struct btrfs_fs_info *fs_info);
-void btrfs_update_commit_device_bytes_used(struct btrfs_transaction *trans);
+void btrfs_commit_device_sizes(struct btrfs_transaction *trans);
 
 struct list_head *btrfs_get_fs_uuids(void);
 void btrfs_set_fs_info_ptr(struct btrfs_fs_info *fs_info);
