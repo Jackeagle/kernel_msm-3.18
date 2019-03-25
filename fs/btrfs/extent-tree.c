@@ -1905,7 +1905,6 @@ static int remove_extent_backref(struct btrfs_trans_handle *trans,
 	return ret;
 }
 
-#define in_range(b, first, len)        ((b) >= (first) && (b) < (first) + (len))
 static int btrfs_issue_discard(struct block_device *bdev, u64 start, u64 len,
 			       u64 *discarded_bytes)
 {
@@ -9915,12 +9914,10 @@ void btrfs_dec_block_group_ro(struct btrfs_block_group_cache *cache)
  */
 int btrfs_can_relocate(struct btrfs_fs_info *fs_info, u64 bytenr)
 {
-	struct btrfs_root *root = fs_info->extent_root;
 	struct btrfs_block_group_cache *block_group;
 	struct btrfs_space_info *space_info;
 	struct btrfs_fs_devices *fs_devices = fs_info->fs_devices;
 	struct btrfs_device *device;
-	struct btrfs_trans_handle *trans;
 	u64 min_free;
 	u64 dev_min = 1;
 	u64 dev_nr = 0;
@@ -10019,13 +10016,6 @@ int btrfs_can_relocate(struct btrfs_fs_info *fs_info, u64 bytenr)
 		min_free = div64_u64(min_free, dev_min);
 	}
 
-	/* We need to do this so that we can look at pending chunks */
-	trans = btrfs_join_transaction(root);
-	if (IS_ERR(trans)) {
-		ret = PTR_ERR(trans);
-		goto out;
-	}
-
 	mutex_lock(&fs_info->chunk_mutex);
 	list_for_each_entry(device, &fs_devices->alloc_list, dev_alloc_list) {
 		u64 dev_offset;
@@ -10036,7 +10026,7 @@ int btrfs_can_relocate(struct btrfs_fs_info *fs_info, u64 bytenr)
 		 */
 		if (device->total_bytes > device->bytes_used + min_free &&
 		    !test_bit(BTRFS_DEV_STATE_REPLACE_TGT, &device->dev_state)) {
-			ret = find_free_dev_extent(trans, device, min_free,
+			ret = find_free_dev_extent(device, min_free,
 						   &dev_offset, NULL);
 			if (!ret)
 				dev_nr++;
@@ -10052,7 +10042,6 @@ int btrfs_can_relocate(struct btrfs_fs_info *fs_info, u64 bytenr)
 			   "no space to allocate a new chunk for block group %llu",
 			   block_group->key.objectid);
 	mutex_unlock(&fs_info->chunk_mutex);
-	btrfs_end_transaction(trans);
 out:
 	btrfs_put_block_group(block_group);
 	return ret;
@@ -10946,10 +10935,6 @@ int btrfs_remove_block_group(struct btrfs_trans_handle *trans,
 	memcpy(&key, &block_group->key, sizeof(key));
 
 	mutex_lock(&fs_info->chunk_mutex);
-	if (!list_empty(&em->list)) {
-		/* We're in the transaction->pending_chunks list. */
-		free_extent_map(em);
-	}
 	spin_lock(&block_group->lock);
 	block_group->removed = 1;
 	/*
@@ -10976,25 +10961,6 @@ int btrfs_remove_block_group(struct btrfs_trans_handle *trans,
 	 * the transaction commit has completed.
 	 */
 	remove_em = (atomic_read(&block_group->trimming) == 0);
-	/*
-	 * Make sure a trimmer task always sees the em in the pinned_chunks list
-	 * if it sees block_group->removed == 1 (needs to lock block_group->lock
-	 * before checking block_group->removed).
-	 */
-	if (!remove_em) {
-		/*
-		 * Our em might be in trans->transaction->pending_chunks which
-		 * is protected by fs_info->chunk_mutex ([lock|unlock]_chunks),
-		 * and so is the fs_info->pinned_chunks list.
-		 *
-		 * So at this point we must be holding the chunk_mutex to avoid
-		 * any races with chunk allocation (more specifically at
-		 * volumes.c:contains_pending_extent()), to ensure it always
-		 * sees the em, either in the pending_chunks list or in the
-		 * pinned_chunks list.
-		 */
-		list_move_tail(&em->list, &fs_info->pinned_chunks);
-	}
 	spin_unlock(&block_group->lock);
 
 	if (remove_em) {
@@ -11002,11 +10968,6 @@ int btrfs_remove_block_group(struct btrfs_trans_handle *trans,
 
 		em_tree = &fs_info->mapping_tree.map_tree;
 		write_lock(&em_tree->lock);
-		/*
-		 * The em might be in the pending_chunks list, so make sure the
-		 * chunk mutex is locked, since remove_extent_mapping() will
-		 * delete us from that list.
-		 */
 		remove_extent_mapping(em_tree, em);
 		write_unlock(&em_tree->lock);
 		/* once for the tree */
@@ -11309,9 +11270,9 @@ int btrfs_error_unpin_extent_range(struct btrfs_fs_info *fs_info,
  * held back allocations.
  */
 static int btrfs_trim_free_extents(struct btrfs_device *device,
-				   u64 minlen, u64 *trimmed)
+				   struct fstrim_range *range, u64 *trimmed)
 {
-	u64 start = 0, len = 0;
+	u64 start = max_t(u64, range->start, SZ_1M), len = 0, end = 0;
 	int ret;
 
 	*trimmed = 0;
@@ -11332,43 +11293,51 @@ static int btrfs_trim_free_extents(struct btrfs_device *device,
 
 	while (1) {
 		struct btrfs_fs_info *fs_info = device->fs_info;
-		struct btrfs_transaction *trans;
 		u64 bytes;
 
 		ret = mutex_lock_interruptible(&fs_info->chunk_mutex);
 		if (ret)
 			break;
 
-		ret = down_read_killable(&fs_info->commit_root_sem);
-		if (ret) {
+		find_first_clear_extent_bit(&device->alloc_state, start,
+					    &start, &end,
+					    CHUNK_TRIMMED | CHUNK_ALLOCATED);
+		/* If find_first_clear_extent_bit find a range that spans the
+		 * end of the device it will set end to -1, in this case it's up
+		 * to the caller to trim the value to the size of the device.
+		 */
+		end = min(end, device->total_bytes);
+		len = end - start + 1;
+
+		/* We didn't find any extents */
+		if (!len) {
+			mutex_unlock(&fs_info->chunk_mutex);
+			ret = 0;
+			break;
+		}
+
+		/* Keep going until we satisfy minlen or reach end of space */
+		if (len < range->minlen) {
+			mutex_unlock(&fs_info->chunk_mutex);
+			start += len;
+			continue;
+		}
+
+		/* If we are out of the passed range break */
+		if (start > range->start + range->len - 1) {
 			mutex_unlock(&fs_info->chunk_mutex);
 			break;
 		}
 
-		spin_lock(&fs_info->trans_lock);
-		trans = fs_info->running_transaction;
-		if (trans)
-			refcount_inc(&trans->use_count);
-		spin_unlock(&fs_info->trans_lock);
+		start = max(range->start, start);
+		len = min(range->len, len);
 
-		if (!trans)
-			up_read(&fs_info->commit_root_sem);
-
-		ret = find_free_dev_extent_start(trans, device, minlen, start,
-						 &start, &len);
-		if (trans) {
-			up_read(&fs_info->commit_root_sem);
-			btrfs_put_transaction(trans);
-		}
-
-		if (ret) {
-			mutex_unlock(&fs_info->chunk_mutex);
-			if (ret == -ENOSPC)
-				ret = 0;
-			break;
-		}
-
-		ret = btrfs_issue_discard(device->bdev, start, len, &bytes);
+		ret = btrfs_issue_discard(device->bdev, start, len,
+					  &bytes);
+		if (!ret)
+			set_extent_bits(&device->alloc_state, start,
+					start + bytes - 1,
+					CHUNK_TRIMMED);
 		mutex_unlock(&fs_info->chunk_mutex);
 
 		if (ret)
@@ -11376,6 +11345,10 @@ static int btrfs_trim_free_extents(struct btrfs_device *device,
 
 		start += len;
 		*trimmed += bytes;
+
+		/* We've trimmed enough */
+		if (*trimmed >= range->len)
+			break;
 
 		if (fatal_signal_pending(current)) {
 			ret = -ERESTARTSYS;
@@ -11460,8 +11433,7 @@ int btrfs_trim_fs(struct btrfs_fs_info *fs_info, struct fstrim_range *range)
 	mutex_lock(&fs_info->fs_devices->device_list_mutex);
 	devices = &fs_info->fs_devices->devices;
 	list_for_each_entry(device, devices, dev_list) {
-		ret = btrfs_trim_free_extents(device, range->minlen,
-					      &group_trimmed);
+		ret = btrfs_trim_free_extents(device, range, &group_trimmed);
 		if (ret) {
 			dev_failed++;
 			dev_ret = ret;

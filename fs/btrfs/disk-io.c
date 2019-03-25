@@ -2789,8 +2789,6 @@ int open_ctree(struct super_block *sb,
 	init_waitqueue_head(&fs_info->async_submit_wait);
 	init_waitqueue_head(&fs_info->delayed_iputs_wait);
 
-	INIT_LIST_HEAD(&fs_info->pinned_chunks);
-
 	/* Usable values until the real ones are cached from the superblock */
 	fs_info->nodesize = 4096;
 	fs_info->sectorsize = 4096;
@@ -4055,8 +4053,8 @@ void close_ctree(struct btrfs_fs_info *fs_info)
 		btrfsic_unmount(fs_info->fs_devices);
 #endif
 
-	btrfs_close_devices(fs_info->fs_devices);
 	btrfs_mapping_tree_free(&fs_info->mapping_tree);
+	btrfs_close_devices(fs_info->fs_devices);
 
 	percpu_counter_destroy(&fs_info->dirty_metadata_bytes);
 	percpu_counter_destroy(&fs_info->delalloc_bytes);
@@ -4065,15 +4063,6 @@ void close_ctree(struct btrfs_fs_info *fs_info)
 
 	btrfs_free_stripe_hash_table(fs_info);
 	btrfs_free_ref_cache(fs_info);
-
-	while (!list_empty(&fs_info->pinned_chunks)) {
-		struct extent_map *em;
-
-		em = list_first_entry(&fs_info->pinned_chunks,
-				      struct extent_map, list);
-		list_del_init(&em->list);
-		free_extent_map(em);
-	}
 }
 
 int btrfs_buffer_uptodate(struct extent_buffer *buf, u64 parent_transid,
@@ -4497,9 +4486,16 @@ void btrfs_cleanup_dirty_bgs(struct btrfs_transaction *cur_trans,
 void btrfs_cleanup_one_transaction(struct btrfs_transaction *cur_trans,
 				   struct btrfs_fs_info *fs_info)
 {
+	struct btrfs_device *dev, *tmp;
+
 	btrfs_cleanup_dirty_bgs(cur_trans, fs_info);
 	ASSERT(list_empty(&cur_trans->dirty_bgs));
 	ASSERT(list_empty(&cur_trans->io_bgs));
+
+	list_for_each_entry_safe(dev, tmp, &cur_trans->dev_update_list,
+				 post_commit_list) {
+		list_del_init(&dev->post_commit_list);
+	}
 
 	btrfs_destroy_delayed_refs(cur_trans, fs_info);
 

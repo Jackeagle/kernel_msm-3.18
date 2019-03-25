@@ -28,6 +28,15 @@
 #define EXTENT_CTLBITS		(EXTENT_DO_ACCOUNTING)
 
 /*
+ * Redefined bits above which are used only in the device allocation tree,
+ * shouldn't be using EXTENT_LOCKED / EXTENT_BOUNDARY / EXTENT_CLEAR_META_RESV
+ * / EXTENT_CLEAR_DATA_RESV because they have special meaning to the bit
+ * manipulation functions
+ */
+#define CHUNK_ALLOCATED EXTENT_DIRTY
+#define CHUNK_TRIMMED   EXTENT_DEFRAG
+
+/*
  * flags for bio submission. The high bits indicate the compression
  * type for this bio
  */
@@ -255,6 +264,7 @@ typedef struct extent_map *(get_extent_t)(struct btrfs_inode *inode,
 void extent_io_tree_init(struct btrfs_fs_info *fs_info,
 			 struct extent_io_tree *tree, unsigned int owner,
 			 void *private_data);
+void extent_io_tree_release(struct extent_io_tree *tree);
 int try_release_extent_mapping(struct page *page, gfp_t mask);
 int try_release_extent_buffer(struct page *page);
 int lock_extent_bits(struct extent_io_tree *tree, u64 start, u64 end,
@@ -324,7 +334,10 @@ int set_record_extent_bits(struct extent_io_tree *tree, u64 start, u64 end,
 int set_extent_bit(struct extent_io_tree *tree, u64 start, u64 end,
 		   unsigned bits, u64 *failed_start,
 		   struct extent_state **cached_state, gfp_t mask);
-
+int __set_extent_bit(struct extent_io_tree *tree, u64 start, u64 end,
+		 unsigned bits, unsigned exclusive_bits,
+		 u64 *failed_start, struct extent_state **cached_state,
+		 gfp_t mask, struct extent_changeset *changeset);
 static inline int set_extent_bits(struct extent_io_tree *tree, u64 start,
 		u64 end, unsigned bits)
 {
@@ -391,6 +404,8 @@ static inline int set_extent_uptodate(struct extent_io_tree *tree, u64 start,
 int find_first_extent_bit(struct extent_io_tree *tree, u64 start,
 			  u64 *start_ret, u64 *end_ret, unsigned bits,
 			  struct extent_state **cached_state);
+void find_first_clear_extent_bit(struct extent_io_tree *tree, u64 start,
+				 u64 *start_ret, u64 *end_ret, unsigned bits);
 int extent_invalidatepage(struct extent_io_tree *tree,
 			  struct page *page, unsigned long offset);
 int extent_write_full_page(struct page *page, struct writeback_control *wbc);

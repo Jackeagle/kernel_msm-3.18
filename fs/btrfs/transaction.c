@@ -50,14 +50,6 @@ void btrfs_put_transaction(struct btrfs_transaction *transaction)
 			btrfs_err(transaction->fs_info,
 				  "pending csums is %llu",
 				  transaction->delayed_refs.pending_csums);
-		while (!list_empty(&transaction->pending_chunks)) {
-			struct extent_map *em;
-
-			em = list_first_entry(&transaction->pending_chunks,
-					      struct extent_map, list);
-			list_del_init(&em->list);
-			free_extent_map(em);
-		}
 		/*
 		 * If any block groups are found in ->deleted_bgs then it's
 		 * because the transaction was aborted and a commit did not
@@ -75,37 +67,9 @@ void btrfs_put_transaction(struct btrfs_transaction *transaction)
 			btrfs_put_block_group_trimming(cache);
 			btrfs_put_block_group(cache);
 		}
+		WARN_ON(!list_empty(&transaction->dev_update_list));
 		kfree(transaction);
 	}
-}
-
-static void clear_btree_io_tree(struct extent_io_tree *tree)
-{
-	spin_lock(&tree->lock);
-	/*
-	 * Do a single barrier for the waitqueue_active check here, the state
-	 * of the waitqueue should not change once clear_btree_io_tree is
-	 * called.
-	 */
-	smp_mb();
-	while (!RB_EMPTY_ROOT(&tree->state)) {
-		struct rb_node *node;
-		struct extent_state *state;
-
-		node = rb_first(&tree->state);
-		state = rb_entry(node, struct extent_state, rb_node);
-		rb_erase(&state->rb_node, &tree->state);
-		RB_CLEAR_NODE(&state->rb_node);
-		/*
-		 * btree io trees aren't supposed to have tasks waiting for
-		 * changes in the flags of extent states ever.
-		 */
-		ASSERT(!waitqueue_active(&state->wq));
-		free_extent_state(state);
-
-		cond_resched_lock(&tree->lock);
-	}
-	spin_unlock(&tree->lock);
 }
 
 static noinline void switch_commit_roots(struct btrfs_transaction *trans)
@@ -121,7 +85,7 @@ static noinline void switch_commit_roots(struct btrfs_transaction *trans)
 		root->commit_root = btrfs_root_node(root);
 		if (is_fstree(root->root_key.objectid))
 			btrfs_unpin_free_ino(root);
-		clear_btree_io_tree(&root->dirty_log_pages);
+		extent_io_tree_release(&root->dirty_log_pages);
 		btrfs_qgroup_clean_swapped_blocks(root);
 	}
 
@@ -263,7 +227,7 @@ loop:
 	spin_lock_init(&cur_trans->delayed_refs.lock);
 
 	INIT_LIST_HEAD(&cur_trans->pending_snapshots);
-	INIT_LIST_HEAD(&cur_trans->pending_chunks);
+	INIT_LIST_HEAD(&cur_trans->dev_update_list);
 	INIT_LIST_HEAD(&cur_trans->switch_commits);
 	INIT_LIST_HEAD(&cur_trans->dirty_bgs);
 	INIT_LIST_HEAD(&cur_trans->io_bgs);
@@ -928,7 +892,7 @@ int btrfs_write_marked_extents(struct btrfs_fs_info *fs_info,
 		 * superblock that points to btree nodes/leafs for which
 		 * writeback hasn't finished yet (and without errors).
 		 * We cleanup any entries left in the io tree when committing
-		 * the transaction (through clear_btree_io_tree()).
+		 * the transaction (through extent_io_tree_release()).
 		 */
 		if (err == -ENOMEM) {
 			err = 0;
@@ -973,7 +937,7 @@ static int __btrfs_wait_marked_extents(struct btrfs_fs_info *fs_info,
 		 * left in the io tree. For a log commit, we don't remove them
 		 * after committing the log because the tree can be accessed
 		 * concurrently - we do it only at transaction commit time when
-		 * it's safe to do it (through clear_btree_io_tree()).
+		 * it's safe to do it (through extent_io_tree_release()).
 		 */
 		err = clear_extent_bit(dirty_pages, start, end,
 				       EXTENT_NEED_WAIT, 0, 0, &cached_state);
@@ -1051,7 +1015,7 @@ static int btrfs_write_and_wait_transaction(struct btrfs_trans_handle *trans)
 	blk_finish_plug(&plug);
 	ret2 = btrfs_wait_extents(fs_info, dirty_pages);
 
-	clear_btree_io_tree(&trans->transaction->dirty_pages);
+	extent_io_tree_release(&trans->transaction->dirty_pages);
 
 	if (ret)
 		return ret;
@@ -2241,8 +2205,7 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 	memcpy(fs_info->super_for_commit, fs_info->super_copy,
 	       sizeof(*fs_info->super_copy));
 
-	btrfs_update_commit_device_size(fs_info);
-	btrfs_update_commit_device_bytes_used(cur_trans);
+	btrfs_commit_device_sizes(cur_trans);
 
 	clear_bit(BTRFS_FS_LOG1_ERR, &fs_info->flags);
 	clear_bit(BTRFS_FS_LOG2_ERR, &fs_info->flags);
