@@ -328,7 +328,10 @@ int set_record_extent_bits(struct extent_io_tree *tree, u64 start, u64 end,
 int set_extent_bit(struct extent_io_tree *tree, u64 start, u64 end,
 		   unsigned bits, u64 *failed_start,
 		   struct extent_state **cached_state, gfp_t mask);
-
+int __set_extent_bit(struct extent_io_tree *tree, u64 start, u64 end,
+		 unsigned bits, unsigned exclusive_bits,
+		 u64 *failed_start, struct extent_state **cached_state,
+		 gfp_t mask, struct extent_changeset *changeset);
 static inline int set_extent_bits(struct extent_io_tree *tree, u64 start,
 		u64 end, unsigned bits)
 {

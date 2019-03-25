@@ -917,8 +917,7 @@ static void cache_state(struct extent_state *state,
  * [start, end] is inclusive This takes the tree lock.
  */
 
-static int __must_check
-__set_extent_bit(struct extent_io_tree *tree, u64 start, u64 end,
+int __must_check __set_extent_bit(struct extent_io_tree *tree, u64 start, u64 end,
 		 unsigned bits, unsigned exclusive_bits,
 		 u64 *failed_start, struct extent_state **cached_state,
 		 gfp_t mask, struct extent_changeset *changeset)
