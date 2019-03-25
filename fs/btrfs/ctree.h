@@ -1152,12 +1152,6 @@ struct btrfs_fs_info {
 	struct mutex unused_bg_unpin_mutex;
 	struct mutex delete_unused_bgs_mutex;
 
-	/*
-	 * Chunks that can't be freed yet (under a trim/discard operation)
-	 * and will be latter freed. Protected by fs_info->chunk_mutex.
-	 */
-	struct list_head pinned_chunks;
-
 	/* Cached block sizes */
 	u32 nodesize;
 	u32 sectorsize;
@@ -2163,18 +2157,16 @@ static inline int btrfs_header_flag(const struct extent_buffer *eb, u64 flag)
 	return (btrfs_header_flags(eb) & flag) == flag;
 }
 
-static inline int btrfs_set_header_flag(struct extent_buffer *eb, u64 flag)
+static inline void btrfs_set_header_flag(struct extent_buffer *eb, u64 flag)
 {
 	u64 flags = btrfs_header_flags(eb);
 	btrfs_set_header_flags(eb, flags | flag);
-	return (flags & flag) == flag;
 }
 
-static inline int btrfs_clear_header_flag(struct extent_buffer *eb, u64 flag)
+static inline void btrfs_clear_header_flag(struct extent_buffer *eb, u64 flag)
 {
 	u64 flags = btrfs_header_flags(eb);
 	btrfs_set_header_flags(eb, flags & ~flag);
-	return (flags & flag) == flag;
 }
 
 static inline int btrfs_header_backref_rev(const struct extent_buffer *eb)
@@ -3804,6 +3796,8 @@ static inline int btrfs_defrag_cancelled(struct btrfs_fs_info *fs_info)
 {
 	return signal_pending(current);
 }
+
+#define in_range(b, first, len) ((b) >= (first) && (b) < (first) + (len))
 
 /* Sanity test specific functions */
 #ifdef CONFIG_BTRFS_FS_RUN_SANITY_TESTS
