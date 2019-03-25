@@ -1204,6 +1204,20 @@ lpfc_do_offline(struct lpfc_hba *phba, uint32_t type)
 
 	psli = &phba->sli;
 
+	/*
+	 * If freeing the queues have already started, don't access them.
+	 * Otherwise set FREE_WAIT to indicate that queues are being used
+	 * to hold the freeing process until we finish.
+	 */
+	spin_lock_irq(&phba->hbalock);
+	if (!(psli->sli_flag & LPFC_QUEUE_FREE_INIT)) {
+		psli->sli_flag |= LPFC_QUEUE_FREE_WAIT;
+	} else {
+		spin_unlock_irq(&phba->hbalock);
+		goto skip_wait;
+	}
+	spin_unlock_irq(&phba->hbalock);
+
 	/* Wait a little for things to settle down, but not
 	 * long enough for dev loss timeout to expire.
 	 */
@@ -1225,6 +1239,11 @@ lpfc_do_offline(struct lpfc_hba *phba, uint32_t type)
 		}
 	}
 out:
+	spin_lock_irq(&phba->hbalock);
+	psli->sli_flag &= ~LPFC_QUEUE_FREE_WAIT;
+	spin_unlock_irq(&phba->hbalock);
+
+skip_wait:
 	init_completion(&online_compl);
 	rc = lpfc_workq_post_event(phba, &status, &online_compl, type);
 	if (rc == 0)
@@ -4050,9 +4069,9 @@ lpfc_topology_store(struct device *dev, struct device_attribute *attr,
 		}
 		if ((phba->pcidev->device == PCI_DEVICE_ID_LANCER_G6_FC ||
 		     phba->pcidev->device == PCI_DEVICE_ID_LANCER_G7_FC) &&
-		    val == 4) {
+		    val != FLAGS_TOPOLOGY_MODE_PT_PT) {
 			lpfc_printf_vlog(vport, KERN_ERR, LOG_INIT,
-				"3114 Loop mode not supported\n");
+				"3114 Only non-FC-AL mode is supported\n");
 			return -EINVAL;
 		}
 		phba->cfg_topology = val;
@@ -7003,6 +7022,7 @@ lpfc_get_cfgparam(struct lpfc_hba *phba)
 	if (phba->sli_rev != LPFC_SLI_REV4) {
 		/* NVME only supported on SLI4 */
 		phba->nvmet_support = 0;
+		phba->cfg_nvmet_mrq = 0;
 		phba->cfg_enable_fc4_type = LPFC_ENABLE_FCP;
 		phba->cfg_enable_bbcr = 0;
 		phba->cfg_xri_rebalancing = 0;
@@ -7104,7 +7124,7 @@ lpfc_nvme_mod_param_dep(struct lpfc_hba *phba)
 	} else {
 		/* Not NVME Target mode.  Turn off Target parameters. */
 		phba->nvmet_support = 0;
-		phba->cfg_nvmet_mrq = LPFC_NVMET_MRQ_OFF;
+		phba->cfg_nvmet_mrq = 0;
 		phba->cfg_nvmet_fb_size = 0;
 	}
 }
