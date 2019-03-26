@@ -466,7 +466,7 @@ static void dcn_bw_calc_rq_dlg_ttu(
 	input.clks_cfg.dcfclk_mhz = v->dcfclk;
 	input.clks_cfg.dispclk_mhz = v->dispclk;
 	input.clks_cfg.dppclk_mhz = v->dppclk;
-	input.clks_cfg.refclk_mhz = dc->res_pool->ref_clock_inKhz / 1000.0;
+	input.clks_cfg.refclk_mhz = dc->res_pool->ref_clocks.dchub_ref_clock_inKhz / 1000.0;
 	input.clks_cfg.socclk_mhz = v->socclk;
 	input.clks_cfg.voltage = v->voltage_level;
 //	dc->dml.logger = pool->base.logger;
@@ -1395,12 +1395,14 @@ void dcn_bw_update_from_pplib(struct dc *dc)
 
 void dcn_bw_notify_pplib_of_wm_ranges(struct dc *dc)
 {
-	struct pp_smu_funcs_rv *pp = dc->res_pool->pp_smu;
+	struct pp_smu_funcs_rv *pp = NULL;
 	struct pp_smu_wm_range_sets ranges = {0};
 	int min_fclk_khz, min_dcfclk_khz, socclk_khz;
 	const int overdrive = 5000000; /* 5 GHz to cover Overdrive */
 
-	if (!pp->set_wm_ranges)
+	if (dc->res_pool->pp_smu)
+		pp = &dc->res_pool->pp_smu->rv_funcs;
+	if (!pp || !pp->set_wm_ranges)
 		return;
 
 	kernel_fpu_begin();

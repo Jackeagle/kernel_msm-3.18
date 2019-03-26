@@ -516,6 +516,15 @@ static const struct resource_caps rv2_res_cap = {
 };
 #endif
 
+static const struct dc_plane_cap plane_cap = {
+	.type = DC_PLANE_TYPE_DCN_UNIVERSAL,
+	.blends_with_above = true,
+	.blends_with_below = true,
+	.per_pixel_alpha = true,
+	.supports_argb8888 = true,
+	.supports_nv12 = true
+};
+
 static const struct dc_debug_options debug_defaults_drv = {
 		.sanity_checks = true,
 		.disable_dmcu = true,
@@ -848,14 +857,14 @@ void dcn10_clock_source_destroy(struct clock_source **clk_src)
 	*clk_src = NULL;
 }
 
-static struct pp_smu_funcs_rv *dcn10_pp_smu_create(struct dc_context *ctx)
+static struct pp_smu_funcs *dcn10_pp_smu_create(struct dc_context *ctx)
 {
-	struct pp_smu_funcs_rv *pp_smu = kzalloc(sizeof(*pp_smu), GFP_KERNEL);
+	struct pp_smu_funcs *pp_smu = kzalloc(sizeof(*pp_smu), GFP_KERNEL);
 
 	if (!pp_smu)
 		return pp_smu;
 
-	dm_pp_get_funcs_rv(ctx, pp_smu);
+	dm_pp_get_funcs(ctx, pp_smu);
 	return pp_smu;
 }
 
@@ -865,10 +874,7 @@ static void destruct(struct dcn10_resource_pool *pool)
 
 	for (i = 0; i < pool->base.stream_enc_count; i++) {
 		if (pool->base.stream_enc[i] != NULL) {
-			/* TODO: free dcn version of stream encoder once implemented
-			 * rather than using virtual stream encoder
-			 */
-			kfree(pool->base.stream_enc[i]);
+			kfree(DCN10STRENC_FROM_STRENC(pool->base.stream_enc[i]));
 			pool->base.stream_enc[i] = NULL;
 		}
 	}
@@ -920,9 +926,6 @@ static void destruct(struct dcn10_resource_pool *pool)
 			pool->base.sw_i2cs[i] = NULL;
 		}
 	}
-
-	for (i = 0; i < pool->base.stream_enc_count; i++)
-		kfree(pool->base.stream_enc[i]);
 
 	for (i = 0; i < pool->base.audio_count; i++) {
 		if (pool->base.audios[i])
@@ -1351,7 +1354,7 @@ static bool construct(
 		goto fail;
 	}
 
-	dml_init_instance(&dc->dml, DML_PROJECT_RAVEN1);
+	dml_init_instance(&dc->dml, &dcn1_0_soc, &dcn1_0_ip, DML_PROJECT_RAVEN1);
 	memcpy(dc->dcn_ip, &dcn10_ip_defaults, sizeof(dcn10_ip_defaults));
 	memcpy(dc->dcn_soc, &dcn10_soc_defaults, sizeof(dcn10_soc_defaults));
 
@@ -1509,6 +1512,9 @@ static bool construct(
 
 	dcn10_hw_sequencer_construct(dc);
 	dc->caps.max_planes =  pool->base.pipe_count;
+
+	for (i = 0; i < dc->caps.max_planes; ++i)
+		dc->caps.planes[i] = plane_cap;
 
 	dc->cap_funcs = cap_funcs;
 
