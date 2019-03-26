@@ -355,10 +355,14 @@ static struct platform_driver ufs_mtk_pltform = {
 	.shutdown   = ufshcd_pltfrm_shutdown,
 	.driver = {
 		.name   = "ufshcd-mtk",
-		.owner  = THIS_MODULE,
 		.pm     = &ufs_mtk_pm_ops,
 		.of_match_table = ufs_mtk_of_match,
 	},
 };
+
+MODULE_AUTHOR("Stanley Chu <stanley.chu@mediatek.com>");
+MODULE_AUTHOR("Peter Wang <peter.wang@mediatek.com>");
+MODULE_DESCRIPTION("MediaTek UFS Host Driver");
+MODULE_LICENSE("GPL v2");
 
 module_platform_driver(ufs_mtk_pltform);
