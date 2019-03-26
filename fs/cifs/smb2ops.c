@@ -608,25 +608,21 @@ out:
 	return rc;
 }
 
-static void
-smb2_close_cached_fid(struct kref *ref)
-{
-	struct cached_fid *cfid = container_of(ref, struct cached_fid,
-					       refcount);
-
-	if (cfid->is_valid) {
-		cifs_dbg(FYI, "clear cached root file handle\n");
-		SMB2_close(0, cfid->tcon, cfid->fid->persistent_fid,
-			   cfid->fid->volatile_fid);
-		cfid->is_valid = false;
-		cfid->file_all_info_is_valid = false;
-	}
-}
-
 void close_shroot(struct cached_fid *cfid)
 {
+	unsigned int n;
 	mutex_lock(&cfid->fid_mutex);
-	kref_put(&cfid->refcount, smb2_close_cached_fid);
+	n = refcount_read(&cfid->refcount);
+	if (n > 0) {
+		refcount_dec(&cfid->refcount);
+		if (n == 1 && cfid->is_valid) {
+			cifs_dbg(FYI, "clear cached root file handle\n");
+			SMB2_close(0, cfid->tcon, cfid->fid->persistent_fid,
+				   cfid->fid->volatile_fid);
+			cfid->is_valid = false;
+			cfid->file_all_info_is_valid = false;
+		}
+	}
 	mutex_unlock(&cfid->fid_mutex);
 }
 
@@ -662,7 +658,7 @@ int open_shroot(unsigned int xid, struct cifs_tcon *tcon, struct cifs_fid *pfid)
 	if (tcon->crfid.is_valid) {
 		cifs_dbg(FYI, "found a cached root file handle\n");
 		memcpy(pfid, tcon->crfid.fid, sizeof(struct cifs_fid));
-		kref_get(&tcon->crfid.refcount);
+		refcount_inc(&tcon->crfid.refcount);
 		mutex_unlock(&tcon->crfid.fid_mutex);
 		return 0;
 	}
@@ -728,9 +724,7 @@ int open_shroot(unsigned int xid, struct cifs_tcon *tcon, struct cifs_fid *pfid)
 	memcpy(tcon->crfid.fid, pfid, sizeof(struct cifs_fid));
 	tcon->crfid.tcon = tcon;
 	tcon->crfid.is_valid = true;
-	kref_init(&tcon->crfid.refcount);
-	kref_get(&tcon->crfid.refcount);
-
+	refcount_set(&tcon->crfid.refcount, 1);
 
 	qi_rsp = (struct smb2_query_info_rsp *)rsp_iov[1].iov_base;
 	if (le32_to_cpu(qi_rsp->OutputBufferLength) < sizeof(struct smb2_file_all_info))
