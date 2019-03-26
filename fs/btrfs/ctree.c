@@ -2416,6 +2416,16 @@ read_block_for_search(struct btrfs_root *root, struct btrfs_path *p,
 	if (tmp) {
 		/* first we do an atomic uptodate check */
 		if (btrfs_buffer_uptodate(tmp, gen, 1) > 0) {
+			/*
+			 * Do extra check for first_key, eb can be stale due to
+			 * being cached, read from scrub, or have multiple
+			 * parents (shared tree blocks).
+			 */
+			if (btrfs_verify_level_key(fs_info, tmp,
+					parent_level - 1, &first_key, gen)) {
+				free_extent_buffer(tmp);
+				return -EUCLEAN;
+			}
 			*eb_ret = tmp;
 			return 0;
 		}
@@ -4674,7 +4684,7 @@ void btrfs_extend_item(struct btrfs_fs_info *fs_info, struct btrfs_path *path,
 		btrfs_print_leaf(leaf);
 		btrfs_crit(fs_info, "slot %d too large, nritems %d",
 			   slot, nritems);
-		BUG_ON(1);
+		BUG();
 	}
 
 	/*
@@ -4754,7 +4764,7 @@ void setup_items_for_insert(struct btrfs_root *root, struct btrfs_path *path,
 			btrfs_print_leaf(leaf);
 			btrfs_crit(fs_info, "slot %d old_data %d data_end %d",
 				   slot, old_data, data_end);
-			BUG_ON(1);
+			BUG();
 		}
 		/*
 		 * item0..itemN ... dataN.offset..dataN.size .. data0.size

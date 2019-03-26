@@ -1540,6 +1540,21 @@ do {                                                                   \
 
 #define BTRFS_INODE_ROOT_ITEM_INIT	(1 << 31)
 
+#define BTRFS_INODE_FLAG_MASK						\
+	(BTRFS_INODE_NODATASUM |					\
+	 BTRFS_INODE_NODATACOW |					\
+	 BTRFS_INODE_READONLY |						\
+	 BTRFS_INODE_NOCOMPRESS |					\
+	 BTRFS_INODE_PREALLOC |						\
+	 BTRFS_INODE_SYNC |						\
+	 BTRFS_INODE_IMMUTABLE |					\
+	 BTRFS_INODE_APPEND |						\
+	 BTRFS_INODE_NODUMP |						\
+	 BTRFS_INODE_NOATIME |						\
+	 BTRFS_INODE_DIRSYNC |						\
+	 BTRFS_INODE_COMPRESS |						\
+	 BTRFS_INODE_ROOT_ITEM_INIT)
+
 struct btrfs_map_token {
 	const struct extent_buffer *eb;
 	char *kaddr;
@@ -2163,18 +2178,16 @@ static inline int btrfs_header_flag(const struct extent_buffer *eb, u64 flag)
 	return (btrfs_header_flags(eb) & flag) == flag;
 }
 
-static inline int btrfs_set_header_flag(struct extent_buffer *eb, u64 flag)
+static inline void btrfs_set_header_flag(struct extent_buffer *eb, u64 flag)
 {
 	u64 flags = btrfs_header_flags(eb);
 	btrfs_set_header_flags(eb, flags | flag);
-	return (flags & flag) == flag;
 }
 
-static inline int btrfs_clear_header_flag(struct extent_buffer *eb, u64 flag)
+static inline void btrfs_clear_header_flag(struct extent_buffer *eb, u64 flag)
 {
 	u64 flags = btrfs_header_flags(eb);
 	btrfs_set_header_flags(eb, flags & ~flag);
-	return (flags & flag) == flag;
 }
 
 static inline int btrfs_header_backref_rev(const struct extent_buffer *eb)
