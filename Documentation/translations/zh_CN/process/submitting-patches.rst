@@ -1,31 +1,21 @@
-Chinese translated version of Documentation/process/submitting-patches.rst
+.. _cn_process_submittingpatches:
 
-If you have any comment or update to the content, please contact the
-original document maintainer directly.  However, if you have a problem
-communicating in English you can also ask the Chinese maintainer for
-help.  Contact the Chinese maintainer if this translation is outdated
-or if there is a problem with the translation.
+.. include:: ../disclaimer-zh_CN.rst
 
-Chinese maintainer: TripleX Chung <triplex@zh-kernel.org>
----------------------------------------------------------------------
-Documentation/process/submitting-patches.rst 的中文翻译
+:Original: :ref:`Documentation/process/submitting-patches.rst <submittingpatches>`
 
 如果想评论或更新本文的内容，请直接联系原文档的维护者。如果你使用英文
 交流有困难的话，也可以向中文版维护者求助。如果本翻译更新不及时或者翻
-译存在问题，请联系中文版维护者。
+译存在问题，请联系中文版维护者::
 
-中文版维护者： 钟宇 TripleX Chung <triplex@zh-kernel.org>
-中文版翻译者： 钟宇 TripleX Chung <triplex@zh-kernel.org>
-中文版校译者： 李阳 Li Yang <leo@zh-kernel.org>
-               王聪 Wang Cong <xiyou.wangcong@gmail.com>
+        中文版维护者： 钟宇 TripleX Chung <xxx.phy@gmail.com>
+        中文版翻译者： 钟宇 TripleX Chung <xxx.phy@gmail.com>
+        中文版校译者： 李阳 Li Yang <leoyang.li@nxp.com>
+                       王聪 Wang Cong <xiyou.wangcong@gmail.com>
 
-以下为正文
----------------------------------------------------------------------
 
-   如何让你的改动进入内核
-     或者
-  获得亲爱的 Linus Torvalds 的关注和处理
-----------------------------------
+如何让你的改动进入内核
+======================
 
 对于想要将改动提交到 Linux 内核的个人或者公司来说，如果不熟悉“规矩”，
 提交的流程会让人畏惧。本文档收集了一系列建议，这些建议可以大大的提高你
@@ -35,12 +25,12 @@ Documentation/process/submitting-patches.rst 的中文翻译
 Documentation/process/submitting-drivers.rst 。
 
 
---------------------------
+---------------------------
 第一节 - 创建并发送你的改动
---------------------------
+---------------------------
 
 1) "diff -up"
------------
+-------------
 
 使用 "diff -up" 或者 "diff -uprN" 来创建补丁。
 
@@ -49,10 +39,10 @@ Documentation/process/submitting-drivers.rst 。
 参数生成。而且，请使用 '-p' 参数，那样会显示每个改动所在的C函数，使得
 产生的补丁容易读得多。补丁应该基于内核源代码树的根目录，而不是里边的任
 何子目录。
-为一个单独的文件创建补丁，一般来说这样做就够了：
+为一个单独的文件创建补丁，一般来说这样做就够了::
 
-        SRCTREE= linux-2.6
-        MYFILE=  drivers/net/mydriver.c
+        SRCTREE=linux-2.6
+        MYFILE=drivers/net/mydriver.c
 
         cd $SRCTREE
         cp $MYFILE $MYFILE.orig
@@ -61,9 +51,9 @@ Documentation/process/submitting-drivers.rst 。
         diff -up $SRCTREE/$MYFILE{.orig,} > /tmp/patch
 
 为多个文件创建补丁，你可以解开一个没有修改过的内核源代码树，然后和你自
-己的代码树之间做 diff 。例如：
+己的代码树之间做 diff 。例如::
 
-        MYSRC= /devel/linux-2.6
+        MYSRC=/devel/linux-2.6
 
         tar xvfz linux-2.6.12.tar.gz
         mv linux-2.6.12 linux-2.6.12-vanilla
@@ -151,6 +141,7 @@ MAINTAINERS 文件里的）发送一个手册页（man-pages）补丁，或者�
 对于小的补丁，你也许会CC到 Adrian Bunk 管理的搜集琐碎补丁的邮件列表
 (Trivial Patch Monkey)trivial@kernel.org，那里专门收集琐碎的补丁。下面这样
 的补丁会被看作“琐碎的”补丁：
+
   文档的拼写修正。
   修正会影响到 grep(1) 的拼写。
   警告信息修正(频繁的打印无用的警告是不好的。)
@@ -251,8 +242,10 @@ Linus 和 linux-kernel 邮件列表的 e-mail 流量都很高，一个通常的�
 "sign-off" 是在补丁的注释的最后的简单的一行文字，认证你编写了它或者其他
 人有权力将它作为开放源代码的补丁传递。规则很简单：如果你能认证如下信息
 ：
-      开发者来源证书 1.1
-      对于本项目的贡献，我认证如下信息：
+开发者来源证书 1.1
+^^^^^^^^^^^^^^^^^^
+对于本项目的贡献，我认证如下信息：
+
       （a）这些贡献是完全或者部分的由我创建，我有权利以文件中指出
        的开放源代码许可证提交它；或者
       （b）这些贡献基于以前的工作，据我所知，这些以前的工作受恰当的开放
@@ -305,7 +298,7 @@ e-mail 标题中的“一句话概述”扼要的描述 e-mail 中的补丁。�
 丁。用户将希望通过 google 来搜索"一句话概述"来找到那些讨论这个补丁的文
 章。
 
-一些标题的例子：
+一些标题的例子::
 
     Subject: [patch 2/5] ext2: improve scalability of bitmap searching
     Subject: [PATCHv2 001/207] x86: fix eflags tracking
@@ -348,7 +341,7 @@ Nuff 说过，如果你的代码和这个偏离太多，那么它有可能会被
 在头文件里，有条件地定义 "static inline" 函数，或者宏，在代码里用这些东
 西。让编译器把那些"空操作"优化掉。
 
-一个简单的例子，不好的代码：
+一个简单的例子，不好的代码::
 
     dev = alloc_etherdev (sizeof(struct funky_private));
     if (!dev)
@@ -359,12 +352,14 @@ Nuff 说过，如果你的代码和这个偏离太多，那么它有可能会被
 
 清理后的例子:
 
-(头文件里)
+(头文件里)::
+
     #ifndef CONFIG_NET_FUNKINESS
     static inline void init_funky_net (struct net_device *d) {}
     #endif
 
-(代码文件里)
+(代码文件里)::
+
     dev = alloc_etherdev (sizeof(struct funky_private));
     if (!dev)
         return -ENODEV;
@@ -409,4 +404,3 @@ Kernel Documentation/process/coding-style.rst:
 
 Linus Torvalds's mail on the canonical patch format:
   <http://lkml.org/lkml/2005/4/7/183>
---
