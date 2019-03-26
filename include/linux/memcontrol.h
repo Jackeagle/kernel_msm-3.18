@@ -333,6 +333,19 @@ static inline bool mem_cgroup_disabled(void)
 	return !cgroup_subsys_enabled(memory_cgrp_subsys);
 }
 
+static inline void mem_cgroup_protection(struct mem_cgroup *memcg,
+					 unsigned long *min, unsigned long *low)
+{
+	if (mem_cgroup_disabled()) {
+		*min = 0;
+		*low = 0;
+		return;
+	}
+
+	*min = READ_ONCE(memcg->memory.emin);
+	*low = READ_ONCE(memcg->memory.elow);
+}
+
 enum mem_cgroup_protection mem_cgroup_protected(struct mem_cgroup *root,
 						struct mem_cgroup *memcg);
 
@@ -530,6 +543,8 @@ unsigned long mem_cgroup_get_zone_lru_size(struct lruvec *lruvec,
 void mem_cgroup_handle_over_high(void);
 
 unsigned long mem_cgroup_get_max(struct mem_cgroup *memcg);
+
+unsigned long mem_cgroup_size(struct mem_cgroup *memcg);
 
 void mem_cgroup_print_oom_context(struct mem_cgroup *memcg,
 				struct task_struct *p);
@@ -824,6 +839,13 @@ static inline void memcg_memory_event_mm(struct mm_struct *mm,
 {
 }
 
+static inline void mem_cgroup_protection(struct mem_cgroup *memcg,
+					 unsigned long *min, unsigned long *low)
+{
+	*min = 0;
+	*low = 0;
+}
+
 static inline enum mem_cgroup_protection mem_cgroup_protected(
 	struct mem_cgroup *root, struct mem_cgroup *memcg)
 {
@@ -977,6 +999,11 @@ mem_cgroup_node_nr_lru_pages(struct mem_cgroup *memcg,
 }
 
 static inline unsigned long mem_cgroup_get_max(struct mem_cgroup *memcg)
+{
+	return 0;
+}
+
+static inline unsigned long mem_cgroup_size(struct mem_cgroup *memcg)
 {
 	return 0;
 }
