@@ -45,10 +45,10 @@
 #include "pi433_if.h"
 #include "rf69.h"
 
-#define N_PI433_MINORS			BIT(MINORBITS) /*32*/	/* ... up to 256 */
-#define MAX_MSG_SIZE			900	/* min: FIFO_SIZE! */
-#define MSG_FIFO_SIZE			65536   /* 65536 = 2^16  */
-#define NUM_DIO				2
+#define N_PI433_MINORS		BIT(MINORBITS) /*32*/	/* ... up to 256 */
+#define MAX_MSG_SIZE		900	/* min: FIFO_SIZE! */
+#define MSG_FIFO_SIZE		65536   /* 65536 = 2^16  */
+#define NUM_DIO			2
 
 static dev_t pi433_dev;
 static DEFINE_IDR(pi433_idr);
@@ -650,21 +650,19 @@ pi433_tx_thread(void *data)
 		disable_irq(device->irq_num[DIO0]);
 		device->tx_active = true;
 
+		/* clear fifo, set fifo threshold, set payload length */
+		retval = rf69_set_mode(spi, standby); /* this clears the fifo */
+		if (retval < 0)
+			return retval;
+
 		if (device->rx_active && !rx_interrupted) {
 			/*
 			 * rx is currently waiting for a telegram;
 			 * we need to set the radio module to standby
 			 */
-			retval = rf69_set_mode(device->spi, standby);
-			if (retval < 0)
-				return retval;
 			rx_interrupted = true;
 		}
 
-		/* clear fifo, set fifo threshold, set payload length */
-		retval = rf69_set_mode(spi, standby); /* this clears the fifo */
-		if (retval < 0)
-			return retval;
 		retval = rf69_set_fifo_threshold(spi, FIFO_THRESHOLD);
 		if (retval < 0)
 			return retval;
