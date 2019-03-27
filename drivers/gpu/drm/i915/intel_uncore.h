@@ -32,7 +32,6 @@
 #include "i915_reg.h"
 
 struct drm_i915_private;
-struct i915_runtime_pm;
 struct intel_uncore;
 
 enum forcewake_domain_id {
@@ -95,8 +94,6 @@ struct intel_forcewake_range {
 
 struct intel_uncore {
 	void __iomem *regs;
-
-	struct i915_runtime_pm *rpm;
 
 	spinlock_t lock; /** lock is also taken in irq contexts. */
 
