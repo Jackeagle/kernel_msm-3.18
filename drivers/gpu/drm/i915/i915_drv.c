@@ -2854,7 +2854,7 @@ static int intel_runtime_suspend(struct device *kdev)
 	enable_rpm_wakeref_asserts(dev_priv);
 	intel_runtime_pm_cleanup(dev_priv);
 
-	if (intel_uncore_arm_unclaimed_mmio_detection(&dev_priv->uncore))
+	if (intel_uncore_arm_unclaimed_mmio_detection(dev_priv))
 		DRM_ERROR("Unclaimed access detected prior to suspending\n");
 
 	dev_priv->runtime_pm.suspended = true;
@@ -2908,7 +2908,7 @@ static int intel_runtime_resume(struct device *kdev)
 
 	intel_opregion_notify_adapter(dev_priv, PCI_D0);
 	dev_priv->runtime_pm.suspended = false;
-	if (intel_uncore_unclaimed_mmio(&dev_priv->uncore))
+	if (intel_uncore_unclaimed_mmio(dev_priv))
 		DRM_DEBUG_DRIVER("Unclaimed access during suspend, bios?\n");
 
 	if (INTEL_GEN(dev_priv) >= 11) {
