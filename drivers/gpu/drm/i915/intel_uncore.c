@@ -1391,7 +1391,7 @@ static void intel_uncore_fw_domains_init(struct intel_uncore *uncore)
 {
 	struct drm_i915_private *i915 = uncore_to_i915(uncore);
 
-	if (!intel_uncore_has_forcewake(uncore))
+	if (INTEL_GEN(i915) <= 5 || intel_vgpu_active(i915))
 		return;
 
 	if (INTEL_GEN(i915) >= 11) {
@@ -1590,9 +1590,6 @@ int intel_uncore_init(struct intel_uncore *uncore)
 
 	i915_check_vgpu(i915);
 
-	if (INTEL_GEN(i915) > 5 && !intel_vgpu_active(i915))
-		uncore->flags |= UNCORE_HAS_FORCEWAKE;
-
 	intel_uncore_edram_detect(i915);
 	intel_uncore_fw_domains_init(uncore);
 	__intel_uncore_early_sanitize(uncore, 0);
@@ -1601,14 +1598,12 @@ int intel_uncore_init(struct intel_uncore *uncore)
 	uncore->pmic_bus_access_nb.notifier_call =
 		i915_pmic_bus_access_notifier;
 
-	if (!intel_uncore_has_forcewake(uncore)) {
-		if (IS_GEN(i915, 5)) {
-			ASSIGN_WRITE_MMIO_VFUNCS(uncore, gen5);
-			ASSIGN_READ_MMIO_VFUNCS(uncore, gen5);
-		} else {
-			ASSIGN_WRITE_MMIO_VFUNCS(uncore, gen2);
-			ASSIGN_READ_MMIO_VFUNCS(uncore, gen2);
-		}
+	if (IS_GEN_RANGE(i915, 2, 4) || intel_vgpu_active(i915)) {
+		ASSIGN_WRITE_MMIO_VFUNCS(uncore, gen2);
+		ASSIGN_READ_MMIO_VFUNCS(uncore, gen2);
+	} else if (IS_GEN(i915, 5)) {
+		ASSIGN_WRITE_MMIO_VFUNCS(uncore, gen5);
+		ASSIGN_READ_MMIO_VFUNCS(uncore, gen5);
 	} else if (IS_GEN_RANGE(i915, 6, 7)) {
 		ASSIGN_WRITE_MMIO_VFUNCS(uncore, gen6);
 
@@ -1917,10 +1912,7 @@ intel_uncore_forcewake_for_read(struct drm_i915_private *dev_priv,
 	} else if (INTEL_GEN(dev_priv) >= 6) {
 		fw_domains = __gen6_reg_read_fw_domains(uncore, offset);
 	} else {
-		/* on devices with FW we expect to hit one of the above cases */
-		if (intel_uncore_has_forcewake(uncore))
-			MISSING_CASE(INTEL_GEN(dev_priv));
-
+		WARN_ON(!IS_GEN_RANGE(dev_priv, 2, 5));
 		fw_domains = 0;
 	}
 
@@ -1946,10 +1938,7 @@ intel_uncore_forcewake_for_write(struct drm_i915_private *dev_priv,
 	} else if (IS_GEN_RANGE(dev_priv, 6, 7)) {
 		fw_domains = FORCEWAKE_RENDER;
 	} else {
-		/* on devices with FW we expect to hit one of the above cases */
-		if (intel_uncore_has_forcewake(uncore))
-			MISSING_CASE(INTEL_GEN(dev_priv));
-
+		WARN_ON(!IS_GEN_RANGE(dev_priv, 2, 5));
 		fw_domains = 0;
 	}
 
@@ -1980,7 +1969,7 @@ intel_uncore_forcewake_for_reg(struct drm_i915_private *dev_priv,
 
 	WARN_ON(!op);
 
-	if (!intel_uncore_has_forcewake(&dev_priv->uncore))
+	if (intel_vgpu_active(dev_priv))
 		return 0;
 
 	if (op & FW_REG_READ)
