@@ -1759,7 +1759,7 @@ int i915_reg_read_ioctl(struct drm_device *dev,
 
 /**
  * __intel_wait_for_register_fw - wait until register matches expected state
- * @uncore: the struct intel_uncore
+ * @dev_priv: the i915 device
  * @reg: the register to read
  * @mask: mask to apply to register value
  * @value: expected value
@@ -1783,7 +1783,7 @@ int i915_reg_read_ioctl(struct drm_device *dev,
  *
  * Returns 0 if the register matches the desired condition, or -ETIMEOUT.
  */
-int __intel_wait_for_register_fw(struct intel_uncore *uncore,
+int __intel_wait_for_register_fw(struct drm_i915_private *dev_priv,
 				 i915_reg_t reg,
 				 u32 mask,
 				 u32 value,
@@ -1792,7 +1792,7 @@ int __intel_wait_for_register_fw(struct intel_uncore *uncore,
 				 u32 *out_value)
 {
 	u32 uninitialized_var(reg_value);
-#define done (((reg_value = intel_uncore_read_fw(uncore, reg)) & mask) == value)
+#define done (((reg_value = I915_READ_FW(reg)) & mask) == value)
 	int ret;
 
 	/* Catch any overuse of this function */
@@ -1850,7 +1850,7 @@ int __intel_wait_for_register(struct drm_i915_private *dev_priv,
 	spin_lock_irq(&uncore->lock);
 	intel_uncore_forcewake_get__locked(uncore, fw);
 
-	ret = __intel_wait_for_register_fw(uncore,
+	ret = __intel_wait_for_register_fw(dev_priv,
 					   reg, mask, value,
 					   fast_timeout_us, 0, &reg_value);
 
@@ -1858,8 +1858,7 @@ int __intel_wait_for_register(struct drm_i915_private *dev_priv,
 	spin_unlock_irq(&uncore->lock);
 
 	if (ret && slow_timeout_ms)
-		ret = __wait_for(reg_value = intel_uncore_read_notrace(uncore,
-								       reg),
+		ret = __wait_for(reg_value = I915_READ_NOTRACE(reg),
 				 (reg_value & mask) == value,
 				 slow_timeout_ms * 1000, 10, 1000);
 
