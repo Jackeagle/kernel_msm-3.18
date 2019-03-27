@@ -29,7 +29,6 @@ struct drm_i915_reg_table;
 struct i915_gem_context;
 struct i915_request;
 struct i915_sched_attr;
-struct intel_uncore;
 
 struct intel_hw_status_page {
 	struct i915_vma *vma;
@@ -251,7 +250,6 @@ struct intel_engine_execlists {
 
 struct intel_engine_cs {
 	struct drm_i915_private *i915;
-	struct intel_uncore *uncore;
 	char name[INTEL_ENGINE_CS_MAX_NAME];
 
 	enum intel_engine_id id;
