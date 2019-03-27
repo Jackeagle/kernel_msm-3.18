@@ -1841,7 +1841,7 @@ int __intel_wait_for_register(struct drm_i915_private *dev_priv,
 {
 	struct intel_uncore *uncore = &dev_priv->uncore;
 	unsigned fw =
-		intel_uncore_forcewake_for_reg(uncore, reg, FW_REG_READ);
+		intel_uncore_forcewake_for_reg(dev_priv, reg, FW_REG_READ);
 	u32 reg_value;
 	int ret;
 
@@ -1904,23 +1904,23 @@ out:
 }
 
 static enum forcewake_domains
-intel_uncore_forcewake_for_read(struct intel_uncore *uncore,
+intel_uncore_forcewake_for_read(struct drm_i915_private *dev_priv,
 				i915_reg_t reg)
 {
-	struct drm_i915_private *i915 = uncore_to_i915(uncore);
+	struct intel_uncore *uncore = &dev_priv->uncore;
 	u32 offset = i915_mmio_reg_offset(reg);
 	enum forcewake_domains fw_domains;
 
-	if (INTEL_GEN(i915) >= 11) {
+	if (INTEL_GEN(dev_priv) >= 11) {
 		fw_domains = __gen11_fwtable_reg_read_fw_domains(uncore, offset);
-	} else if (HAS_FWTABLE(i915)) {
+	} else if (HAS_FWTABLE(dev_priv)) {
 		fw_domains = __fwtable_reg_read_fw_domains(uncore, offset);
-	} else if (INTEL_GEN(i915) >= 6) {
+	} else if (INTEL_GEN(dev_priv) >= 6) {
 		fw_domains = __gen6_reg_read_fw_domains(uncore, offset);
 	} else {
 		/* on devices with FW we expect to hit one of the above cases */
 		if (intel_uncore_has_forcewake(uncore))
-			MISSING_CASE(INTEL_GEN(i915));
+			MISSING_CASE(INTEL_GEN(dev_priv));
 
 		fw_domains = 0;
 	}
@@ -1931,25 +1931,25 @@ intel_uncore_forcewake_for_read(struct intel_uncore *uncore,
 }
 
 static enum forcewake_domains
-intel_uncore_forcewake_for_write(struct intel_uncore *uncore,
+intel_uncore_forcewake_for_write(struct drm_i915_private *dev_priv,
 				 i915_reg_t reg)
 {
-	struct drm_i915_private *i915 = uncore_to_i915(uncore);
+	struct intel_uncore *uncore = &dev_priv->uncore;
 	u32 offset = i915_mmio_reg_offset(reg);
 	enum forcewake_domains fw_domains;
 
-	if (INTEL_GEN(i915) >= 11) {
+	if (INTEL_GEN(dev_priv) >= 11) {
 		fw_domains = __gen11_fwtable_reg_write_fw_domains(uncore, offset);
-	} else if (HAS_FWTABLE(i915) && !IS_VALLEYVIEW(i915)) {
+	} else if (HAS_FWTABLE(dev_priv) && !IS_VALLEYVIEW(dev_priv)) {
 		fw_domains = __fwtable_reg_write_fw_domains(uncore, offset);
-	} else if (IS_GEN(i915, 8)) {
+	} else if (IS_GEN(dev_priv, 8)) {
 		fw_domains = __gen8_reg_write_fw_domains(uncore, offset);
-	} else if (IS_GEN_RANGE(i915, 6, 7)) {
+	} else if (IS_GEN_RANGE(dev_priv, 6, 7)) {
 		fw_domains = FORCEWAKE_RENDER;
 	} else {
 		/* on devices with FW we expect to hit one of the above cases */
 		if (intel_uncore_has_forcewake(uncore))
-			MISSING_CASE(INTEL_GEN(i915));
+			MISSING_CASE(INTEL_GEN(dev_priv));
 
 		fw_domains = 0;
 	}
@@ -1962,7 +1962,7 @@ intel_uncore_forcewake_for_write(struct intel_uncore *uncore,
 /**
  * intel_uncore_forcewake_for_reg - which forcewake domains are needed to access
  * 				    a register
- * @uncore: pointer to struct intel_uncore
+ * @dev_priv: pointer to struct drm_i915_private
  * @reg: register in question
  * @op: operation bitmask of FW_REG_READ and/or FW_REG_WRITE
  *
@@ -1974,21 +1974,21 @@ intel_uncore_forcewake_for_write(struct intel_uncore *uncore,
  * callers to do FIFO management on their own or risk losing writes.
  */
 enum forcewake_domains
-intel_uncore_forcewake_for_reg(struct intel_uncore *uncore,
+intel_uncore_forcewake_for_reg(struct drm_i915_private *dev_priv,
 			       i915_reg_t reg, unsigned int op)
 {
 	enum forcewake_domains fw_domains = 0;
 
 	WARN_ON(!op);
 
-	if (!intel_uncore_has_forcewake(uncore))
+	if (!intel_uncore_has_forcewake(&dev_priv->uncore))
 		return 0;
 
 	if (op & FW_REG_READ)
-		fw_domains = intel_uncore_forcewake_for_read(uncore, reg);
+		fw_domains = intel_uncore_forcewake_for_read(dev_priv, reg);
 
 	if (op & FW_REG_WRITE)
-		fw_domains |= intel_uncore_forcewake_for_write(uncore, reg);
+		fw_domains |= intel_uncore_forcewake_for_write(dev_priv, reg);
 
 	return fw_domains;
 }
