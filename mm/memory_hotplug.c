@@ -1576,7 +1576,7 @@ static int __ref __offline_pages(unsigned long start_pfn,
 {
 	unsigned long pfn, nr_pages;
 	long offlined_pages;
-	int ret, node, count;
+	int ret, node, nr_isolate_pageblock;
 	unsigned long flags;
 	unsigned long valid_start, valid_end;
 	struct zone *zone;
@@ -1606,7 +1606,7 @@ static int __ref __offline_pages(unsigned long start_pfn,
 		reason = "failure to isolate range";
 		goto failed_removal;
 	}
-	count = ret;
+	nr_isolate_pageblock = ret;
 
 	arg.start_pfn = start_pfn;
 	arg.nr_pages = nr_pages;
@@ -1665,7 +1665,7 @@ static int __ref __offline_pages(unsigned long start_pfn,
 	 * pageblocks zone counter here.
 	 */
 	spin_lock_irqsave(&zone->lock, flags);
-	zone->nr_isolate_pageblock -= count;
+	zone->nr_isolate_pageblock -= nr_isolate_pageblock;
 	spin_unlock_irqrestore(&zone->lock, flags);
 
 	/* removal success */
