@@ -1402,7 +1402,7 @@ smb2_ioctl_query_info(const unsigned int xid,
 			rc = SMB2_ioctl_init(tcon, &rqst[1],
 					     COMPOUND_FID, COMPOUND_FID,
 					     qi.info_type, true, NULL,
-					     0);
+					     0, false);
 		}
 	} else if (qi.flags == PASSTHRU_QUERY_INFO) {
 		memset(&qi_iov, 0, sizeof(qi_iov));
@@ -1819,6 +1819,9 @@ smb3_enum_snapshots(const unsigned int xid, struct cifs_tcon *tcon,
 	unsigned int ret_data_len = 0;
 	int rc;
 	struct smb_snapshot_array snapshot_in;
+
+	if (get_user(ret_data_len, (unsigned int __user *)ioc_buf))
+		return -EFAULT;
 
 	rc = SMB2_ioctl(xid, tcon, cfile->fid.persistent_fid,
 			cfile->fid.volatile_fid,
@@ -2656,7 +2659,7 @@ static long smb3_zero_range(struct file *file, struct cifs_tcon *tcon,
 	rc = SMB2_ioctl_init(tcon, &rqst[num++], cfile->fid.persistent_fid,
 			     cfile->fid.volatile_fid, FSCTL_SET_ZERO_DATA,
 			     true /* is_fctl */, (char *)&fsctl_buf,
-			     sizeof(struct file_zero_data_information));
+			     sizeof(struct file_zero_data_information), false);
 	if (rc)
 		goto zero_range_exit;
 
