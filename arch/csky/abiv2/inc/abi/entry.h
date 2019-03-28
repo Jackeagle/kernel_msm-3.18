@@ -141,28 +141,8 @@
 .endm
 
 /* MMU registers operators. */
-.macro RD_MIR rx
-	mfcr	\rx, cr<0, 15>
-.endm
-
 .macro RD_MEH rx
 	mfcr	\rx, cr<4, 15>
-.endm
-
-.macro RD_MCIR rx
-	mfcr	\rx, cr<8, 15>
-.endm
-
-.macro RD_PGDR rx
-	mfcr	\rx, cr<29, 15>
-.endm
-
-.macro RD_PGDR_K rx
-	mfcr	\rx, cr<28, 15>
-.endm
-
-.macro WR_MEH rx
-	mtcr	\rx, cr<4, 15>
 .endm
 
 .macro WR_MCIR rx
