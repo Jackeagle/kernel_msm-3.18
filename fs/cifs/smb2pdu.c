@@ -2478,7 +2478,8 @@ creat_exit:
 int
 SMB2_ioctl_init(struct cifs_tcon *tcon, struct smb_rqst *rqst,
 		u64 persistent_fid, u64 volatile_fid, u32 opcode,
-		bool is_fsctl, char *in_data, u32 indatalen)
+		bool is_fsctl, char *in_data, u32 indatalen,
+		bool rsp_buf_not_allowed)
 {
 	struct smb2_ioctl_req *req;
 	struct kvec *iov = rqst->rq_iov;
@@ -2529,7 +2530,18 @@ SMB2_ioctl_init(struct cifs_tcon *tcon, struct smb_rqst *rqst,
 	 * in responses (except for read responses which can be bigger.
 	 * We may want to bump this limit up
 	 */
-	req->MaxOutputResponse = cpu_to_le32(CIFSMaxBufSize);
+
+	/*
+	 * Servers like Azure expect first query to be minimal (to get number of
+	 * previous versions) so the response size must be specified as EXACTLY
+	 * sizeof(struct snapshot_array) which is 16 when rounded up to multiple
+	 * of eight bytes.
+	 */
+
+	if (rsp_buf_not_allowed)
+		req->MaxOutputResponse = cpu_to_le32(16);
+	else
+		req->MaxOutputResponse = cpu_to_le32(CIFSMaxBufSize);
 
 	if (is_fsctl)
 		req->Flags = cpu_to_le32(SMB2_0_IOCTL_IS_FSCTL);
@@ -2567,11 +2579,22 @@ SMB2_ioctl(const unsigned int xid, struct cifs_tcon *tcon, u64 persistent_fid,
 	int resp_buftype = CIFS_NO_BUFFER;
 	int rc = 0;
 	int flags = 0;
+	bool rsp_buf_not_allowed = false;
 
 	cifs_dbg(FYI, "SMB2 IOCTL\n");
 
 	if (out_data != NULL)
 		*out_data = NULL;
+
+
+	/*
+	 * Servers like Azure expect first query to be minimal (to get number of
+	 * previous versions) so the response size must be specified as EXACTLY
+	 * sizeof(struct snapshot_array) which is 16 when rounded up to multiple
+	 * of eight bytes.
+	 */
+	if ((opcode == FSCTL_SRV_ENUMERATE_SNAPSHOTS) && plen && (*plen == 0))
+		rsp_buf_not_allowed = true;
 
 	/* zero out returned data len, in case of error */
 	if (plen)
@@ -2593,8 +2616,8 @@ SMB2_ioctl(const unsigned int xid, struct cifs_tcon *tcon, u64 persistent_fid,
 	rqst.rq_iov = iov;
 	rqst.rq_nvec = SMB2_IOCTL_IOV_SIZE;
 
-	rc = SMB2_ioctl_init(tcon, &rqst, persistent_fid, volatile_fid,
-			     opcode, is_fsctl, in_data, indatalen);
+	rc = SMB2_ioctl_init(tcon, &rqst, persistent_fid, volatile_fid, opcode,
+			     is_fsctl, in_data, indatalen, rsp_buf_not_allowed);
 	if (rc)
 		goto ioctl_exit;
 

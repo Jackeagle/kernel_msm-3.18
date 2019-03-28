@@ -717,20 +717,18 @@ int open_shroot(unsigned int xid, struct cifs_tcon *tcon, struct cifs_fid *pfid)
 	oparms.fid->mid = le64_to_cpu(o_rsp->sync_hdr.MessageId);
 #endif /* CIFS_DEBUG2 */
 
-	if (o_rsp->OplockLevel == SMB2_OPLOCK_LEVEL_LEASE)
-		oplock = smb2_parse_lease_state(server, o_rsp,
-						&oparms.fid->epoch,
-						oparms.fid->lease_key);
-	else
-		goto oshr_exit;
-
-
 	memcpy(tcon->crfid.fid, pfid, sizeof(struct cifs_fid));
 	tcon->crfid.tcon = tcon;
 	tcon->crfid.is_valid = true;
 	kref_init(&tcon->crfid.refcount);
-	kref_get(&tcon->crfid.refcount);
 
+	if (o_rsp->OplockLevel == SMB2_OPLOCK_LEVEL_LEASE) {
+		kref_get(&tcon->crfid.refcount);
+		oplock = smb2_parse_lease_state(server, o_rsp,
+						&oparms.fid->epoch,
+						oparms.fid->lease_key);
+	} else
+		goto oshr_exit;
 
 	qi_rsp = (struct smb2_query_info_rsp *)rsp_iov[1].iov_base;
 	if (le32_to_cpu(qi_rsp->OutputBufferLength) < sizeof(struct smb2_file_all_info))
@@ -1404,7 +1402,7 @@ smb2_ioctl_query_info(const unsigned int xid,
 			rc = SMB2_ioctl_init(tcon, &rqst[1],
 					     COMPOUND_FID, COMPOUND_FID,
 					     qi.info_type, true, NULL,
-					     0);
+					     0, false);
 		}
 	} else if (qi.flags == PASSTHRU_QUERY_INFO) {
 		memset(&qi_iov, 0, sizeof(qi_iov));
@@ -1821,6 +1819,9 @@ smb3_enum_snapshots(const unsigned int xid, struct cifs_tcon *tcon,
 	unsigned int ret_data_len = 0;
 	int rc;
 	struct smb_snapshot_array snapshot_in;
+
+	if (get_user(ret_data_len, (unsigned int __user *)ioc_buf))
+		return -EFAULT;
 
 	rc = SMB2_ioctl(xid, tcon, cfile->fid.persistent_fid,
 			cfile->fid.volatile_fid,
@@ -2658,7 +2659,7 @@ static long smb3_zero_range(struct file *file, struct cifs_tcon *tcon,
 	rc = SMB2_ioctl_init(tcon, &rqst[num++], cfile->fid.persistent_fid,
 			     cfile->fid.volatile_fid, FSCTL_SET_ZERO_DATA,
 			     true /* is_fctl */, (char *)&fsctl_buf,
-			     sizeof(struct file_zero_data_information));
+			     sizeof(struct file_zero_data_information), false);
 	if (rc)
 		goto zero_range_exit;
 
