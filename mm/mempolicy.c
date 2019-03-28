@@ -429,9 +429,9 @@ static inline bool queue_pages_required(struct page *page,
 }
 
 /*
- * The queue_pages_pmd() may have three kind of return value.
- * 1 - pages are placed on he right node or queued successfully.
- * 0 - THP get split.
+ * queue_pages_pmd() has three possible return values:
+ * 1 - pages are placed on the right node or queued successfully.
+ * 0 - THP was split.
  * -EIO - is migration entry or MPOL_MF_STRICT was specified and an existing
  *        page was already on a node that does not follow the policy.
  */
