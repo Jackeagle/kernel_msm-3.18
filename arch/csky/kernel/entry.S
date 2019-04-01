@@ -2,19 +2,19 @@
 // Copyright (C) 2018 Hangzhou C-SKY Microsystems co.,ltd.
 
 #include <linux/linkage.h>
-#include <abi/entry.h>
-#include <abi/pgtable-bits.h>
-#include <asm/errno.h>
-#include <asm/setup.h>
-#include <asm/unistd.h>
-#include <asm/asm-offsets.h>
 #include <linux/threads.h>
-#include <asm/setup.h>
-#include <asm/page.h>
-#include <asm/thread_info.h>
 
-.macro tlbop_begin
-	SAVE_ALL EPC_KEEP
+#include <asm/asm-offsets.h>
+#include <asm/errno.h>
+#include <asm/page.h>
+#include <asm/setup.h>
+#include <asm/thread_info.h>
+#include <asm/unistd.h>
+
+#include <abi/entry.h>
+
+.macro TLBOP_PREPARE
+	SAVE_ALL 0
 #ifdef CONFIG_CPU_HAS_TLBI
 	RD_MEH	a1
 	tlbi.vaas a1
@@ -27,67 +27,66 @@
 #endif
 .endm
 
-.macro tlbop_end
-	mov     a0, sp
+.macro TLBOP_FINISH
+	mov	a0, sp
 	RD_MEH	a1
-	psrset  ee, ie
-	jbsr    do_page_fault
-	jmpi    ret_from_exception
+	psrset	ee, ie
+	jbsr	do_page_fault
+	br	ret_from_exception
 .endm
 
 .text
-
 ENTRY(csky_tlbinvalidl)
-	tlbop_begin
-	tlbop_end
+	TLBOP_PREPARE
+	TLBOP_FINISH
 
 ENTRY(csky_tlbinvalids)
-	tlbop_begin
-	tlbop_end
+	TLBOP_PREPARE
+	TLBOP_FINISH
 
 ENTRY(csky_tlbmodified)
-	tlbop_begin
+	TLBOP_PREPARE
 #ifndef CONFIG_CPU_HAS_LDSTEX
-	jbsr csky_cmpxchg_fixup
+	jbsr	csky_cmpxchg_fixup
 #endif
-	tlbop_end
+	TLBOP_FINISH
 
 ENTRY(csky_systemcall)
-	SAVE_ALL EPC_INCREASE
+	SAVE_ALL TRAP0_SIZE
 
-	psrset  ee, ie
+	psrset	ee, ie
 
-	lrw     r11, __NR_syscalls
-	cmphs   syscallid, r11		/* Check nr of syscall */
-	bt      ret_from_exception
+	lrw	r11, __NR_syscalls
+	cmphs	syscallid, r11		/* Check nr of syscall */
+	bt	ret_from_exception
 
-	lrw     r13, sys_call_table
-	ixw     r13, syscallid
-	ldw     r11, (r13)
-	cmpnei  r11, 0
-	bf      ret_from_exception
+	lrw	r13, sys_call_table
+	ixw	r13, syscallid
+	ldw	r11, (r13)
+	cmpnei	r11, 0
+	bf	ret_from_exception
 
-	mov     r9, sp
-	bmaski  r10, THREAD_SHIFT
-	andn    r9, r10
-	ldw     r8, (r9, TINFO_FLAGS)
+	mov	r9, sp
+	bmaski	r10, THREAD_SHIFT
+	andn	r9, r10
+	ldw	r8, (r9, TINFO_FLAGS)
 	ANDI_R3	r8, (_TIF_SYSCALL_TRACE | _TIF_SYSCALL_TRACEPOINT | _TIF_SYSCALL_AUDIT)
 	cmpnei	r8, 0
-	bt      csky_syscall_trace
+	bt	csky_syscall_trace
 #if defined(__CSKYABIV2__)
-	subi    sp, 8
-	stw  	r5, (sp, 0x4)
-	stw  	r4, (sp, 0x0)
-	jsr     r11                      /* Do system call */
-	addi 	sp, 8
+	subi	sp, 8
+	stw	r5, (sp, 0x4)
+	stw	r4, (sp, 0x0)
+	jsr	r11
+	addi	sp, 8
 #else
-	jsr     r11
+	jsr	r11
 #endif
-	stw     a0, (sp, LSAVE_A0)      /* Save return value */
-	jmpi    ret_from_exception
+	stw	a0, (sp, LSAVE_A0)	/* Save return value */
+	br	ret_from_exception
 
 csky_syscall_trace:
-	mov	a0, sp                  /* sp = pt_regs pointer */
+	mov	a0, sp			/* a0 = pt_regs pointer */
 	jbsr	syscall_trace_enter
 	/* Prepare args before do system call */
 	ldw	a0, (sp, LSAVE_A0)
@@ -102,21 +101,21 @@ csky_syscall_trace:
 	ldw	r6, (sp, LSAVE_A4)
 	ldw	r7, (sp, LSAVE_A5)
 #endif
-	jsr	r11                     /* Do system call */
+	jsr	r11
 #if defined(__CSKYABIV2__)
 	addi	sp, 8
 #endif
 	stw	a0, (sp, LSAVE_A0)	/* Save return value */
 
-	mov     a0, sp                  /* right now, sp --> pt_regs */
-	jbsr    syscall_trace_exit
+	mov	a0, sp			/* a0 = pt_regs pointer */
+	jbsr	syscall_trace_exit
 	br	ret_from_exception
 
 ENTRY(ret_from_kernel_thread)
 	jbsr	schedule_tail
 	mov	a0, r8
 	jsr	r9
-	jbsr	ret_from_exception
+	br	ret_from_exception
 
 ENTRY(ret_from_fork)
 	jbsr	schedule_tail
@@ -126,16 +125,14 @@ ENTRY(ret_from_fork)
 	ldw	r8, (r9, TINFO_FLAGS)
 	ANDI_R3	r8, (_TIF_SYSCALL_TRACE | _TIF_SYSCALL_TRACEPOINT | _TIF_SYSCALL_AUDIT)
 	cmpnei	r8, 0
-	bf	3f
-	mov	a0, sp			/* sp = pt_regs pointer */
+	bf	ret_from_exception
+	mov	a0, sp			/* a0 = pt_regs pointer */
 	jbsr	syscall_trace_exit
-3:
-	jbsr	ret_from_exception
 
 ret_from_exception:
 	ld	syscallid, (sp, LSAVE_PSR)
 	btsti	syscallid, 31
-	bt	1f
+	bt	1f			/* return to kernel */
 
 	/*
 	 * Load address of current->thread_info, Then get address of task_struct
@@ -145,38 +142,33 @@ ret_from_exception:
 	bmaski	r10, THREAD_SHIFT
 	andn	r9, r10
 
-resume_userspace:
 	ldw	r8, (r9, TINFO_FLAGS)
 	andi	r8, (_TIF_SIGPENDING | _TIF_NOTIFY_RESUME | _TIF_NEED_RESCHED)
 	cmpnei	r8, 0
 	bt	exit_work
-1:  RESTORE_ALL
+1:
+	RESTORE_ALL
 
 exit_work:
+	lrw	syscallid, ret_from_exception
+	mov	lr, syscallid		/* Return address in link */
+
 	btsti	r8, TIF_NEED_RESCHED
 	bt	work_resched
-	/* If thread_info->flag is empty, RESTORE_ALL */
-	cmpnei	r8, 0
-	bf	1b
-	mov	a0, r8
-	mov	a1, sp
-	jbsr	do_notify_resume	/* do signals */
-	br	resume_userspace
+
+	mov	a0, sp
+	mov	a1, r8
+	jmpi	do_notify_resume
 
 work_resched:
-	lrw	syscallid, ret_from_exception
-	mov	r15, syscallid		/* Return address in link */
 	jmpi	schedule
 
-ENTRY(sys_rt_sigreturn)
-	jmpi	do_rt_sigreturn
-
 ENTRY(csky_trap)
-	SAVE_ALL EPC_KEEP
+	SAVE_ALL 0
 	psrset	ee
-	mov	a0, sp                 /* Push Stack pointer arg */
-	jbsr	trap_c                 /* Call C-level trap handler */
-	jmpi	ret_from_exception
+	mov	a0, sp
+	jbsr	trap_c
+	br	ret_from_exception
 
 /*
  * Prototype from libc for abiv1:
@@ -188,7 +180,7 @@ ENTRY(csky_get_tls)
 
 	/* increase epc for continue */
 	mfcr	a0, epc
-	INCTRAP	a0
+	addi	a0, TRAP0_SIZE
 	mtcr	a0, epc
 
 	/* get current task thread_info with kernel 8K stack */
@@ -205,7 +197,7 @@ ENTRY(csky_get_tls)
 	rte
 
 ENTRY(csky_irq)
-	SAVE_ALL EPC_KEEP
+	SAVE_ALL 0
 	psrset	ee
 
 #ifdef CONFIG_PREEMPT
@@ -240,12 +232,12 @@ ENTRY(csky_irq)
 	bt	1b			/* go again */
 #endif
 2:
-	jmpi	ret_from_exception
+	br	ret_from_exception
 
 /*
- * a0 =  prev task_struct *
- * a1 =  next task_struct *
- * a0 =  return next
+ * a0 = prev task_struct *
+ * a1 = next task_struct *
+ * a0 = return next
  */
 ENTRY(__switch_to)
 	lrw	a3, TASK_THREAD
@@ -269,7 +261,7 @@ ENTRY(__switch_to)
 	ldw	a2, (a3, THREAD_SR)	/* Set next PSR */
 	mtcr	a2, psr
 
-#if  defined(__CSKYABIV2__)
+#if defined(__CSKYABIV2__)
 	addi	r7, a1, TASK_THREAD_INFO
 	ldw	tls, (r7, TINFO_TP_VALUE)
 #endif
