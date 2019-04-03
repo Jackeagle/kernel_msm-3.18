@@ -78,8 +78,6 @@ struct ib_srq *rvt_create_srq(struct ib_pd *ibpd,
 			      struct ib_udata *udata)
 {
 	struct rvt_dev_info *dev = ib_to_rvt(ibpd->device);
-	struct rvt_ucontext *ucontext = rdma_udata_to_drv_context(
-		udata, struct rvt_ucontext, ibucontext);
 	struct rvt_srq *srq;
 	u32 sz;
 	struct ib_srq *ret;
@@ -121,9 +119,7 @@ struct ib_srq *rvt_create_srq(struct ib_pd *ibpd,
 		int err;
 		u32 s = sizeof(struct rvt_rwq) + srq->rq.size * sz;
 
-		srq->ip =
-		    rvt_create_mmap_info(dev, s, &ucontext->ibucontext,
-					 srq->rq.wq);
+		srq->ip = rvt_create_mmap_info(dev, s, udata, srq->rq.wq);
 		if (!srq->ip) {
 			ret = ERR_PTR(-ENOMEM);
 			goto bail_wq;
@@ -340,7 +336,7 @@ int rvt_query_srq(struct ib_srq *ibsrq, struct ib_srq_attr *attr)
  *
  * Return always 0
  */
-int rvt_destroy_srq(struct ib_srq *ibsrq)
+int rvt_destroy_srq(struct ib_srq *ibsrq, struct ib_udata *udata)
 {
 	struct rvt_srq *srq = ibsrq_to_rvtsrq(ibsrq);
 	struct rvt_dev_info *dev = ib_to_rvt(ibsrq->device);

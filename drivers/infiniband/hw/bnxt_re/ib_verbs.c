@@ -564,7 +564,7 @@ fail:
 }
 
 /* Protection Domains */
-void bnxt_re_dealloc_pd(struct ib_pd *ib_pd)
+void bnxt_re_dealloc_pd(struct ib_pd *ib_pd, struct ib_udata *udata)
 {
 	struct bnxt_re_pd *pd = container_of(ib_pd, struct bnxt_re_pd, ib_pd);
 	struct bnxt_re_dev *rdev = pd->rdev;
@@ -576,14 +576,12 @@ void bnxt_re_dealloc_pd(struct ib_pd *ib_pd)
 				      &pd->qplib_pd);
 }
 
-int bnxt_re_alloc_pd(struct ib_pd *ibpd, struct ib_ucontext *ucontext,
-		     struct ib_udata *udata)
+int bnxt_re_alloc_pd(struct ib_pd *ibpd, struct ib_udata *udata)
 {
 	struct ib_device *ibdev = ibpd->device;
 	struct bnxt_re_dev *rdev = to_bnxt_re_dev(ibdev, ibdev);
-	struct bnxt_re_ucontext *ucntx = container_of(ucontext,
-						      struct bnxt_re_ucontext,
-						      ib_uctx);
+	struct bnxt_re_ucontext *ucntx = rdma_udata_to_drv_context(
+		udata, struct bnxt_re_ucontext, ib_uctx);
 	struct bnxt_re_pd *pd = container_of(ibpd, struct bnxt_re_pd, ib_pd);
 	int rc;
 
@@ -635,7 +633,7 @@ fail:
 }
 
 /* Address Handles */
-int bnxt_re_destroy_ah(struct ib_ah *ib_ah, u32 flags)
+int bnxt_re_destroy_ah(struct ib_ah *ib_ah, u32 flags, struct ib_udata *udata)
 {
 	struct bnxt_re_ah *ah = container_of(ib_ah, struct bnxt_re_ah, ib_ah);
 	struct bnxt_re_dev *rdev = ah->rdev;
@@ -789,7 +787,7 @@ void bnxt_re_unlock_cqs(struct bnxt_re_qp *qp,
 }
 
 /* Queue Pairs */
-int bnxt_re_destroy_qp(struct ib_qp *ib_qp)
+int bnxt_re_destroy_qp(struct ib_qp *ib_qp, struct ib_udata *udata)
 {
 	struct bnxt_re_qp *qp = container_of(ib_qp, struct bnxt_re_qp, ib_qp);
 	struct bnxt_re_dev *rdev = qp->rdev;
@@ -895,8 +893,9 @@ static int bnxt_re_init_user_qp(struct bnxt_re_dev *rdev, struct bnxt_re_pd *pd,
 		return PTR_ERR(umem);
 
 	qp->sumem = umem;
-	qplib_qp->sq.sglist = umem->sg_head.sgl;
-	qplib_qp->sq.nmap = umem->nmap;
+	qplib_qp->sq.sg_info.sglist = umem->sg_head.sgl;
+	qplib_qp->sq.sg_info.npages = ib_umem_num_pages(umem);
+	qplib_qp->sq.sg_info.nmap = umem->nmap;
 	qplib_qp->qp_handle = ureq.qp_handle;
 
 	if (!qp->qplib_qp.srq) {
@@ -907,8 +906,9 @@ static int bnxt_re_init_user_qp(struct bnxt_re_dev *rdev, struct bnxt_re_pd *pd,
 		if (IS_ERR(umem))
 			goto rqfail;
 		qp->rumem = umem;
-		qplib_qp->rq.sglist = umem->sg_head.sgl;
-		qplib_qp->rq.nmap = umem->nmap;
+		qplib_qp->rq.sg_info.sglist = umem->sg_head.sgl;
+		qplib_qp->rq.sg_info.npages = ib_umem_num_pages(umem);
+		qplib_qp->rq.sg_info.nmap = umem->nmap;
 	}
 
 	qplib_qp->dpi = &cntx->dpi;
@@ -916,8 +916,7 @@ static int bnxt_re_init_user_qp(struct bnxt_re_dev *rdev, struct bnxt_re_pd *pd,
 rqfail:
 	ib_umem_release(qp->sumem);
 	qp->sumem = NULL;
-	qplib_qp->sq.sglist = NULL;
-	qplib_qp->sq.nmap = 0;
+	memset(&qplib_qp->sq.sg_info, 0, sizeof(qplib_qp->sq.sg_info));
 
 	return PTR_ERR(umem);
 }
@@ -1326,7 +1325,7 @@ static enum ib_mtu __to_ib_mtu(u32 mtu)
 }
 
 /* Shared Receive Queues */
-int bnxt_re_destroy_srq(struct ib_srq *ib_srq)
+int bnxt_re_destroy_srq(struct ib_srq *ib_srq, struct ib_udata *udata)
 {
 	struct bnxt_re_srq *srq = container_of(ib_srq, struct bnxt_re_srq,
 					       ib_srq);
@@ -1374,8 +1373,9 @@ static int bnxt_re_init_user_srq(struct bnxt_re_dev *rdev,
 		return PTR_ERR(umem);
 
 	srq->umem = umem;
-	qplib_srq->nmap = umem->nmap;
-	qplib_srq->sglist = umem->sg_head.sgl;
+	qplib_srq->sg_info.sglist = umem->sg_head.sgl;
+	qplib_srq->sg_info.npages = ib_umem_num_pages(umem);
+	qplib_srq->sg_info.nmap = umem->nmap;
 	qplib_srq->srq_handle = ureq.srq_handle;
 	qplib_srq->dpi = &cntx->dpi;
 
@@ -2558,7 +2558,7 @@ int bnxt_re_post_recv(struct ib_qp *ib_qp, const struct ib_recv_wr *wr,
 }
 
 /* Completion Queues */
-int bnxt_re_destroy_cq(struct ib_cq *ib_cq)
+int bnxt_re_destroy_cq(struct ib_cq *ib_cq, struct ib_udata *udata)
 {
 	int rc;
 	struct bnxt_re_cq *cq;
@@ -2587,7 +2587,6 @@ int bnxt_re_destroy_cq(struct ib_cq *ib_cq)
 
 struct ib_cq *bnxt_re_create_cq(struct ib_device *ibdev,
 				const struct ib_cq_init_attr *attr,
-				struct ib_ucontext *context,
 				struct ib_udata *udata)
 {
 	struct bnxt_re_dev *rdev = to_bnxt_re_dev(ibdev, ibdev);
@@ -2614,12 +2613,10 @@ struct ib_cq *bnxt_re_create_cq(struct ib_device *ibdev,
 	if (entries > dev_attr->max_cq_wqes + 1)
 		entries = dev_attr->max_cq_wqes + 1;
 
-	if (context) {
+	if (udata) {
 		struct bnxt_re_cq_req req;
-		struct bnxt_re_ucontext *uctx = container_of
-						(context,
-						 struct bnxt_re_ucontext,
-						 ib_uctx);
+		struct bnxt_re_ucontext *uctx = rdma_udata_to_drv_context(
+			udata, struct bnxt_re_ucontext, ib_uctx);
 		if (ib_copy_from_udata(&req, udata, sizeof(req))) {
 			rc = -EFAULT;
 			goto fail;
@@ -2632,8 +2629,9 @@ struct ib_cq *bnxt_re_create_cq(struct ib_device *ibdev,
 			rc = PTR_ERR(cq->umem);
 			goto fail;
 		}
-		cq->qplib_cq.sghead = cq->umem->sg_head.sgl;
-		cq->qplib_cq.nmap = cq->umem->nmap;
+		cq->qplib_cq.sg_info.sglist = cq->umem->sg_head.sgl;
+		cq->qplib_cq.sg_info.npages = ib_umem_num_pages(cq->umem);
+		cq->qplib_cq.sg_info.nmap = cq->umem->nmap;
 		cq->qplib_cq.dpi = &uctx->dpi;
 	} else {
 		cq->max_cql = min_t(u32, entries, MAX_CQL_PER_POLL);
@@ -2645,8 +2643,6 @@ struct ib_cq *bnxt_re_create_cq(struct ib_device *ibdev,
 		}
 
 		cq->qplib_cq.dpi = &rdev->dpi_privileged;
-		cq->qplib_cq.sghead = NULL;
-		cq->qplib_cq.nmap = 0;
 	}
 	/*
 	 * Allocating the NQ in a round robin fashion. nq_alloc_cnt is a
@@ -2671,7 +2667,7 @@ struct ib_cq *bnxt_re_create_cq(struct ib_device *ibdev,
 	atomic_inc(&rdev->cq_count);
 	spin_lock_init(&cq->cq_lock);
 
-	if (context) {
+	if (udata) {
 		struct bnxt_re_cq_resp resp;
 
 		resp.cqid = cq->qplib_cq.id;
@@ -2689,7 +2685,7 @@ struct ib_cq *bnxt_re_create_cq(struct ib_device *ibdev,
 	return &cq->ib_cq;
 
 c2fail:
-	if (context)
+	if (udata)
 		ib_umem_release(cq->umem);
 fail:
 	kfree(cq->cql);
@@ -3381,7 +3377,7 @@ fail:
 	return ERR_PTR(rc);
 }
 
-int bnxt_re_dereg_mr(struct ib_mr *ib_mr)
+int bnxt_re_dereg_mr(struct ib_mr *ib_mr, struct ib_udata *udata)
 {
 	struct bnxt_re_mr *mr = container_of(ib_mr, struct bnxt_re_mr, ib_mr);
 	struct bnxt_re_dev *rdev = mr->rdev;
@@ -3427,7 +3423,7 @@ int bnxt_re_map_mr_sg(struct ib_mr *ib_mr, struct scatterlist *sg, int sg_nents,
 }
 
 struct ib_mr *bnxt_re_alloc_mr(struct ib_pd *ib_pd, enum ib_mr_type type,
-			       u32 max_num_sg)
+			       u32 max_num_sg, struct ib_udata *udata)
 {
 	struct bnxt_re_pd *pd = container_of(ib_pd, struct bnxt_re_pd, ib_pd);
 	struct bnxt_re_dev *rdev = pd->rdev;
