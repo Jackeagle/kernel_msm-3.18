@@ -4921,6 +4921,12 @@ T:	git git://anongit.freedesktop.org/drm/drm-misc
 S:	Maintained
 F:	drivers/gpu/drm/tve200/
 
+DRM DRIVER FOR FEIYANG FY07024DI26A30-D MIPI-DSI LCD PANELS
+M:	Jagan Teki <jagan@amarulasolutions.com>
+S:	Maintained
+F:	drivers/gpu/drm/panel/panel-feiyang-fy07024di26a30d.c
+F:	Documentation/devicetree/bindings/display/panel/feiyang,fy07024di26a30d.txt
+
 DRM DRIVER FOR ILITEK ILI9225 PANELS
 M:	David Lechner <david@lechnology.com>
 S:	Maintained
@@ -5011,6 +5017,12 @@ DRM DRIVER FOR RAGE 128 VIDEO CARDS
 S:	Orphan / Obsolete
 F:	drivers/gpu/drm/r128/
 F:	include/uapi/drm/r128_drm.h
+
+DRM DRIVER FOR ROCKTECH JH057N00900 PANELS
+M:	Guido Günther <agx@sigxcpu.org>
+S:	Maintained
+F:	drivers/gpu/drm/panel/panel-rocktech-jh057n00900.c
+F:	Documentation/devicetree/bindings/display/panel/rocktech,jh057n00900.txt
 
 DRM DRIVER FOR SAVAGE VIDEO CARDS
 S:	Orphan / Obsolete
@@ -5199,6 +5211,15 @@ T:	git git://github.com/xin3liang/linux.git
 S:	Maintained
 F:	drivers/gpu/drm/hisilicon/
 F:	Documentation/devicetree/bindings/display/hisilicon/
+
+DRM DRIVERS FOR LIMA
+M:	Qiang Yu <yuq825@gmail.com>
+L:	dri-devel@lists.freedesktop.org
+L:	lima@lists.freedesktop.org
+S:	Maintained
+F:	drivers/gpu/drm/lima/
+F:	include/uapi/drm/lima_drm.h
+T:	git git://anongit.freedesktop.org/drm/drm-misc
 
 DRM DRIVERS FOR MEDIATEK
 M:	CK Hu <ck.hu@mediatek.com>
