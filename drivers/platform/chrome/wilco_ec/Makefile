@@ -6,5 +6,7 @@ wilco_ec_debugfs-objs			:= debugfs.o
 obj-$(CONFIG_WILCO_EC_DEBUGFS)		+= wilco_ec_debugfs.o
 wilco_ec_events-objs			:= event.o
 obj-$(CONFIG_WILCO_EC_EVENTS)		+= wilco_ec_events.o
+wilco_kbd_backlight-objs		:= kbd_led_backlight.o
+obj-$(CONFIG_WILCO_EC_KBD_BACKLIGHT)	+= wilco_kbd_backlight.o
 wilco_ec_telem-objs			:= telemetry.o
 obj-$(CONFIG_WILCO_EC_TELEMETRY)	+= wilco_ec_telem.o
