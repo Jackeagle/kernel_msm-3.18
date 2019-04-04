@@ -131,8 +131,7 @@ struct ib_srq *mlx4_ib_create_srq(struct ib_pd *pd,
 		if (err)
 			goto err_mtt;
 
-		err = mlx4_ib_db_map_user(ucontext, udata, ucmd.db_addr,
-					  &srq->db);
+		err = mlx4_ib_db_map_user(udata, ucmd.db_addr, &srq->db);
 		if (err)
 			goto err_mtt;
 	} else {
@@ -272,7 +271,7 @@ int mlx4_ib_query_srq(struct ib_srq *ibsrq, struct ib_srq_attr *srq_attr)
 	return 0;
 }
 
-int mlx4_ib_destroy_srq(struct ib_srq *srq)
+int mlx4_ib_destroy_srq(struct ib_srq *srq, struct ib_udata *udata)
 {
 	struct mlx4_ib_dev *dev = to_mdev(srq->device);
 	struct mlx4_ib_srq *msrq = to_msrq(srq);
@@ -280,8 +279,13 @@ int mlx4_ib_destroy_srq(struct ib_srq *srq)
 	mlx4_srq_free(dev->dev, &msrq->msrq);
 	mlx4_mtt_cleanup(dev->dev, &msrq->mtt);
 
-	if (srq->uobject) {
-		mlx4_ib_db_unmap_user(to_mucontext(srq->uobject->context), &msrq->db);
+	if (udata) {
+		mlx4_ib_db_unmap_user(
+			rdma_udata_to_drv_context(
+				udata,
+				struct mlx4_ib_ucontext,
+				ibucontext),
+			&msrq->db);
 		ib_umem_release(msrq->umem);
 	} else {
 		kvfree(msrq->wrid);

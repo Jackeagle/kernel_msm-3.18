@@ -1015,8 +1015,10 @@ err_free_stats:
 	return;
 }
 
-static int add_port(struct ib_device *device, int port_num)
+static int add_port(struct ib_core_device *coredev,
+		    int port_num, bool alloc_stats)
 {
+	struct ib_device *device = rdma_device_to_ibdev(&coredev->dev);
 	struct ib_port *p;
 	struct ib_port_attr attr;
 	int i;
@@ -1034,7 +1036,7 @@ static int add_port(struct ib_device *device, int port_num)
 	p->port_num   = port_num;
 
 	ret = kobject_init_and_add(&p->kobj, &port_type,
-				   device->ports_kobj,
+				   coredev->ports_kobj,
 				   "%d", port_num);
 	if (ret) {
 		kfree(p);
@@ -1055,7 +1057,7 @@ static int add_port(struct ib_device *device, int port_num)
 		goto err_put;
 	}
 
-	if (device->ops.process_mad) {
+	if (device->ops.process_mad && alloc_stats) {
 		p->pma_table = get_counter_table(device, port_num);
 		ret = sysfs_create_group(&p->kobj, p->pma_table);
 		if (ret)
@@ -1122,10 +1124,10 @@ static int add_port(struct ib_device *device, int port_num)
 	 * port, so holder should be device. Therefore skip per port conunter
 	 * initialization.
 	 */
-	if (device->ops.alloc_hw_stats && port_num)
+	if (device->ops.alloc_hw_stats && port_num && alloc_stats)
 		setup_hw_stats(device, p, port_num);
 
-	list_add_tail(&p->kobj.entry, &device->port_list);
+	list_add_tail(&p->kobj.entry, &coredev->port_list);
 
 	kobject_uevent(&p->kobj, KOBJ_ADD);
 	return 0;
@@ -1279,11 +1281,11 @@ const struct attribute_group ib_dev_attr_group = {
 	.attrs = ib_dev_attrs,
 };
 
-static void ib_free_port_attrs(struct ib_device *device)
+void ib_free_port_attrs(struct ib_core_device *coredev)
 {
 	struct kobject *p, *t;
 
-	list_for_each_entry_safe(p, t, &device->port_list, entry) {
+	list_for_each_entry_safe(p, t, &coredev->port_list, entry) {
 		struct ib_port *port = container_of(p, struct ib_port, kobj);
 
 		list_del(&p->entry);
@@ -1303,20 +1305,22 @@ static void ib_free_port_attrs(struct ib_device *device)
 		kobject_put(p);
 	}
 
-	kobject_put(device->ports_kobj);
+	kobject_put(coredev->ports_kobj);
 }
 
-static int ib_setup_port_attrs(struct ib_device *device)
+int ib_setup_port_attrs(struct ib_core_device *coredev, bool alloc_stats)
 {
+	struct ib_device *device = rdma_device_to_ibdev(&coredev->dev);
 	unsigned int port;
 	int ret;
 
-	device->ports_kobj = kobject_create_and_add("ports", &device->dev.kobj);
-	if (!device->ports_kobj)
+	coredev->ports_kobj = kobject_create_and_add("ports",
+						     &coredev->dev.kobj);
+	if (!coredev->ports_kobj)
 		return -ENOMEM;
 
 	rdma_for_each_port (device, port) {
-		ret = add_port(device, port);
+		ret = add_port(coredev, port, alloc_stats);
 		if (ret)
 			goto err_put;
 	}
@@ -1324,7 +1328,7 @@ static int ib_setup_port_attrs(struct ib_device *device)
 	return 0;
 
 err_put:
-	ib_free_port_attrs(device);
+	ib_free_port_attrs(coredev);
 	return ret;
 }
 
@@ -1332,7 +1336,7 @@ int ib_device_register_sysfs(struct ib_device *device)
 {
 	int ret;
 
-	ret = ib_setup_port_attrs(device);
+	ret = ib_setup_port_attrs(&device->coredev, true);
 	if (ret)
 		return ret;
 
@@ -1348,5 +1352,5 @@ void ib_device_unregister_sysfs(struct ib_device *device)
 		free_hsag(&device->dev.kobj, device->hw_stats_ag);
 	kfree(device->hw_stats);
 
-	ib_free_port_attrs(device);
+	ib_free_port_attrs(&device->coredev);
 }
