@@ -29,24 +29,27 @@ qla2x00_sysfs_read_fw_dump(struct file *filp, struct kobject *kobj,
 	if (!(ha->fw_dump_reading || ha->mctp_dump_reading))
 		return 0;
 
+	mutex_lock(&ha->optrom_mutex);
 	if (IS_P3P_TYPE(ha)) {
 		if (off < ha->md_template_size) {
 			rval = memory_read_from_buffer(buf, count,
 			    &off, ha->md_tmplt_hdr, ha->md_template_size);
-			return rval;
+		} else {
+			off -= ha->md_template_size;
+			rval = memory_read_from_buffer(buf, count,
+			    &off, ha->md_dump, ha->md_dump_size);
 		}
-		off -= ha->md_template_size;
-		rval = memory_read_from_buffer(buf, count,
-		    &off, ha->md_dump, ha->md_dump_size);
-		return rval;
-	} else if (ha->mctp_dumped && ha->mctp_dump_reading)
-		return memory_read_from_buffer(buf, count, &off, ha->mctp_dump,
+	} else if (ha->mctp_dumped && ha->mctp_dump_reading) {
+		rval = memory_read_from_buffer(buf, count, &off, ha->mctp_dump,
 		    MCTP_DUMP_SIZE);
-	else if (ha->fw_dump_reading)
-		return memory_read_from_buffer(buf, count, &off, ha->fw_dump,
+	} else if (ha->fw_dump_reading) {
+		rval = memory_read_from_buffer(buf, count, &off, ha->fw_dump,
 					ha->fw_dump_len);
-	else
-		return 0;
+	} else {
+		rval = 0;
+	}
+	mutex_unlock(&ha->optrom_mutex);
+	return rval;
 }
 
 static ssize_t
@@ -376,7 +379,7 @@ qla2x00_sysfs_write_optrom_ctl(struct file *filp, struct kobject *kobj,
 		}
 
 		ha->optrom_region_start = start;
-		ha->optrom_region_size = start + size;
+		ha->optrom_region_size = size;
 
 		ha->optrom_state = QLA_SREADING;
 		ha->optrom_buffer = vmalloc(ha->optrom_region_size);
@@ -430,6 +433,10 @@ qla2x00_sysfs_write_optrom_ctl(struct file *filp, struct kobject *kobj,
 		 * 	0x000000 -> 0x07ffff -- Boot code.
 		 * 	0x080000 -> 0x0fffff -- Firmware.
 		 * 	0x120000 -> 0x12ffff -- VPD and HBA parameters.
+		 *
+		 * > ISP25xx type boards:
+		 *
+		 *      None -- should go through BSG.
 		 */
 		valid = 0;
 		if (ha->optrom_size == OPTROM_SIZE_2300 && start == 0)
@@ -437,9 +444,7 @@ qla2x00_sysfs_write_optrom_ctl(struct file *filp, struct kobject *kobj,
 		else if (start == (ha->flt_region_boot * 4) ||
 		    start == (ha->flt_region_fw * 4))
 			valid = 1;
-		else if (IS_QLA24XX_TYPE(ha) || IS_QLA25XX(ha)
-			|| IS_CNA_CAPABLE(ha) || IS_QLA2031(ha)
-			|| IS_QLA27XX(ha) || IS_QLA28XX(ha))
+		else if (IS_QLA24XX_TYPE(ha) || IS_QLA25XX(ha))
 			valid = 1;
 		if (!valid) {
 			ql_log(ql_log_warn, vha, 0x7065,
@@ -449,7 +454,7 @@ qla2x00_sysfs_write_optrom_ctl(struct file *filp, struct kobject *kobj,
 		}
 
 		ha->optrom_region_start = start;
-		ha->optrom_region_size = start + size;
+		ha->optrom_region_size = size;
 
 		ha->optrom_state = QLA_SWRITING;
 		ha->optrom_buffer = vmalloc(ha->optrom_region_size);

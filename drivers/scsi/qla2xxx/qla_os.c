@@ -726,7 +726,7 @@ qla2x00_sp_free_dma(void *ptr)
 	}
 
 	if (!ctx)
-		goto end;
+		return;
 
 	if (sp->flags & SRB_CRC_CTX_DSD_VALID) {
 		/* List assured to be having elements */
@@ -751,12 +751,6 @@ qla2x00_sp_free_dma(void *ptr)
 		ha->gbl_dsd_avail += ctx1->dsd_use_cnt;
 		mempool_free(ctx1, ha->ctx_mempool);
 	}
-
-end:
-	if (sp->type != SRB_NVME_CMD && sp->type != SRB_NVME_LS) {
-		CMD_SP(cmd) = NULL;
-		qla2x00_rel_sp(sp);
-	}
 }
 
 void
@@ -764,8 +758,7 @@ qla2x00_sp_compl(void *ptr, int res)
 {
 	srb_t *sp = ptr;
 	struct scsi_cmnd *cmd = GET_CMD_SP(sp);
-
-	cmd->result = res;
+	wait_queue_head_t *cwaitq = sp->cwaitq;
 
 	if (atomic_read(&sp->ref_count) == 0) {
 		ql_dbg(ql_dbg_io, sp->vha, 0x3015,
@@ -779,7 +772,12 @@ qla2x00_sp_compl(void *ptr, int res)
 		return;
 
 	sp->free(sp);
+	cmd->result = res;
+	CMD_SP(cmd) = NULL;
 	cmd->scsi_done(cmd);
+	if (cwaitq)
+		wake_up(cwaitq);
+	qla2x00_rel_sp(sp);
 }
 
 void
@@ -802,7 +800,7 @@ qla2xxx_qpair_sp_free_dma(void *ptr)
 	}
 
 	if (!ctx)
-		goto end;
+		return;
 
 	if (sp->flags & SRB_CRC_CTX_DSD_VALID) {
 		/* List assured to be having elements */
@@ -862,10 +860,6 @@ qla2xxx_qpair_sp_free_dma(void *ptr)
 		}
 		sp->flags &= ~SRB_DIF_BUNDL_DMA_VALID;
 	}
-
-end:
-	CMD_SP(cmd) = NULL;
-	qla2xxx_rel_qpair_sp(sp->qpair, sp);
 }
 
 void
@@ -873,8 +867,7 @@ qla2xxx_qpair_sp_compl(void *ptr, int res)
 {
 	srb_t *sp = ptr;
 	struct scsi_cmnd *cmd = GET_CMD_SP(sp);
-
-	cmd->result = res;
+	wait_queue_head_t *cwaitq = sp->cwaitq;
 
 	if (atomic_read(&sp->ref_count) == 0) {
 		ql_dbg(ql_dbg_io, sp->fcport->vha, 0x3079,
@@ -888,7 +881,12 @@ qla2xxx_qpair_sp_compl(void *ptr, int res)
 		return;
 
 	sp->free(sp);
+	cmd->result = res;
+	CMD_SP(cmd) = NULL;
 	cmd->scsi_done(cmd);
+	if (cwaitq)
+		wake_up(cwaitq);
+	qla2xxx_rel_qpair_sp(sp->qpair, sp);
 }
 
 /* If we are SP1 here, we need to still take and release the host_lock as SP1
@@ -1378,7 +1376,6 @@ qla2xxx_eh_abort(struct scsi_cmnd *cmd)
 	    vha->host_no, id, lun, sp, cmd, sp->handle);
 
 	/* Get a reference to the sp and drop the lock.*/
-
 	rval = ha->isp_ops->abort_command(sp);
 	if (rval) {
 		if (rval == QLA_FUNCTION_PARAMETER_ERROR)
@@ -1395,37 +1392,46 @@ qla2xxx_eh_abort(struct scsi_cmnd *cmd)
 	}
 
 	spin_lock_irqsave(qpair->qp_lock_ptr, flags);
-	/*
-	 * Clear the slot in the oustanding_cmds array if we can't find the
-	 * command to reclaim the resources.
-	 */
-	if (rval == QLA_FUNCTION_PARAMETER_ERROR)
-		vha->req->outstanding_cmds[sp->handle] = NULL;
 
 	/*
-	 * sp->done will do ref_count--
-	 * sp_get() took an extra count above
+	 * Releasing of the SRB and associated command resources
+	 * is managed through ref_count.
+	 * Whether we need to wait for the abort completion or complete
+	 * the abort handler should be based on the ref_count.
 	 */
-	sp->done(sp, DID_RESET << 16);
+	if (atomic_read(&sp->ref_count) > 1) {
+		/*
+		 * The command is not yet completed. We need to wait for either
+		 * command completion or abort completion.
+		 */
+		DECLARE_WAIT_QUEUE_HEAD_ONSTACK(eh_waitq);
+		uint32_t ratov = ha->r_a_tov/10;
 
-	/* Did the command return during mailbox execution? */
-	if (ret == FAILED && !CMD_SP(cmd))
-		ret = SUCCESS;
+		/* Go ahead and release the extra ref_count obtained earlier */
+		sp->done(sp, DID_RESET << 16);
+		sp->cwaitq = &eh_waitq;
 
-	if (!CMD_SP(cmd))
-		wait = 0;
-
-	spin_unlock_irqrestore(qpair->qp_lock_ptr, flags);
-
-	/* Wait for the command to be returned. */
-	if (wait) {
-		if (qla2x00_eh_wait_on_command(cmd) != QLA_SUCCESS) {
-			ql_log(ql_log_warn, vha, 0x8006,
-			    "Abort handler timed out cmd=%p.\n", cmd);
+		if (!wait_event_lock_irq_timeout(eh_waitq,
+		    CMD_SP(cmd) == NULL, *qpair->qp_lock_ptr,
+		    msecs_to_jiffies(4 * ratov * 1000))) {
+			/*
+			 * The abort got dropped, LOGO will be sent and the
+			 * original command will be completed with CS_TIMEOUT
+			 * completion
+			 */
+			ql_dbg(ql_dbg_taskm, vha, 0xffff,
+			    "%s: Abort wait timer (4 * R_A_TOV[%d]) expired\n",
+			    __func__, ha->r_a_tov);
+			sp->cwaitq = NULL;
 			ret = FAILED;
+			goto end;
 		}
+	} else {
+		/* Command completed while processing the abort */
+		sp->done(sp, DID_RESET << 16);
 	}
-
+end:
+	spin_unlock_irqrestore(qpair->qp_lock_ptr, flags);
 	ql_log(ql_log_info, vha, 0x801c,
 	    "Abort command issued nexus=%ld:%d:%llu --  %d %x.\n",
 	    vha->host_no, id, lun, wait, ret);
@@ -2900,6 +2906,10 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	/* This may fail but that's ok */
 	pci_enable_pcie_error_reporting(pdev);
 
+	/* Turn off T10-DIF when FC-NVMe is enabled */
+	if (ql2xnvmeenable)
+		ql2xenabledif = 0;
+
 	ha = kzalloc(sizeof(struct qla_hw_data), GFP_KERNEL);
 	if (!ha) {
 		ql_log_pci(ql_log_fatal, pdev, 0x0009,
@@ -3814,8 +3824,6 @@ qla2x00_remove_one(struct pci_dev *pdev)
 
 	qla2x00_delete_all_vps(ha, base_vha);
 
-	qla2x00_abort_all_cmds(base_vha, DID_NO_CONNECT << 16);
-
 	qla2x00_dfs_remove(base_vha);
 
 	qla84xx_put_chip(base_vha);
@@ -3904,11 +3912,8 @@ void qla2x00_free_fcports(struct scsi_qla_host *vha)
 {
 	fc_port_t *fcport, *tfcport;
 
-	list_for_each_entry_safe(fcport, tfcport, &vha->vp_fcports, list) {
-		list_del(&fcport->list);
-		qla2x00_clear_loop_id(fcport);
-		kfree(fcport);
-	}
+	list_for_each_entry_safe(fcport, tfcport, &vha->vp_fcports, list)
+		qla2x00_free_fcport(fcport);
 }
 
 static inline void
@@ -6744,8 +6749,10 @@ qla2x00_timer(struct timer_list *t)
 	 * FC-NVME
 	 * see if the active AEN count has changed from what was last reported.
 	 */
-	if (!vha->vp_idx && (atomic_read(&ha->nvme_active_aen_cnt) !=
-	    ha->nvme_last_rptd_aen) && ha->zio_mode == QLA_ZIO_MODE_6) {
+	if (!vha->vp_idx &&
+	    (atomic_read(&ha->nvme_active_aen_cnt) != ha->nvme_last_rptd_aen) &&
+	    ha->zio_mode == QLA_ZIO_MODE_6 &&
+	    !ha->flags.host_shutting_down) {
 		ql_log(ql_log_info, vha, 0x3002,
 		    "nvme: Sched: Set ZIO exchange threshold to %d.\n",
 		    ha->nvme_last_rptd_aen);

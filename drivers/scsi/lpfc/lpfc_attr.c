@@ -71,6 +71,23 @@
 #define LPFC_REG_WRITE_KEY_SIZE	4
 #define LPFC_REG_WRITE_KEY	"EMLX"
 
+const char *const trunk_errmsg[] = {	/* map errcode */
+	"",	/* There is no such error code at index 0*/
+	"link negotiated speed does not match existing"
+		" trunk - link was \"low\" speed",
+	"link negotiated speed does not match"
+		" existing trunk - link was \"middle\" speed",
+	"link negotiated speed does not match existing"
+		" trunk - link was \"high\" speed",
+	"Attached to non-trunking port - F_Port",
+	"Attached to non-trunking port - N_Port",
+	"FLOGI response timeout",
+	"non-FLOGI frame received",
+	"Invalid FLOGI response",
+	"Trunking initialization protocol",
+	"Trunk peer device mismatch",
+};
+
 /**
  * lpfc_jedec_to_ascii - Hex to ascii convertor according to JEDEC rules
  * @incr: integer to convert.
@@ -1281,7 +1298,7 @@ skip_wait:
  * -EBUSY,    port is not in offline state
  *      0,    successful
  */
-int
+static int
 lpfc_reset_pci_bus(struct lpfc_hba *phba)
 {
 	struct pci_dev *pdev = phba->pcidev;
@@ -1612,7 +1629,7 @@ lpfc_nport_evt_cnt_show(struct device *dev, struct device_attribute *attr,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", phba->nport_event_cnt);
 }
 
-int
+static int
 lpfc_set_trunking(struct lpfc_hba *phba, char *buff_out)
 {
 	LPFC_MBOXQ_t *mbox = NULL;
