@@ -1,9 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * AD5933 AD5934 Impedance Converter, Network Analyzer
  *
  * Copyright 2011 Analog Devices Inc.
- *
- * Licensed under the GPL-2.
  */
 
 #include <linux/interrupt.h>
@@ -284,7 +283,7 @@ static ssize_t ad5933_show_frequency(struct device *dev,
 	freqreg = be32_to_cpu(dat.d32) & 0xFFFFFF;
 
 	freqreg = (u64)freqreg * (u64)(st->mclk_hz / 4);
-	do_div(freqreg, 1 << 27);
+	do_div(freqreg, BIT(27));
 
 	return sprintf(buf, "%d\n", (int)freqreg);
 }
@@ -420,7 +419,7 @@ static ssize_t ad5933_store(struct device *dev,
 		if (val > 1022)
 			val = (val >> 2) | (3 << 9);
 		else if (val > 511)
-			val = (val >> 1) | (1 << 9);
+			val = (val >> 1) | BIT(9);
 
 		dat = cpu_to_be16(val);
 		ret = ad5933_i2c_write(st->client,
