@@ -687,7 +687,6 @@ static int load_elf_binary(struct linux_binprm *bprm)
 	struct file *interpreter = NULL; /* to shut gcc up */
  	unsigned long load_addr = 0, load_bias = 0;
 	int load_addr_set = 0;
-	char * elf_interpreter = NULL;
 	unsigned long error;
 	struct elf_phdr *elf_ppnt, *elf_phdata, *interp_elf_phdata = NULL;
 	unsigned long elf_bss, elf_brk;
@@ -704,7 +703,6 @@ static int load_elf_binary(struct linux_binprm *bprm)
 		struct elfhdr interp_elf_ex;
 	} *loc;
 	struct arch_elf_state arch_state = INIT_ARCH_ELF_STATE;
-	loff_t pos;
 
 	loc = kmalloc(sizeof(*loc), GFP_KERNEL);
 	if (!loc) {
@@ -744,6 +742,9 @@ static int load_elf_binary(struct linux_binprm *bprm)
 
 	for (i = 0; i < loc->elf_ex.e_phnum; i++) {
 		if (elf_ppnt->p_type == PT_INTERP) {
+			char *elf_interpreter;
+			loff_t pos;
+
 			/* This is the program interpreter used for
 			 * shared libraries - for now assume that this
 			 * is an a.out format binary
@@ -773,9 +774,10 @@ static int load_elf_binary(struct linux_binprm *bprm)
 				goto out_free_interp;
 
 			interpreter = open_exec(elf_interpreter);
+			kfree(elf_interpreter);
 			retval = PTR_ERR(interpreter);
 			if (IS_ERR(interpreter))
-				goto out_free_interp;
+				goto out_free_ph;
 
 			/*
 			 * If the binary is not readable then enforce
@@ -795,6 +797,10 @@ static int load_elf_binary(struct linux_binprm *bprm)
 			}
 
 			break;
+
+out_free_interp:
+			kfree(elf_interpreter);
+			goto out_free_ph;
 		}
 		elf_ppnt++;
 	}
@@ -819,7 +825,7 @@ static int load_elf_binary(struct linux_binprm *bprm)
 		}
 
 	/* Some simple consistency checks for the interpreter */
-	if (elf_interpreter) {
+	if (interpreter) {
 		retval = -ELIBBAD;
 		/* Not an ELF interpreter */
 		if (memcmp(loc->interp_elf_ex.e_ident, ELFMAG, SELFMAG) != 0)
@@ -884,8 +890,6 @@ static int load_elf_binary(struct linux_binprm *bprm)
 	if (retval < 0)
 		goto out_free_dentry;
 	
-	current->mm->start_stack = bprm->p;
-
 	/* Now we do a little grungy work by mmapping the ELF image into
 	   the correct location in memory. */
 	for(i = 0, elf_ppnt = elf_phdata;
@@ -978,7 +982,7 @@ static int load_elf_binary(struct linux_binprm *bprm)
 			 * independently randomized mmap region (0 load_bias
 			 * without MAP_FIXED).
 			 */
-			if (elf_interpreter) {
+			if (interpreter) {
 				load_bias = ELF_ET_DYN_BASE;
 				if (current->flags & PF_RANDOMIZE)
 					load_bias += arch_mmap_rnd();
@@ -1076,7 +1080,7 @@ static int load_elf_binary(struct linux_binprm *bprm)
 		goto out_free_dentry;
 	}
 
-	if (elf_interpreter) {
+	if (interpreter) {
 		unsigned long interp_map_addr = 0;
 
 		elf_entry = load_elf_interp(&loc->interp_elf_ex,
@@ -1100,7 +1104,6 @@ static int load_elf_binary(struct linux_binprm *bprm)
 
 		allow_write_access(interpreter);
 		fput(interpreter);
-		kfree(elf_interpreter);
 	} else {
 		elf_entry = loc->elf_ex.e_entry;
 		if (BAD_ADDR(elf_entry)) {
@@ -1115,7 +1118,7 @@ static int load_elf_binary(struct linux_binprm *bprm)
 	set_binfmt(&elf_format);
 
 #ifdef ARCH_HAS_SETUP_ADDITIONAL_PAGES
-	retval = arch_setup_additional_pages(bprm, !!elf_interpreter);
+	retval = arch_setup_additional_pages(bprm, !!interpreter);
 	if (retval < 0)
 		goto out;
 #endif /* ARCH_HAS_SETUP_ADDITIONAL_PAGES */
@@ -1176,8 +1179,6 @@ out_free_dentry:
 	allow_write_access(interpreter);
 	if (interpreter)
 		fput(interpreter);
-out_free_interp:
-	kfree(elf_interpreter);
 out_free_ph:
 	kfree(elf_phdata);
 	goto out;
@@ -1456,8 +1457,6 @@ static void fill_elf_header(struct elfhdr *elf, int segs,
 	elf->e_ehsize = sizeof(struct elfhdr);
 	elf->e_phentsize = sizeof(struct elf_phdr);
 	elf->e_phnum = segs;
-
-	return;
 }
 
 static void fill_elf_note_phdr(struct elf_phdr *phdr, int sz, loff_t offset)
@@ -1470,7 +1469,6 @@ static void fill_elf_note_phdr(struct elf_phdr *phdr, int sz, loff_t offset)
 	phdr->p_memsz = 0;
 	phdr->p_flags = 0;
 	phdr->p_align = 0;
-	return;
 }
 
 static void fill_note(struct memelfnote *note, const char *name, int type, 
@@ -1480,7 +1478,6 @@ static void fill_note(struct memelfnote *note, const char *name, int type,
 	note->type = type;
 	note->datasz = sz;
 	note->data = data;
-	return;
 }
 
 /*
