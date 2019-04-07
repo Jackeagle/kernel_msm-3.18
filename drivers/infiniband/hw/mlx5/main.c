@@ -2314,7 +2314,7 @@ err_free:
 	return ERR_PTR(err);
 }
 
-int mlx5_ib_dealloc_dm(struct ib_dm *ibdm)
+int mlx5_ib_dealloc_dm(struct ib_dm *ibdm, struct uverbs_attr_bundle *attrs)
 {
 	struct mlx5_memic *memic = &to_mdev(ibdm->device)->memic;
 	struct mlx5_ib_dm *dm = to_mdm(ibdm);
@@ -2329,7 +2329,10 @@ int mlx5_ib_dealloc_dm(struct ib_dm *ibdm)
 	page_idx = (dm->dev_addr - pci_resource_start(memic->dev->pdev, 0) -
 		    MLX5_CAP64_DEV_MEM(memic->dev, memic_bar_start_addr)) >>
 		    PAGE_SHIFT;
-	bitmap_clear(to_mucontext(ibdm->uobject->context)->dm_pages,
+	bitmap_clear(rdma_udata_to_drv_context(
+			&attrs->driver_udata,
+			struct mlx5_ib_ucontext,
+			ibucontext)->dm_pages,
 		     page_idx,
 		     DIV_ROUND_UP(act_size, PAGE_SIZE));
 
@@ -2338,8 +2341,7 @@ int mlx5_ib_dealloc_dm(struct ib_dm *ibdm)
 	return 0;
 }
 
-static int mlx5_ib_alloc_pd(struct ib_pd *ibpd, struct ib_ucontext *context,
-			    struct ib_udata *udata)
+static int mlx5_ib_alloc_pd(struct ib_pd *ibpd, struct ib_udata *udata)
 {
 	struct mlx5_ib_pd *pd = to_mpd(ibpd);
 	struct ib_device *ibdev = ibpd->device;
@@ -2348,8 +2350,10 @@ static int mlx5_ib_alloc_pd(struct ib_pd *ibpd, struct ib_ucontext *context,
 	u32 out[MLX5_ST_SZ_DW(alloc_pd_out)] = {};
 	u32 in[MLX5_ST_SZ_DW(alloc_pd_in)]   = {};
 	u16 uid = 0;
+	struct mlx5_ib_ucontext *context = rdma_udata_to_drv_context(
+		udata, struct mlx5_ib_ucontext, ibucontext);
 
-	uid = context ? to_mucontext(context)->devx_uid : 0;
+	uid = context ? context->devx_uid : 0;
 	MLX5_SET(alloc_pd_in, in, opcode, MLX5_CMD_OP_ALLOC_PD);
 	MLX5_SET(alloc_pd_in, in, uid, uid);
 	err = mlx5_cmd_exec(to_mdev(ibdev)->mdev, in, sizeof(in),
@@ -2359,7 +2363,7 @@ static int mlx5_ib_alloc_pd(struct ib_pd *ibpd, struct ib_ucontext *context,
 
 	pd->pdn = MLX5_GET(alloc_pd_out, out, pd);
 	pd->uid = uid;
-	if (context) {
+	if (udata) {
 		resp.pdn = pd->pdn;
 		if (ib_copy_to_udata(udata, &resp, sizeof(resp))) {
 			mlx5_cmd_dealloc_pd(to_mdev(ibdev)->mdev, pd->pdn, uid);
@@ -2370,7 +2374,7 @@ static int mlx5_ib_alloc_pd(struct ib_pd *ibpd, struct ib_ucontext *context,
 	return 0;
 }
 
-static void mlx5_ib_dealloc_pd(struct ib_pd *pd)
+static void mlx5_ib_dealloc_pd(struct ib_pd *pd, struct ib_udata *udata)
 {
 	struct mlx5_ib_dev *mdev = to_mdev(pd->device);
 	struct mlx5_ib_pd *mpd = to_mpd(pd);
@@ -4590,7 +4594,7 @@ static void destroy_umrc_res(struct mlx5_ib_dev *dev)
 		mlx5_ib_warn(dev, "mr cache cleanup failed\n");
 
 	if (dev->umrc.qp)
-		mlx5_ib_destroy_qp(dev->umrc.qp);
+		mlx5_ib_destroy_qp(dev->umrc.qp, NULL);
 	if (dev->umrc.cq)
 		ib_free_cq(dev->umrc.cq);
 	if (dev->umrc.pd)
@@ -4695,7 +4699,7 @@ static int create_umr_res(struct mlx5_ib_dev *dev)
 	return 0;
 
 error_4:
-	mlx5_ib_destroy_qp(qp);
+	mlx5_ib_destroy_qp(qp, NULL);
 	dev->umrc.qp = NULL;
 
 error_3:
@@ -4746,11 +4750,11 @@ static int create_dev_resources(struct mlx5_ib_resources *devr)
 	devr->p0->uobject = NULL;
 	atomic_set(&devr->p0->usecnt, 0);
 
-	ret = mlx5_ib_alloc_pd(devr->p0, NULL, NULL);
+	ret = mlx5_ib_alloc_pd(devr->p0, NULL);
 	if (ret)
 		goto error0;
 
-	devr->c0 = mlx5_ib_create_cq(&dev->ib_dev, &cq_attr, NULL, NULL);
+	devr->c0 = mlx5_ib_create_cq(&dev->ib_dev, &cq_attr, NULL);
 	if (IS_ERR(devr->c0)) {
 		ret = PTR_ERR(devr->c0);
 		goto error1;
@@ -4762,7 +4766,7 @@ static int create_dev_resources(struct mlx5_ib_resources *devr)
 	devr->c0->cq_context    = NULL;
 	atomic_set(&devr->c0->usecnt, 0);
 
-	devr->x0 = mlx5_ib_alloc_xrcd(&dev->ib_dev, NULL, NULL);
+	devr->x0 = mlx5_ib_alloc_xrcd(&dev->ib_dev, NULL);
 	if (IS_ERR(devr->x0)) {
 		ret = PTR_ERR(devr->x0);
 		goto error2;
@@ -4773,7 +4777,7 @@ static int create_dev_resources(struct mlx5_ib_resources *devr)
 	mutex_init(&devr->x0->tgt_qp_mutex);
 	INIT_LIST_HEAD(&devr->x0->tgt_qp_list);
 
-	devr->x1 = mlx5_ib_alloc_xrcd(&dev->ib_dev, NULL, NULL);
+	devr->x1 = mlx5_ib_alloc_xrcd(&dev->ib_dev, NULL);
 	if (IS_ERR(devr->x1)) {
 		ret = PTR_ERR(devr->x1);
 		goto error3;
@@ -4837,15 +4841,15 @@ static int create_dev_resources(struct mlx5_ib_resources *devr)
 	return 0;
 
 error5:
-	mlx5_ib_destroy_srq(devr->s0);
+	mlx5_ib_destroy_srq(devr->s0, NULL);
 error4:
-	mlx5_ib_dealloc_xrcd(devr->x1);
+	mlx5_ib_dealloc_xrcd(devr->x1, NULL);
 error3:
-	mlx5_ib_dealloc_xrcd(devr->x0);
+	mlx5_ib_dealloc_xrcd(devr->x0, NULL);
 error2:
-	mlx5_ib_destroy_cq(devr->c0);
+	mlx5_ib_destroy_cq(devr->c0, NULL);
 error1:
-	mlx5_ib_dealloc_pd(devr->p0);
+	mlx5_ib_dealloc_pd(devr->p0, NULL);
 error0:
 	kfree(devr->p0);
 	return ret;
@@ -4857,12 +4861,12 @@ static void destroy_dev_resources(struct mlx5_ib_resources *devr)
 		container_of(devr, struct mlx5_ib_dev, devr);
 	int port;
 
-	mlx5_ib_destroy_srq(devr->s1);
-	mlx5_ib_destroy_srq(devr->s0);
-	mlx5_ib_dealloc_xrcd(devr->x0);
-	mlx5_ib_dealloc_xrcd(devr->x1);
-	mlx5_ib_destroy_cq(devr->c0);
-	mlx5_ib_dealloc_pd(devr->p0);
+	mlx5_ib_destroy_srq(devr->s1, NULL);
+	mlx5_ib_destroy_srq(devr->s0, NULL);
+	mlx5_ib_dealloc_xrcd(devr->x0, NULL);
+	mlx5_ib_dealloc_xrcd(devr->x1, NULL);
+	mlx5_ib_destroy_cq(devr->c0, NULL);
+	mlx5_ib_dealloc_pd(devr->p0, NULL);
 	kfree(devr->p0);
 
 	/* Make sure no change P_Key work items are still executing */

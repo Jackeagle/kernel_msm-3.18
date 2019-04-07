@@ -35,7 +35,8 @@
 #include "uverbs.h"
 
 static int uverbs_free_cq(struct ib_uobject *uobject,
-			  enum rdma_remove_reason why)
+			  enum rdma_remove_reason why,
+			  struct uverbs_attr_bundle *attrs)
 {
 	struct ib_cq *cq = uobject->object;
 	struct ib_uverbs_event_queue *ev_queue = cq->cq_context;
@@ -43,12 +44,12 @@ static int uverbs_free_cq(struct ib_uobject *uobject,
 		container_of(uobject, struct ib_ucq_object, uobject);
 	int ret;
 
-	ret = ib_destroy_cq(cq);
+	ret = ib_destroy_cq_user(cq, &attrs->driver_udata);
 	if (ib_is_destroy_retryable(ret, why, uobject))
 		return ret;
 
 	ib_uverbs_release_ucq(
-		uobject->context->ufile,
+		attrs->ufile,
 		ev_queue ? container_of(ev_queue,
 					struct ib_uverbs_completion_event_file,
 					ev_queue) :
@@ -110,8 +111,7 @@ static int UVERBS_HANDLER(UVERBS_METHOD_CQ_CREATE)(
 	INIT_LIST_HEAD(&obj->comp_list);
 	INIT_LIST_HEAD(&obj->async_list);
 
-	cq = ib_dev->ops.create_cq(ib_dev, &attr, obj->uobject.context,
-				   &attrs->driver_udata);
+	cq = ib_dev->ops.create_cq(ib_dev, &attr, &attrs->driver_udata);
 	if (IS_ERR(cq)) {
 		ret = PTR_ERR(cq);
 		goto err_event_file;

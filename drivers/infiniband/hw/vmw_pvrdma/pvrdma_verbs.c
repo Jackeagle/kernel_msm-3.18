@@ -50,6 +50,7 @@
 #include <rdma/ib_smi.h>
 #include <rdma/ib_user_verbs.h>
 #include <rdma/vmw_pvrdma-abi.h>
+#include <rdma/uverbs_ioctl.h>
 
 #include "pvrdma.h"
 
@@ -69,8 +70,6 @@ int pvrdma_query_device(struct ib_device *ibdev,
 
 	if (uhw->inlen || uhw->outlen)
 		return -EINVAL;
-
-	memset(props, 0, sizeof(*props));
 
 	props->fw_ver = dev->dsr->caps.fw_ver;
 	props->sys_image_guid = dev->dsr->caps.sys_image_guid;
@@ -421,13 +420,11 @@ int pvrdma_mmap(struct ib_ucontext *ibcontext, struct vm_area_struct *vma)
 /**
  * pvrdma_alloc_pd - allocate protection domain
  * @ibpd: PD pointer
- * @context: user context
  * @udata: user data
  *
  * @return: the ib_pd protection domain pointer on success, otherwise errno.
  */
-int pvrdma_alloc_pd(struct ib_pd *ibpd, struct ib_ucontext *context,
-		    struct ib_udata *udata)
+int pvrdma_alloc_pd(struct ib_pd *ibpd, struct ib_udata *udata)
 {
 	struct ib_device *ibdev = ibpd->device;
 	struct pvrdma_pd *pd = to_vpd(ibpd);
@@ -438,13 +435,15 @@ int pvrdma_alloc_pd(struct ib_pd *ibpd, struct ib_ucontext *context,
 	struct pvrdma_cmd_create_pd_resp *resp = &rsp.create_pd_resp;
 	struct pvrdma_alloc_pd_resp pd_resp = {0};
 	int ret;
+	struct pvrdma_ucontext *context = rdma_udata_to_drv_context(
+		udata, struct pvrdma_ucontext, ibucontext);
 
 	/* Check allowed max pds */
 	if (!atomic_add_unless(&dev->num_pds, 1, dev->dsr->caps.max_pd))
 		return -ENOMEM;
 
 	cmd->hdr.cmd = PVRDMA_CMD_CREATE_PD;
-	cmd->ctx_handle = (context) ? to_vucontext(context)->ctx_handle : 0;
+	cmd->ctx_handle = context ? context->ctx_handle : 0;
 	ret = pvrdma_cmd_post(dev, &req, &rsp, PVRDMA_CMD_CREATE_PD_RESP);
 	if (ret < 0) {
 		dev_warn(&dev->pdev->dev,
@@ -453,16 +452,16 @@ int pvrdma_alloc_pd(struct ib_pd *ibpd, struct ib_ucontext *context,
 		goto err;
 	}
 
-	pd->privileged = !context;
+	pd->privileged = !udata;
 	pd->pd_handle = resp->pd_handle;
 	pd->pdn = resp->pd_handle;
 	pd_resp.pdn = resp->pd_handle;
 
-	if (context) {
+	if (udata) {
 		if (ib_copy_to_udata(udata, &pd_resp, sizeof(pd_resp))) {
 			dev_warn(&dev->pdev->dev,
 				 "failed to copy back protection domain\n");
-			pvrdma_dealloc_pd(&pd->ibpd);
+			pvrdma_dealloc_pd(&pd->ibpd, udata);
 			return -EFAULT;
 		}
 	}
@@ -478,10 +477,11 @@ err:
 /**
  * pvrdma_dealloc_pd - deallocate protection domain
  * @pd: the protection domain to be released
+ * @udata: user data or null for kernel object
  *
  * @return: 0 on success, otherwise errno.
  */
-void pvrdma_dealloc_pd(struct ib_pd *pd)
+void pvrdma_dealloc_pd(struct ib_pd *pd, struct ib_udata *udata)
 {
 	struct pvrdma_dev *dev = to_vdev(pd->device);
 	union pvrdma_cmd_req req = {};
@@ -558,7 +558,7 @@ struct ib_ah *pvrdma_create_ah(struct ib_pd *pd, struct rdma_ah_attr *ah_attr,
  *
  * @return: 0 on success.
  */
-int pvrdma_destroy_ah(struct ib_ah *ah, u32 flags)
+int pvrdma_destroy_ah(struct ib_ah *ah, u32 flags, struct ib_udata *udata)
 {
 	struct pvrdma_dev *dev = to_vdev(ah->device);
 
