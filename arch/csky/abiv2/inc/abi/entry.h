@@ -14,17 +14,10 @@
 #define LSAVE_A2	32
 #define LSAVE_A3	36
 
-#define EPC_INCREASE	4
-#define EPC_KEEP	0
-
 #define KSPTOUSP
 #define USPTOKSP
 
 #define usp cr<14, 1>
-
-.macro INCTRAP	rx
-	addi	\rx, EPC_INCREASE
-.endm
 
 .macro SAVE_ALL epc_inc
 	subi    sp, 152
@@ -141,28 +134,8 @@
 .endm
 
 /* MMU registers operators. */
-.macro RD_MIR rx
-	mfcr	\rx, cr<0, 15>
-.endm
-
 .macro RD_MEH rx
 	mfcr	\rx, cr<4, 15>
-.endm
-
-.macro RD_MCIR rx
-	mfcr	\rx, cr<8, 15>
-.endm
-
-.macro RD_PGDR rx
-	mfcr	\rx, cr<29, 15>
-.endm
-
-.macro RD_PGDR_K rx
-	mfcr	\rx, cr<28, 15>
-.endm
-
-.macro WR_MEH rx
-	mtcr	\rx, cr<4, 15>
 .endm
 
 .macro WR_MCIR rx
@@ -174,5 +147,10 @@
 	mtcr	\rx, cr<30, 15>
 	lrw	\rx, (PHYS_OFFSET + 0x20000000) | 0xe
 	mtcr	\rx, cr<31, 15>
+.endm
+
+.macro ANDI_R3 rx, imm
+	lsri	\rx, 3
+	andi	\rx, (\imm >> 3)
 .endm
 #endif /* __ASM_CSKY_ENTRY_H */
