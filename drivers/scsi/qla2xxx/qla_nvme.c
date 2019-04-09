@@ -205,7 +205,7 @@ static void qla_nvme_abort_work(struct work_struct *work)
 	if (atomic_read(&sp->ref_count) == 0) {
 		WARN_ON(1);
 		ql_log(ql_log_info, fcport->vha, 0xffff,
-			"%s: command alredy aborted on sp: %p\n",
+			"%s: command already aborted on sp: %p\n",
 			__func__, sp);
 		return;
 	}
@@ -449,8 +449,8 @@ static inline int qla2x00_start_nvme_mq(srb_t *sp)
 				req->ring_ptr++;
 			}
 			cont_pkt = (cont_a64_entry_t *)req->ring_ptr;
-			*((uint32_t *)(&cont_pkt->entry_type)) =
-			    cpu_to_le32(CONTINUE_A64_TYPE);
+			put_unaligned_le32(CONTINUE_A64_TYPE,
+					   &cont_pkt->entry_type);
 
 			cur_dsd = (uint32_t *)cont_pkt->dseg_0_address;
 			avail_dsds = 5;
