@@ -179,6 +179,8 @@ static const struct ib_device_ops ocrdma_dev_ops = {
 	.reg_user_mr = ocrdma_reg_user_mr,
 	.req_notify_cq = ocrdma_arm_cq,
 	.resize_cq = ocrdma_resize_cq,
+
+	INIT_RDMA_OBJ_SIZE(ib_ah, ocrdma_ah, ibah),
 	INIT_RDMA_OBJ_SIZE(ib_pd, ocrdma_pd, ibpd),
 	INIT_RDMA_OBJ_SIZE(ib_ucontext, ocrdma_ucontext, ibucontext),
 };
@@ -189,6 +191,8 @@ static const struct ib_device_ops ocrdma_dev_srq_ops = {
 	.modify_srq = ocrdma_modify_srq,
 	.post_srq_recv = ocrdma_post_srq_recv,
 	.query_srq = ocrdma_query_srq,
+
+	INIT_RDMA_OBJ_SIZE(ib_srq, ocrdma_srq, ibsrq),
 };
 
 static int ocrdma_register_device(struct ocrdma_dev *dev)
