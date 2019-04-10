@@ -223,7 +223,7 @@ int bpf_load_program_xattr(const struct bpf_load_program_attr *load_attr,
 		return -EINVAL;
 
 	log_level = load_attr->log_level;
-	if (log_level > 2 || (log_level && !log_buf))
+	if (log_level > (4 | 2 | 1) || (log_level && !log_buf))
 		return -EINVAL;
 
 	name_len = load_attr->name ? strlen(load_attr->name) : 0;
@@ -427,6 +427,16 @@ int bpf_map_get_next_key(int fd, const void *key, void *next_key)
 	attr.next_key = ptr_to_u64(next_key);
 
 	return sys_bpf(BPF_MAP_GET_NEXT_KEY, &attr, sizeof(attr));
+}
+
+int bpf_map_freeze(int fd)
+{
+	union bpf_attr attr;
+
+	memset(&attr, 0, sizeof(attr));
+	attr.map_fd = fd;
+
+	return sys_bpf(BPF_MAP_FREEZE, &attr, sizeof(attr));
 }
 
 int bpf_obj_pin(int fd, const char *pathname)
