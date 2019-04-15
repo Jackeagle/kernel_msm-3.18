@@ -2015,7 +2015,7 @@ static void intel_tfa_commit_scheduling(struct cpu_hw_events *cpuc, int idx, int
 	/*
 	 * We're going to use PMC3, make sure TFA is set before we touch it.
 	 */
-	if (cntr == 3 && !cpuc->is_fake)
+	if (cntr == 3)
 		intel_set_tfa(cpuc, true);
 }
 
@@ -2838,7 +2838,7 @@ intel_get_excl_constraints(struct cpu_hw_events *cpuc, struct perf_event *event,
 	struct intel_excl_cntrs *excl_cntrs = cpuc->excl_cntrs;
 	struct intel_excl_states *xlo;
 	int tid = cpuc->excl_thread_id;
-	int is_excl, i;
+	int is_excl, i, w;
 
 	/*
 	 * validating a group does not require
@@ -2894,35 +2894,39 @@ intel_get_excl_constraints(struct cpu_hw_events *cpuc, struct perf_event *event,
 	 * SHARED   : sibling counter measuring non-exclusive event
 	 * UNUSED   : sibling counter unused
 	 */
+	w = c->weight;
 	for_each_set_bit(i, c->idxmsk, X86_PMC_IDX_MAX) {
 		/*
 		 * exclusive event in sibling counter
 		 * our corresponding counter cannot be used
 		 * regardless of our event
 		 */
-		if (xlo->state[i] == INTEL_EXCL_EXCLUSIVE)
+		if (xlo->state[i] == INTEL_EXCL_EXCLUSIVE) {
 			__clear_bit(i, c->idxmsk);
+			w--;
+			continue;
+		}
 		/*
 		 * if measuring an exclusive event, sibling
 		 * measuring non-exclusive, then counter cannot
 		 * be used
 		 */
-		if (is_excl && xlo->state[i] == INTEL_EXCL_SHARED)
+		if (is_excl && xlo->state[i] == INTEL_EXCL_SHARED) {
 			__clear_bit(i, c->idxmsk);
+			w--;
+			continue;
+		}
 	}
-
-	/*
-	 * recompute actual bit weight for scheduling algorithm
-	 */
-	c->weight = hweight64(c->idxmsk64);
 
 	/*
 	 * if we return an empty mask, then switch
 	 * back to static empty constraint to avoid
 	 * the cost of freeing later on
 	 */
-	if (c->weight == 0)
+	if (!w)
 		c = &emptyconstraint;
+
+	c->weight = w;
 
 	return c;
 }
@@ -2931,11 +2935,9 @@ static struct event_constraint *
 intel_get_event_constraints(struct cpu_hw_events *cpuc, int idx,
 			    struct perf_event *event)
 {
-	struct event_constraint *c1 = NULL;
-	struct event_constraint *c2;
+	struct event_constraint *c1, *c2;
 
-	if (idx >= 0) /* fake does < 0 */
-		c1 = cpuc->event_constraint[idx];
+	c1 = cpuc->event_constraint[idx];
 
 	/*
 	 * first time only
@@ -2943,7 +2945,8 @@ intel_get_event_constraints(struct cpu_hw_events *cpuc, int idx,
 	 * - dynamic constraint: handled by intel_get_excl_constraints()
 	 */
 	c2 = __intel_get_event_constraints(cpuc, idx, event);
-	if (c1 && (c1->flags & PERF_X86_EVENT_DYNAMIC)) {
+	if (c1) {
+	        WARN_ON_ONCE(!(c1->flags & PERF_X86_EVENT_DYNAMIC));
 		bitmap_copy(c1->idxmsk, c2->idxmsk, X86_PMC_IDX_MAX);
 		c1->weight = c2->weight;
 		c2 = c1;
@@ -3410,7 +3413,7 @@ tfa_get_event_constraints(struct cpu_hw_events *cpuc, int idx,
 	/*
 	 * Without TFA we must not use PMC3.
 	 */
-	if (!allow_tsx_force_abort && test_bit(3, c->idxmsk) && idx >= 0) {
+	if (!allow_tsx_force_abort && test_bit(3, c->idxmsk)) {
 		c = dyn_constraint(cpuc, c, idx);
 		c->idxmsk64 &= ~(1ULL << 3);
 		c->weight--;
