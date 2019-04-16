@@ -526,20 +526,20 @@ static int mn_invl_range_start(struct mmu_notifier *mn,
 	struct gntdev_grant_map *map;
 	int ret = 0;
 
-	if (range->blockable)
+	if (mmu_notifier_range_blockable(range))
 		mutex_lock(&priv->lock);
 	else if (!mutex_trylock(&priv->lock))
 		return -EAGAIN;
 
 	list_for_each_entry(map, &priv->maps, next) {
 		ret = unmap_if_in_range(map, range->start, range->end,
-					range->blockable);
+					mmu_notifier_range_blockable(range));
 		if (ret)
 			goto out_unlock;
 	}
 	list_for_each_entry(map, &priv->freeable_maps, next) {
 		ret = unmap_if_in_range(map, range->start, range->end,
-					range->blockable);
+					mmu_notifier_range_blockable(range));
 		if (ret)
 			goto out_unlock;
 	}
@@ -852,7 +852,7 @@ static int gntdev_get_page(struct gntdev_copy_batch *batch, void __user *virt,
 	unsigned long xen_pfn;
 	int ret;
 
-	ret = get_user_pages_fast(addr, 1, writeable, &page);
+	ret = get_user_pages_fast(addr, 1, writeable ? FOLL_WRITE : 0, &page);
 	if (ret < 0)
 		return ret;
 

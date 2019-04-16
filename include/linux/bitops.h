@@ -70,6 +70,9 @@ static inline __u64 rol64(__u64 word, unsigned int shift)
  */
 static inline __u64 ror64(__u64 word, unsigned int shift)
 {
+	if (!shift)
+		return word;
+
 	return (word >> shift) | (word << (64 - shift));
 }
 
@@ -90,6 +93,9 @@ static inline __u32 rol32(__u32 word, unsigned int shift)
  */
 static inline __u32 ror32(__u32 word, unsigned int shift)
 {
+	if (!shift)
+		return word;
+
 	return (word >> shift) | (word << (32 - shift));
 }
 
@@ -110,6 +116,9 @@ static inline __u16 rol16(__u16 word, unsigned int shift)
  */
 static inline __u16 ror16(__u16 word, unsigned int shift)
 {
+	if (!shift)
+		return word;
+
 	return (word >> shift) | (word << (16 - shift));
 }
 
@@ -130,6 +139,9 @@ static inline __u8 rol8(__u8 word, unsigned int shift)
  */
 static inline __u8 ror8(__u8 word, unsigned int shift)
 {
+	if (!shift)
+		return word;
+
 	return (word >> shift) | (word << (8 - shift));
 }
 
