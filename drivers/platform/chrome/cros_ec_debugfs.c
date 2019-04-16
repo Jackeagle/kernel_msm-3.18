@@ -306,11 +306,12 @@ static int cros_ec_create_console_log(struct cros_ec_debugfs *debug_info)
 	int read_params_size;
 	int read_response_size;
 
-	if (!ec_read_version_supported(ec)) {
-		dev_warn(ec->dev,
-			"device does not support reading the console log\n");
+	/*
+	 * If the console log feature is not supported return silently and
+	 * don't create the console_log entry.
+	 */
+	if (!ec_read_version_supported(ec))
 		return 0;
-	}
 
 	buf = devm_kzalloc(ec->dev, LOG_SIZE, GFP_KERNEL);
 	if (!buf)
@@ -336,12 +337,8 @@ static int cros_ec_create_console_log(struct cros_ec_debugfs *debug_info)
 	mutex_init(&debug_info->log_mutex);
 	init_waitqueue_head(&debug_info->log_wq);
 
-	if (!debugfs_create_file("console_log",
-				 S_IFREG | 0444,
-				 debug_info->dir,
-				 debug_info,
-				 &cros_ec_console_log_fops))
-		return -ENOMEM;
+	debugfs_create_file("console_log", S_IFREG | 0444, debug_info->dir,
+			    debug_info, &cros_ec_console_log_fops);
 
 	INIT_DELAYED_WORK(&debug_info->log_poll_work,
 			  cros_ec_console_log_work);
@@ -389,28 +386,14 @@ static int cros_ec_create_panicinfo(struct cros_ec_debugfs *debug_info)
 	debug_info->panicinfo_blob.data = msg->data;
 	debug_info->panicinfo_blob.size = ret;
 
-	if (!debugfs_create_blob("panicinfo",
-				 S_IFREG | 0444,
-				 debug_info->dir,
-				 &debug_info->panicinfo_blob)) {
-		ret = -ENOMEM;
-		goto free;
-	}
+	debugfs_create_blob("panicinfo", S_IFREG | 0444, debug_info->dir,
+			    &debug_info->panicinfo_blob);
 
 	return 0;
 
 free:
 	devm_kfree(debug_info->ec->dev, msg);
 	return ret;
-}
-
-static int cros_ec_create_pdinfo(struct cros_ec_debugfs *debug_info)
-{
-	if (!debugfs_create_file("pdinfo", 0444, debug_info->dir, debug_info,
-				 &cros_ec_pdinfo_fops))
-		return -ENOMEM;
-
-	return 0;
 }
 
 static int cros_ec_debugfs_probe(struct platform_device *pd)
@@ -427,8 +410,6 @@ static int cros_ec_debugfs_probe(struct platform_device *pd)
 
 	debug_info->ec = ec;
 	debug_info->dir = debugfs_create_dir(name, NULL);
-	if (!debug_info->dir)
-		return -ENOMEM;
 
 	ret = cros_ec_create_panicinfo(debug_info);
 	if (ret)
@@ -438,9 +419,8 @@ static int cros_ec_debugfs_probe(struct platform_device *pd)
 	if (ret)
 		goto remove_debugfs;
 
-	ret = cros_ec_create_pdinfo(debug_info);
-	if (ret)
-		goto remove_log;
+	debugfs_create_file("pdinfo", 0444, debug_info->dir, debug_info,
+			    &cros_ec_pdinfo_fops);
 
 	ec->debug_info = debug_info;
 
@@ -448,8 +428,6 @@ static int cros_ec_debugfs_probe(struct platform_device *pd)
 
 	return 0;
 
-remove_log:
-	cros_ec_cleanup_console_log(debug_info);
 remove_debugfs:
 	debugfs_remove_recursive(debug_info->dir);
 	return ret;
