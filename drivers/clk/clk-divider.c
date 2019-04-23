@@ -41,8 +41,6 @@ static inline void clk_div_writel(struct clk_divider *divider, u32 val)
 		writel(val, divider->reg);
 }
 
-#define div_mask(width)	((1 << (width)) - 1)
-
 static unsigned int _get_table_maxdiv(const struct clk_div_table *table,
 				      u8 width)
 {
