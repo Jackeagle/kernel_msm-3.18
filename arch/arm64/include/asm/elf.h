@@ -107,7 +107,14 @@
  */
 #define elf_check_arch(x)		((x)->e_machine == EM_AARCH64)
 
-#define elf_read_implies_exec(ex,stk)	(stk != EXSTACK_DISABLE_X)
+/*
+ * 64-bit processes should not automatically gain READ_IMPLIES_EXEC. Only
+ * 32-bit processes without PT_GNU_STACK should trigger READ_IMPLIES_EXEC
+ * out of an abundance of caution against ancient toolchains not knowing
+ * how to mark memory protection flags correctly.
+ */
+#define elf_read_implies_exec(ex, stk)			\
+	(is_compat_task() && stk == EXSTACK_DEFAULT)
 
 #define CORE_DUMP_USE_REGSET
 #define ELF_EXEC_PAGESIZE	PAGE_SIZE

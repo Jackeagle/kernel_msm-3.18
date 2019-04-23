@@ -280,10 +280,28 @@ extern u32 elf_hwcap2;
 
 /*
  * An executable for which elf_read_implies_exec() returns TRUE will
- * have the READ_IMPLIES_EXEC personality flag set automatically.
+ * have the READ_IMPLIES_EXEC personality flag set automatically. This
+ * is needed either to show the truth about a memory mapping (i.e. CPUs
+ * that lack NX have all memory implicitly executable, so this makes
+ * sure that the visible permissions reflect reality), or to deal with
+ * old toolchains on new CPUs. Old binaries entirely lacking a GNU_STACK
+ * indicate they were likely built with a toolchain that has no idea about
+ * memory permissions, and so we must default to the lowest reasonable
+ * common denominator for the architecture: on ia32 we assume all memory
+ * to be executable by default, and on x86_64 we assume all memory to be
+ * non-executable by default.
+ *
+ *              CPU: | lacks NX  | has NX, ia32     | has NX, x86_64   |
+ * ELF:              |           |                  |                  |
+ * ------------------------------|------------------|------------------|
+ * missing GNU_STACK | needs RIE | needs RIE        | no RIE           |
+ * GNU_STACK == RWX  | needs RIE | no RIE: stack X  | no RIE: stack X  |
+ * GNU_STACK == RW   | needs RIE | no RIE: stack NX | no RIE: stack NX |
+ *
  */
-#define elf_read_implies_exec(ex, executable_stack)	\
-	(executable_stack != EXSTACK_DISABLE_X)
+#define elf_read_implies_exec(ex, stk)				\
+	(!(__supported_pte_mask & _PAGE_NX) ? 1 :		\
+		(mmap_is_ia32() && stk == EXSTACK_DEFAULT))
 
 struct task_struct;
 
