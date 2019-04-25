@@ -695,6 +695,7 @@ static ssize_t ib_uverbs_write(struct file *filp, const char __user *buf,
 
 	memset(bundle.attr_present, 0, sizeof(bundle.attr_present));
 	bundle.ufile = file;
+	bundle.context = NULL; /* only valid if bundle has uobject */
 	if (!method_elm->is_ex) {
 		size_t in_len = hdr.in_words * 4 - sizeof(hdr);
 		size_t out_len = hdr.out_words * 4;
@@ -992,6 +993,8 @@ void uverbs_user_mmap_disassociate(struct ib_uverbs_file *ufile)
 		 * will only be one mm, so no big deal.
 		 */
 		down_write(&mm->mmap_sem);
+		if (!mmget_still_valid(mm))
+			goto skip_mm;
 		mutex_lock(&ufile->umap_lock);
 		list_for_each_entry_safe (priv, next_priv, &ufile->umaps,
 					  list) {
@@ -1006,6 +1009,7 @@ void uverbs_user_mmap_disassociate(struct ib_uverbs_file *ufile)
 			vma->vm_flags &= ~(VM_SHARED | VM_MAYSHARE);
 		}
 		mutex_unlock(&ufile->umap_lock);
+	skip_mm:
 		up_write(&mm->mmap_sem);
 		mmput(mm);
 	}
@@ -1135,6 +1139,7 @@ static const struct file_operations uverbs_mmap_fops = {
 
 static struct ib_client uverbs_client = {
 	.name   = "uverbs",
+	.no_kverbs_req = true,
 	.add    = ib_uverbs_add_one,
 	.remove = ib_uverbs_remove_one
 };
