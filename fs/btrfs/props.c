@@ -55,12 +55,9 @@ find_prop_handler(const char *name,
 	return NULL;
 }
 
-static int btrfs_set_prop(struct btrfs_trans_handle *trans, struct inode *inode,
-			  const char *name, const char *value, size_t value_len,
-			  int flags)
+int btrfs_validate_prop(const char *name, const char *value, size_t value_len)
 {
 	const struct prop_handler *handler;
-	int ret;
 
 	if (strlen(name) <= XATTR_BTRFS_PREFIX_LEN)
 		return -EINVAL;
@@ -69,13 +66,26 @@ static int btrfs_set_prop(struct btrfs_trans_handle *trans, struct inode *inode,
 	if (!handler)
 		return -EINVAL;
 
+	if (value_len == 0)
+		return 0;
+
+	return handler->validate(value, value_len);
+}
+
+int btrfs_set_prop(struct btrfs_trans_handle *trans, struct inode *inode,
+		   const char *name, const char *value, size_t value_len,
+		   int flags)
+{
+	const struct prop_handler *handler;
+	int ret;
+
+	handler = find_prop_handler(name, NULL);
+	if (!handler)
+		return -EINVAL;
+
 	if (value_len == 0) {
-		if (trans)
-			ret = btrfs_setxattr(trans, inode, handler->xattr_name,
-					     NULL, 0, flags);
-		else
-			ret = btrfs_setxattr_trans(inode, handler->xattr_name,
-						   NULL, 0, flags);
+		ret = btrfs_setxattr(trans, inode, handler->xattr_name,
+				     NULL, 0, flags);
 		if (ret)
 			return ret;
 
@@ -85,38 +95,20 @@ static int btrfs_set_prop(struct btrfs_trans_handle *trans, struct inode *inode,
 		return ret;
 	}
 
-	ret = handler->validate(value, value_len);
-	if (ret)
-		return ret;
-	if (trans)
-		ret = btrfs_setxattr(trans, inode, handler->xattr_name, value,
-				     value_len, flags);
-	else
-		ret = btrfs_setxattr_trans(inode, handler->xattr_name, value,
-					   value_len, flags);
-
+	ret = btrfs_setxattr(trans, inode, handler->xattr_name, value,
+			     value_len, flags);
 	if (ret)
 		return ret;
 	ret = handler->apply(inode, value, value_len);
 	if (ret) {
-		if (trans)
-			btrfs_setxattr(trans, inode, handler->xattr_name, NULL,
-				       0, flags);
-		else
-			btrfs_setxattr_trans(inode, handler->xattr_name, NULL,
-					     0, flags);
+		btrfs_setxattr(trans, inode, handler->xattr_name, NULL,
+			       0, flags);
 		return ret;
 	}
 
 	set_bit(BTRFS_INODE_HAS_PROPS, &BTRFS_I(inode)->runtime_flags);
 
 	return 0;
-}
-
-int btrfs_set_prop_trans(struct inode *inode, const char *name,
-			 const char *value, size_t value_len, int flags)
-{
-	return btrfs_set_prop(NULL, inode, name, value, value_len, flags);
 }
 
 static int iterate_object_props(struct btrfs_root *root,

@@ -371,8 +371,32 @@ static int btrfs_xattr_handler_set_prop(const struct xattr_handler *handler,
 					const char *name, const void *value,
 					size_t size, int flags)
 {
+	int ret;
+	struct btrfs_trans_handle *trans;
+	struct btrfs_root *root = BTRFS_I(inode)->root;
+
 	name = xattr_full_name(handler, name);
-	return btrfs_set_prop_trans(inode, name, value, size, flags);
+	ret = btrfs_validate_prop(name, value, size);
+	if (ret)
+		return ret;
+
+	trans = btrfs_start_transaction(root, 2);
+	if (IS_ERR(trans))
+		return PTR_ERR(trans);
+
+	ret = btrfs_set_prop(trans, inode, name, value, size, flags);
+	if (!ret) {
+		inode_inc_iversion(inode);
+		inode->i_ctime = current_time(inode);
+		set_bit(BTRFS_INODE_COPY_EVERYTHING,
+			&BTRFS_I(inode)->runtime_flags);
+		ret = btrfs_update_inode(trans, root, inode);
+		BUG_ON(ret);
+	}
+
+	btrfs_end_transaction(trans);
+
+	return ret;
 }
 
 static const struct xattr_handler btrfs_security_xattr_handler = {
