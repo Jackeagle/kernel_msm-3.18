@@ -227,6 +227,10 @@ struct ftrace_likely_data {
 # define randomized_struct_fields_end
 #endif
 
+#ifndef __nocfi
+# define __nocfi
+#endif
+
 #ifndef __noscs
 # define __noscs
 #endif
