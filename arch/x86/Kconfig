@@ -30,6 +30,7 @@ config X86_64
 	select NEED_DMA_MAP_STATE
 	select SWIOTLB
 	select ARCH_HAS_SYSCALL_WRAPPER
+	select DYNAMIC_DEBUG_RELATIVE_POINTERS
 
 #
 # Arch settings
