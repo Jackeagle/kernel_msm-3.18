@@ -76,7 +76,7 @@ config_id_show(struct device *dev, struct device_attribute *attr, char *buf)
 	union komeda_config_id config_id;
 	int i;
 
-	config_id.value = 0;
+	memset(&config_id, 0, sizeof(config_id));
 
 	config_id.max_line_sz = pipe->layers[0]->hsize_in.end;
 	config_id.n_pipelines = mdev->n_pipelines;
