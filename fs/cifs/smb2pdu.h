@@ -303,10 +303,13 @@ struct smb2_encryption_neg_context {
 #define SMB3_COMPRESS_LZ77_HUFF	0x0003
 
 struct smb2_compression_capabilities_context {
+	__le16	ContextType; /* 3 */
+	__le16  DataLength;
+	__u32	Reserved;
 	__le16	CompressionAlgorithmCount;
 	__u16	Padding;
-	__u32	Reserved;
-	__u16	CompressionAlgorithms[1];
+	__u32	Reserved1;
+	__u16	CompressionAlgorithms[3];
 } __packed;
 
 /*
