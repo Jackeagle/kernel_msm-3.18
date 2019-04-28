@@ -394,10 +394,7 @@ static void __init bootmem_init(void)
 	min_low_pfn = ~0UL;
 	max_low_pfn = 0;
 
-	/*
-	 * Find the highest page frame number we have available
-	 * and the lowest used RAM address
-	 */
+	/* Find the highest and lowest page frame numbers we have available. */
 	for (i = 0; i < boot_mem_map.nr_map; i++) {
 		unsigned long start, end;
 
@@ -427,13 +424,6 @@ static void __init bootmem_init(void)
 			max_low_pfn = end;
 		if (start < min_low_pfn)
 			min_low_pfn = start;
-		if (end <= reserved_end)
-			continue;
-#ifdef CONFIG_BLK_DEV_INITRD
-		/* Skip zones before initrd and initrd itself */
-		if (initrd_end && end <= (unsigned long)PFN_UP(__pa(initrd_end)))
-			continue;
-#endif
 	}
 
 	if (min_low_pfn >= max_low_pfn)
@@ -474,6 +464,7 @@ static void __init bootmem_init(void)
 		max_low_pfn = PFN_DOWN(HIGHMEM_START);
 	}
 
+	/* Install all valid RAM ranges to the memblock memory region */
 	for (i = 0; i < boot_mem_map.nr_map; i++) {
 		unsigned long start, end;
 
@@ -481,72 +472,32 @@ static void __init bootmem_init(void)
 		end = PFN_DOWN(boot_mem_map.map[i].addr
 				+ boot_mem_map.map[i].size);
 
-		if (start <= min_low_pfn)
+		if (start < min_low_pfn)
 			start = min_low_pfn;
-		if (start >= end)
-			continue;
-
 #ifndef CONFIG_HIGHMEM
+		/* Ignore highmem regions if highmem is unsupported */
 		if (end > max_low_pfn)
 			end = max_low_pfn;
-
-		/*
-		 * ... finally, is the area going away?
-		 */
+#endif
 		if (end <= start)
 			continue;
-#endif
 
 		memblock_add_node(PFN_PHYS(start), PFN_PHYS(end - start), 0);
-	}
 
-	/*
-	 * Register fully available low RAM pages with the bootmem allocator.
-	 */
-	for (i = 0; i < boot_mem_map.nr_map; i++) {
-		unsigned long start, end, size;
-
-		start = PFN_UP(boot_mem_map.map[i].addr);
-		end   = PFN_DOWN(boot_mem_map.map[i].addr
-				    + boot_mem_map.map[i].size);
-
-		/*
-		 * Reserve usable memory.
-		 */
+		/* Reserve any memory except the ordinary RAM ranges. */
 		switch (boot_mem_map.map[i].type) {
 		case BOOT_MEM_RAM:
 			break;
-		case BOOT_MEM_INIT_RAM:
-			memory_present(0, start, end);
-			continue;
-		default:
-			/* Not usable memory */
-			if (start > min_low_pfn && end < max_low_pfn)
-				memblock_reserve(boot_mem_map.map[i].addr,
-						boot_mem_map.map[i].size);
-
-			continue;
+		default: /* Reserve the rest of the memory types at boot time */
+			memblock_reserve(PFN_PHYS(start), PFN_PHYS(end - start));
+			break;
 		}
 
 		/*
-		 * We are rounding up the start address of usable memory
-		 * and at the end of the usable range downwards.
+		 * In any case the added to the memblock memory regions
+		 * (highmem/lowmem, available/reserved, etc) are considered
+		 * as present, so inform sparsemem about them.
 		 */
-		if (start >= max_low_pfn)
-			continue;
-		if (start < reserved_end)
-			start = reserved_end;
-		if (end > max_low_pfn)
-			end = max_low_pfn;
-
-		/*
-		 * ... finally, is the area going away?
-		 */
-		if (end <= start)
-			continue;
-		size = end - start;
-
-		/* Register lowmem ranges */
 		memory_present(0, start, end);
 	}
 
@@ -809,6 +760,9 @@ static void __init arch_mem_init(char **cmdline_p)
 	arch_mem_addpart(PFN_UP(__pa_symbol(&__init_begin)) << PAGE_SHIFT,
 			 PFN_DOWN(__pa_symbol(&__init_end)) << PAGE_SHIFT,
 			 BOOT_MEM_INIT_RAM);
+	arch_mem_addpart(PFN_DOWN(__pa_symbol(&__bss_start)) << PAGE_SHIFT,
+			 PFN_UP(__pa_symbol(&__bss_stop)) << PAGE_SHIFT,
+			 BOOT_MEM_RAM);
 
 	pr_info("Determined physical RAM map:\n");
 	print_memory_map();
