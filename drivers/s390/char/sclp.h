@@ -197,7 +197,9 @@ struct read_info_sccb {
 	u32	hmfai;			/* 124-127 */
 	u8	_pad_128[134 - 128];	/* 128-133 */
 	u8	byte_134;			/* 134 */
-	u8	_pad_135[4096 - 135];	/* 135-4095 */
+	u8	cpudirq;		/* 135 */
+	u16	cbl;			/* 136-137 */
+	u8	_pad_138[4096 - 138];	/* 138-4095 */
 } __packed __aligned(PAGE_SIZE);
 
 struct read_storage_sccb {
@@ -319,7 +321,7 @@ extern int sclp_console_drop;
 extern unsigned long sclp_console_full;
 extern bool sclp_mask_compat_mode;
 
-extern char sclp_early_sccb[PAGE_SIZE];
+extern char *sclp_early_sccb;
 
 void sclp_early_wait_irq(void);
 int sclp_early_cmd(sclp_cmdw_t cmd, void *sccb);
