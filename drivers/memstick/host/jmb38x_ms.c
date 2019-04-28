@@ -646,7 +646,6 @@ static int jmb38x_ms_reset(struct jmb38x_ms_host *host)
 	writel(HOST_CONTROL_RESET_REQ | HOST_CONTROL_CLOCK_EN
 	       | readl(host->addr + HOST_CONTROL),
 	       host->addr + HOST_CONTROL);
-	mmiowb();
 
 	for (cnt = 0; cnt < 20; ++cnt) {
 		if (!(HOST_CONTROL_RESET_REQ
@@ -661,7 +660,6 @@ reset_next:
 	writel(HOST_CONTROL_RESET | HOST_CONTROL_CLOCK_EN
 	       | readl(host->addr + HOST_CONTROL),
 	       host->addr + HOST_CONTROL);
-	mmiowb();
 
 	for (cnt = 0; cnt < 20; ++cnt) {
 		if (!(HOST_CONTROL_RESET
@@ -674,7 +672,6 @@ reset_next:
 	return -EIO;
 
 reset_ok:
-	mmiowb();
 	writel(INT_STATUS_ALL, host->addr + INT_SIGNAL_ENABLE);
 	writel(INT_STATUS_ALL, host->addr + INT_STATUS_ENABLE);
 	return 0;
@@ -1011,7 +1008,6 @@ static void jmb38x_ms_remove(struct pci_dev *dev)
 		tasklet_kill(&host->notify);
 		writel(0, host->addr + INT_SIGNAL_ENABLE);
 		writel(0, host->addr + INT_STATUS_ENABLE);
-		mmiowb();
 		dev_dbg(&jm->pdev->dev, "interrupts off\n");
 		spin_lock_irqsave(&host->lock, flags);
 		if (host->req) {
