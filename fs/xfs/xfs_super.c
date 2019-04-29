@@ -838,15 +838,10 @@ xfs_init_mount_workqueues(
 	if (!mp->m_buf_workqueue)
 		goto out;
 
-	mp->m_data_workqueue = alloc_workqueue("xfs-data/%s",
-			WQ_MEM_RECLAIM|WQ_FREEZABLE, 0, mp->m_fsname);
-	if (!mp->m_data_workqueue)
-		goto out_destroy_buf;
-
 	mp->m_unwritten_workqueue = alloc_workqueue("xfs-conv/%s",
 			WQ_MEM_RECLAIM|WQ_FREEZABLE, 0, mp->m_fsname);
 	if (!mp->m_unwritten_workqueue)
-		goto out_destroy_data_iodone_queue;
+		goto out_destroy_buf;
 
 	mp->m_cil_workqueue = alloc_workqueue("xfs-cil/%s",
 			WQ_MEM_RECLAIM|WQ_FREEZABLE, 0, mp->m_fsname);
@@ -886,8 +881,6 @@ out_destroy_cil:
 	destroy_workqueue(mp->m_cil_workqueue);
 out_destroy_unwritten:
 	destroy_workqueue(mp->m_unwritten_workqueue);
-out_destroy_data_iodone_queue:
-	destroy_workqueue(mp->m_data_workqueue);
 out_destroy_buf:
 	destroy_workqueue(mp->m_buf_workqueue);
 out:
@@ -903,7 +896,6 @@ xfs_destroy_mount_workqueues(
 	destroy_workqueue(mp->m_log_workqueue);
 	destroy_workqueue(mp->m_reclaim_workqueue);
 	destroy_workqueue(mp->m_cil_workqueue);
-	destroy_workqueue(mp->m_data_workqueue);
 	destroy_workqueue(mp->m_unwritten_workqueue);
 	destroy_workqueue(mp->m_buf_workqueue);
 }
@@ -1376,7 +1368,7 @@ xfs_fs_remount(
 			xfs_force_shutdown(mp, SHUTDOWN_CORRUPT_INCORE);
 			return error;
 		}
-		xfs_icache_enable_reclaim(mp);
+		xfs_start_block_reaping(mp);
 
 		/* Create the per-AG metadata reservation pool .*/
 		error = xfs_fs_reserve_ag_blocks(mp);
@@ -1390,7 +1382,7 @@ xfs_fs_remount(
 		 * Cancel background eofb scanning so it cannot race with the
 		 * final log force+buftarg wait and deadlock the remount.
 		 */
-		xfs_icache_disable_reclaim(mp);
+		xfs_stop_block_reaping(mp);
 
 		/* Get rid of any leftover CoW reservations... */
 		error = xfs_icache_free_cowblocks(mp, NULL);
@@ -1434,7 +1426,7 @@ xfs_fs_freeze(
 {
 	struct xfs_mount	*mp = XFS_M(sb);
 
-	xfs_icache_disable_reclaim(mp);
+	xfs_stop_block_reaping(mp);
 	xfs_save_resvblks(mp);
 	xfs_quiesce_attr(mp);
 	return xfs_sync_sb(mp, true);
@@ -1448,7 +1440,7 @@ xfs_fs_unfreeze(
 
 	xfs_restore_resvblks(mp);
 	xfs_log_work_queue(mp);
-	xfs_icache_enable_reclaim(mp);
+	xfs_start_block_reaping(mp);
 	return 0;
 }
 
@@ -1546,8 +1538,14 @@ xfs_init_percpu_counters(
 	if (error)
 		goto free_ifree;
 
+	error = percpu_counter_init(&mp->m_delalloc_blks, 0, GFP_KERNEL);
+	if (error)
+		goto free_fdblocks;
+
 	return 0;
 
+free_fdblocks:
+	percpu_counter_destroy(&mp->m_fdblocks);
 free_ifree:
 	percpu_counter_destroy(&mp->m_ifree);
 free_icount:
@@ -1571,6 +1569,9 @@ xfs_destroy_percpu_counters(
 	percpu_counter_destroy(&mp->m_icount);
 	percpu_counter_destroy(&mp->m_ifree);
 	percpu_counter_destroy(&mp->m_fdblocks);
+	ASSERT(XFS_FORCED_SHUTDOWN(mp) ||
+	       percpu_counter_sum(&mp->m_delalloc_blks) == 0);
+	percpu_counter_destroy(&mp->m_delalloc_blks);
 }
 
 static struct xfs_mount *
