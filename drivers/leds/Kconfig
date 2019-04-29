@@ -131,6 +131,8 @@ config LEDS_CR0014114
 config LEDS_TURRIS_OMNIA
 	tristate "LED support for CZ.NIC's Turris Omnia"
 	depends on LEDS_CLASS
+	depends on I2C
+	depends on MACH_ARMADA_38X
 	depends on OF
 	help
 	  This option enables basic support for the LEDs found on the front
