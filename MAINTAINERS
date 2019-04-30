@@ -6416,6 +6416,12 @@ F:	tools/testing/selftests/futex/
 F:	tools/perf/bench/futex*
 F:	Documentation/*futex*
 
+FUTURE DOMAIN SCSI DRIVER
+M:      Ondrej Zary <linux@zary.sk>
+L:      linux-scsi@vger.kernel.org
+S:      Maintained
+F:      drivers/scsi/fdomain.*
+
 GCC PLUGINS
 M:	Kees Cook <keescook@chromium.org>
 R:	Emese Revfy <re.emese@gmail.com>
