@@ -176,6 +176,7 @@ mkprep
 mkregtable
 mktables
 mktree
+mkutf8data
 modpost
 modules.builtin
 modules.order
