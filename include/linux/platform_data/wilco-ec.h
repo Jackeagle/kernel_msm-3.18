@@ -14,10 +14,6 @@
 /* Message flags for using the mailbox() interface */
 #define WILCO_EC_FLAG_NO_RESPONSE	BIT(0) /* EC does not respond */
 #define WILCO_EC_FLAG_EXTENDED_DATA	BIT(1) /* EC returns 256 data bytes */
-#define WILCO_EC_FLAG_RAW_REQUEST	BIT(2) /* Do not trim request data */
-#define WILCO_EC_FLAG_RAW_RESPONSE	BIT(3) /* Do not trim response data */
-#define WILCO_EC_FLAG_RAW		(WILCO_EC_FLAG_RAW_REQUEST | \
-					 WILCO_EC_FLAG_RAW_RESPONSE)
 
 /* Normal commands have a maximum 32 bytes of data */
 #define EC_MAILBOX_DATA_SIZE		32
@@ -56,10 +52,7 @@ struct wilco_ec_device {
  * @mailbox_id: Mailbox identifier, specifies the command set.
  * @mailbox_version: Mailbox interface version %EC_MAILBOX_VERSION
  * @reserved: Set to zero.
- * @data_size: Length of request, data + last 2 bytes of the header.
- * @command: Mailbox command code, unique for each mailbox_id set.
- * @reserved_raw: Set to zero for most commands, but is used by
- *                some command types and for raw commands.
+ * @data_size: Length of following data.
  */
 struct wilco_ec_request {
 	u8 struct_version;
@@ -68,8 +61,6 @@ struct wilco_ec_request {
 	u8 mailbox_version;
 	u8 reserved;
 	u16 data_size;
-	u8 command;
-	u8 reserved_raw;
 } __packed;
 
 /**
@@ -79,8 +70,6 @@ struct wilco_ec_request {
  * @result: Result code from the EC.  Non-zero indicates an error.
  * @data_size: Length of the response data buffer.
  * @reserved: Set to zero.
- * @mbox0: EC returned data at offset 0 is unused (always 0) so this byte
- *         is treated as part of the header instead of the data.
  * @data: Response data buffer.  Max size is %EC_MAILBOX_DATA_SIZE_EXTENDED.
  */
 struct wilco_ec_response {
@@ -89,7 +78,6 @@ struct wilco_ec_response {
 	u16 result;
 	u16 data_size;
 	u8 reserved[2];
-	u8 mbox0;
 	u8 data[0];
 } __packed;
 
@@ -111,21 +99,15 @@ enum wilco_ec_msg_type {
  * struct wilco_ec_message - Request and response message.
  * @type: Mailbox message type.
  * @flags: Message flags, e.g. %WILCO_EC_FLAG_NO_RESPONSE.
- * @command: Mailbox command code.
- * @result: Result code from the EC.  Non-zero indicates an error.
  * @request_size: Number of bytes to send to the EC.
  * @request_data: Buffer containing the request data.
- * @response_size: Number of bytes expected from the EC.
- *                 This is 32 by default and 256 if the flag
- *                 is set for %WILCO_EC_FLAG_EXTENDED_DATA
+ * @response_size: Number of bytes to read from EC.
  * @response_data: Buffer containing the response data, should be
  *                 response_size bytes and allocated by caller.
  */
 struct wilco_ec_message {
 	enum wilco_ec_msg_type type;
 	u8 flags;
-	u8 command;
-	u8 result;
 	size_t request_size;
 	void *request_data;
 	size_t response_size;
@@ -140,5 +122,76 @@ struct wilco_ec_message {
  * Return: Number of bytes received or negative error code on failure.
  */
 int wilco_ec_mailbox(struct wilco_ec_device *ec, struct wilco_ec_message *msg);
+
+/*
+ * A Property is typically a data item that is stored to NVRAM
+ * by the EC. Each of these data items has an index associated
+ * with it, known as the Property ID (PID). Properties may have
+ * variable lengths, up to a max of WILCO_EC_PROPERTY_MAX_SIZE
+ * bytes. Properties can be simple integers, or they may be more
+ * complex binary data.
+ */
+
+#define WILCO_EC_PROPERTY_MAX_SIZE	4
+
+/**
+ * struct ec_property_set_msg - Message to get or set a property.
+ * @property_id: Which property to get or set.
+ * @length: Number of bytes of |data| that are used.
+ * @data: Actual property data.
+ */
+struct wilco_ec_property_msg {
+	u32 property_id;
+	int length;
+	u8 data[WILCO_EC_PROPERTY_MAX_SIZE];
+};
+
+/**
+ * wilco_ec_get_property() - Retrieve a property from the EC.
+ * @ec: Embedded Controller device.
+ * @prop_msg: Message for request and response.
+ *
+ * The property_id field of |prop_msg| should be filled before calling this
+ * function. The result will be stored in the data and length fields.
+ *
+ * Return: 0 on success, negative error code on failure.
+ */
+int wilco_ec_get_property(struct wilco_ec_device *ec,
+			  struct wilco_ec_property_msg *prop_msg);
+
+/**
+ * wilco_ec_set_property() - Store a property on the EC.
+ * @ec: Embedded Controller device.
+ * @prop_msg: Message for request and response.
+ *
+ * The property_id, length, and data fields of |prop_msg| should be
+ * filled before calling this function.
+ *
+ * Return: 0 on success, negative error code on failure.
+ */
+int wilco_ec_set_property(struct wilco_ec_device *ec,
+			  struct wilco_ec_property_msg *prop_msg);
+
+/**
+ * wilco_ec_get_byte_property() - Retrieve a byte-size property from the EC.
+ * @ec: Embedded Controller device.
+ * @property_id: Which property to retrieve.
+ * @val: The result value, will be filled by this function.
+ *
+ * Return: 0 on success, negative error code on failure.
+ */
+int wilco_ec_get_byte_property(struct wilco_ec_device *ec, u32 property_id,
+			       u8 *val);
+
+/**
+ * wilco_ec_get_byte_property() - Store a byte-size property on the EC.
+ * @ec: Embedded Controller device.
+ * @property_id: Which property to store.
+ * @val: Value to store.
+ *
+ * Return: 0 on success, negative error code on failure.
+ */
+int wilco_ec_set_byte_property(struct wilco_ec_device *ec, u32 property_id,
+			       u8 val);
 
 #endif /* WILCO_EC_H */
