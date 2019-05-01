@@ -314,6 +314,7 @@ config ARCH_SELECT_MEMORY_MODEL
 config ARCH_SPARSEMEM_ENABLE
 	def_bool y
 	depends on 64BIT
+	select SPARSEMEM_VMEMMAP_ENABLE
 
 config ARCH_FLATMEM_ENABLE
 	def_bool y
