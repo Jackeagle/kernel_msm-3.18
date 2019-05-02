@@ -2041,7 +2041,6 @@ static inline u32 ext4_chksum(struct ext4_sb_info *sbi, u32 crc,
 	BUG_ON(crypto_shash_descsize(sbi->s_chksum_driver)!=sizeof(desc.ctx));
 
 	desc.shash.tfm = sbi->s_chksum_driver;
-	desc.shash.flags = 0;
 	*(u32 *)desc.ctx = crc;
 
 	BUG_ON(crypto_shash_update(&desc.shash, address, length));
