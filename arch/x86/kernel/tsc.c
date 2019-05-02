@@ -282,6 +282,7 @@ int __init notsc_setup(char *str)
 __setup("notsc", notsc_setup);
 
 static int no_sched_irq_time;
+static int no_tsc_watchdog;
 
 static int __init tsc_setup(char *str)
 {
@@ -291,6 +292,8 @@ static int __init tsc_setup(char *str)
 		no_sched_irq_time = 1;
 	if (!strcmp(str, "unstable"))
 		mark_tsc_unstable("boot parameter");
+	if (!strcmp(str, "nowatchdog"))
+		no_tsc_watchdog = 1;
 	return 1;
 }
 
@@ -1348,7 +1351,7 @@ static int __init init_tsc_clocksource(void)
 	if (tsc_unstable)
 		goto unreg;
 
-	if (tsc_clocksource_reliable)
+	if (tsc_clocksource_reliable || no_tsc_watchdog)
 		clocksource_tsc.flags &= ~CLOCK_SOURCE_MUST_VERIFY;
 
 	if (boot_cpu_has(X86_FEATURE_NONSTOP_TSC_S3))

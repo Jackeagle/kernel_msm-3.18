@@ -704,8 +704,11 @@
 			upon panic. This parameter reserves the physical
 			memory region [offset, offset + size] for that kernel
 			image. If '@offset' is omitted, then a suitable offset
-			is selected automatically. Check
-			Documentation/kdump/kdump.txt for further details.
+			is selected automatically.
+			[KNL, x86_64] select a region under 4G first, and
+			fall back to reserve region above 4G when '@offset'
+			hasn't been specified.
+			See Documentation/kdump/kdump.txt for further details.
 
 	crashkernel=range1:size1[,range2:size2,...][@offset]
 			[KNL] Same as above, but depends on the memory
@@ -3658,7 +3661,9 @@
 				see CONFIG_RAS_CEC help text.
 
 	rcu_nocbs=	[KNL]
-			The argument is a cpu list, as described above.
+			The argument is a cpu list, as described above,
+			except that the string "all" can be used to
+			specify every CPU on the system.
 
 			In kernels built with CONFIG_RCU_NOCB_CPU=y, set
 			the specified list of CPUs to be no-callback CPUs.
@@ -4738,6 +4743,10 @@
 			[x86] unstable: mark the TSC clocksource as unstable, this
 			marks the TSC unconditionally unstable at bootup and
 			avoids any further wobbles once the TSC watchdog notices.
+			[x86] nowatchdog: disable clocksource watchdog. Used
+			in situations with strict latency requirements (where
+			interruptions from clocksource watchdog are not
+			acceptable).
 
 	turbografx.map[2|3]=	[HW,JOY]
 			TurboGraFX parallel port interface
