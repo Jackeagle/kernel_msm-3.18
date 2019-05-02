@@ -82,6 +82,7 @@ static int populate_dir(struct kobject *kobj)
 
 static int create_dir(struct kobject *kobj)
 {
+	const struct kobj_type *ktype = get_ktype(kobj);
 	const struct kobj_ns_type_operations *ops;
 	int error;
 
@@ -93,6 +94,14 @@ static int create_dir(struct kobject *kobj)
 	if (error) {
 		sysfs_remove_dir(kobj);
 		return error;
+	}
+
+	if (ktype) {
+		error = sysfs_create_groups(kobj, ktype->default_groups);
+		if (error) {
+			sysfs_remove_dir(kobj);
+			return error;
+		}
 	}
 
 	/*
@@ -397,15 +406,19 @@ static __printf(3, 0) int kobject_add_varg(struct kobject *kobj,
  * is assigned to the kobject, then the kobject will be located in the
  * root of the sysfs tree.
  *
- * If this function returns an error, kobject_put() must be called to
- * properly clean up the memory associated with the object.
- * Under no instance should the kobject that is passed to this function
- * be directly freed with a call to kfree(), that can leak memory.
- *
  * Note, no "add" uevent will be created with this call, the caller should set
  * up all of the necessary sysfs files for the object and then call
  * kobject_uevent() with the UEVENT_ADD parameter to ensure that
  * userspace is properly notified of this kobject's creation.
+ *
+ * Return: If this function returns an error, kobject_put() must be
+ *         called to properly clean up the memory associated with the
+ *         object.  Under no instance should the kobject that is passed
+ *         to this function be directly freed with a call to kfree(),
+ *         that can leak memory.
+ *
+ *         If this call returns successfully and you later need to unwind
+ *         kobject_add() for the error path you should call kobject_del().
  */
 int kobject_add(struct kobject *kobj, struct kobject *parent,
 		const char *fmt, ...)
@@ -437,9 +450,12 @@ EXPORT_SYMBOL(kobject_add);
  * @parent: pointer to the parent of this kobject.
  * @fmt: the name of the kobject.
  *
- * This function combines the call to kobject_init() and
- * kobject_add().  The same type of error handling after a call to
- * kobject_add() and kobject lifetime rules are the same here.
+ * This function combines the call to kobject_init() and kobject_add().
+ *
+ * If this function returns an error, kobject_put() must be called to
+ * properly clean up the memory associated with the object.  This is the
+ * same type of error handling after a call to kobject_add() and kobject
+ * lifetime rules are the same here.
  */
 int kobject_init_and_add(struct kobject *kobj, struct kobj_type *ktype,
 			 struct kobject *parent, const char *fmt, ...)
@@ -580,15 +596,23 @@ EXPORT_SYMBOL_GPL(kobject_move);
 /**
  * kobject_del - unlink kobject from hierarchy.
  * @kobj: object.
+ *
+ * This is the function that should be called to delete an object
+ * successfully added via kobject_add().
  */
 void kobject_del(struct kobject *kobj)
 {
 	struct kernfs_node *sd;
+	const struct kobj_type *ktype = get_ktype(kobj);
 
 	if (!kobj)
 		return;
 
 	sd = kobj->sd;
+
+	if (ktype)
+		sysfs_remove_groups(kobj, ktype->default_groups);
+
 	sysfs_remove_dir(kobj);
 	sysfs_put(sd);
 
