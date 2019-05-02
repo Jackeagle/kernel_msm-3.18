@@ -973,8 +973,7 @@ void gfs2_freeze_func(struct work_struct *work)
 	if (error) {
 		printk(KERN_INFO "GFS2: couldn't get freeze lock : %d\n", error);
 		gfs2_assert_withdraw(sdp, 0);
-	}
-	else {
+	} else {
 		atomic_set(&sdp->sd_freeze_state, SFS_UNFROZEN);
 		error = thaw_super(sb);
 		if (error) {
@@ -987,6 +986,8 @@ void gfs2_freeze_func(struct work_struct *work)
 		gfs2_glock_dq_uninit(&freeze_gh);
 	}
 	deactivate_super(sb);
+	clear_bit_unlock(SDF_FS_FROZEN, &sdp->sd_flags);
+	wake_up_bit(&sdp->sd_flags, SDF_FS_FROZEN);
 	return;
 }
 
@@ -1029,6 +1030,7 @@ static int gfs2_freeze(struct super_block *sb)
 		msleep(1000);
 	}
 	error = 0;
+	set_bit(SDF_FS_FROZEN, &sdp->sd_flags);
 out:
 	mutex_unlock(&sdp->sd_freeze_mutex);
 	return error;
@@ -1053,7 +1055,7 @@ static int gfs2_unfreeze(struct super_block *sb)
 
 	gfs2_glock_dq_uninit(&sdp->sd_freeze_gh);
 	mutex_unlock(&sdp->sd_freeze_mutex);
-	return 0;
+	return wait_on_bit(&sdp->sd_flags, SDF_FS_FROZEN, TASK_INTERRUPTIBLE);
 }
 
 /**
@@ -1474,7 +1476,7 @@ static void gfs2_final_release_pages(struct gfs2_inode *ip)
 	truncate_inode_pages(gfs2_glock2aspace(ip->i_gl), 0);
 	truncate_inode_pages(&inode->i_data, 0);
 
-	if (atomic_read(&gl->gl_revokes) == 0) {
+	if (!test_bit(GLF_REVOKES, &gl->gl_flags)) {
 		clear_bit(GLF_LFLUSH, &gl->gl_flags);
 		clear_bit(GLF_DIRTY, &gl->gl_flags);
 	}
@@ -1630,8 +1632,6 @@ alloc_failed:
 			goto out_truncate;
 	}
 
-	/* Case 1 starts here */
-
 	if (S_ISDIR(inode->i_mode) &&
 	    (ip->i_diskflags & GFS2_DIF_EXHASH)) {
 		error = gfs2_dir_exhash_dealloc(ip);
@@ -1670,7 +1670,6 @@ out_truncate:
 	write_inode_now(inode, 1);
 	gfs2_ail_flush(ip->i_gl, 0);
 
-	/* Case 2 starts here */
 	error = gfs2_trans_begin(sdp, 0, sdp->sd_jdesc->jd_blocks);
 	if (error)
 		goto out_unlock;
@@ -1680,7 +1679,6 @@ out_truncate:
 	gfs2_trans_end(sdp);
 
 out_unlock:
-	/* Error path for case 1 */
 	if (gfs2_rs_active(&ip->i_res))
 		gfs2_rs_deltree(&ip->i_res);
 
@@ -1699,7 +1697,6 @@ out_unlock:
 	if (error && error != GLR_TRYFAILED && error != -EROFS)
 		fs_warn(sdp, "gfs2_evict_inode: %d\n", error);
 out:
-	/* Case 3 starts here */
 	truncate_inode_pages_final(&inode->i_data);
 	gfs2_rsqa_delete(ip, NULL);
 	gfs2_ordered_del_inode(ip);
