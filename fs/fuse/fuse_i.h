@@ -73,6 +73,8 @@ struct fuse_mount_data {
 	unsigned int default_permissions:1;
 	unsigned int allow_other:1;
 	unsigned int destroy:1;
+	unsigned int no_control:1;
+	unsigned int no_force_umount:1;
 	unsigned int max_read;
 	unsigned int blksize;
 
@@ -782,6 +784,12 @@ struct fuse_conn {
 
 	/* Delete dentries that have gone stale */
 	unsigned int delete_stale:1;
+
+	/** Do not create entry in fusectl fs */
+	unsigned int no_control:1;
+
+	/** Do not allow MNT_FORCE umount */
+	unsigned int no_force_umount:1;
 
 	/** The number of requests waiting for completion */
 	atomic_t num_waiting;
