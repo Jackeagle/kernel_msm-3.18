@@ -22,8 +22,9 @@
 
 __INIT
 ENTRY(_start)
-	/* Mask all interrupts */
+	/* Mask and clear all interrupts */
 	csrw sie, zero
+	csrw sip, zero
 
 	/* Load the global pointer */
 .option push
@@ -68,14 +69,10 @@ clear_bss_done:
 	/* Restore C environment */
 	la tp, init_task
 	sw zero, TASK_TI_CPU(tp)
-
-	la sp, init_thread_union
-	li a0, ASM_THREAD_SIZE
-	add sp, sp, a0
+	la sp, init_thread_union + THREAD_SIZE
 
 	/* Start the kernel */
-	mv a0, s0
-	mv a1, s1
+	mv a0, s1
 	call parse_dtb
 	tail start_kernel
 
