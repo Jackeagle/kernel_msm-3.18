@@ -208,7 +208,6 @@ static void gfs2_end_log_write(struct bio *bio)
 	struct gfs2_sbd *sdp = bio->bi_private;
 	struct bio_vec *bvec;
 	struct page *page;
-	int i;
 	struct bvec_iter_all iter_all;
 
 	if (bio->bi_status) {
@@ -217,7 +216,7 @@ static void gfs2_end_log_write(struct bio *bio)
 		wake_up(&sdp->sd_logd_waitq);
 	}
 
-	bio_for_each_segment_all(bvec, bio, i, iter_all) {
+	bio_for_each_segment_all(bvec, bio, iter_all) {
 		page = bvec->bv_page;
 		if (page_has_buffers(page))
 			gfs2_end_log_write_bh(sdp, bvec, bio->bi_status);
@@ -389,10 +388,9 @@ static void gfs2_end_log_read(struct bio *bio)
 {
 	struct page *page;
 	struct bio_vec *bvec;
-	int i;
 	struct bvec_iter_all iter_all;
 
-	bio_for_each_segment_all(bvec, bio, i, iter_all) {
+	bio_for_each_segment_all(bvec, bio, iter_all) {
 		page = bvec->bv_page;
 		if (bio->bi_status) {
 			int err = blk_status_to_errno(bio->bi_status);
