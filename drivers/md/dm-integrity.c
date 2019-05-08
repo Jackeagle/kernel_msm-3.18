@@ -2462,10 +2462,12 @@ static void dm_integrity_status(struct dm_target *ti, status_type_t type,
 		__u64 watermark_percentage = (__u64)(ic->journal_entries - ic->free_sectors_threshold) * 100;
 		watermark_percentage += ic->journal_entries / 2;
 		do_div(watermark_percentage, ic->journal_entries);
-		arg_count = 5;
+		arg_count = 3;
 		arg_count += !!ic->meta_dev;
 		arg_count += ic->sectors_per_block != 1;
 		arg_count += !!(ic->sb->flags & cpu_to_le32(SB_FLAG_RECALCULATING));
+		arg_count += ic->mode == 'J';
+		arg_count += ic->mode == 'J';
 		arg_count += !!ic->internal_hash_alg.alg_string;
 		arg_count += !!ic->journal_crypt_alg.alg_string;
 		arg_count += !!ic->journal_mac_alg.alg_string;
@@ -2480,8 +2482,10 @@ static void dm_integrity_status(struct dm_target *ti, status_type_t type,
 		DMEMIT(" journal_sectors:%u", ic->initial_sectors - SB_SECTORS);
 		DMEMIT(" interleave_sectors:%u", 1U << ic->sb->log2_interleave_sectors);
 		DMEMIT(" buffer_sectors:%u", 1U << ic->log2_buffer_sectors);
-		DMEMIT(" journal_watermark:%u", (unsigned)watermark_percentage);
-		DMEMIT(" commit_time:%u", ic->autocommit_msec);
+		if (ic->mode == 'J') {
+			DMEMIT(" journal_watermark:%u", (unsigned)watermark_percentage);
+			DMEMIT(" commit_time:%u", ic->autocommit_msec);
+		}
 
 #define EMIT_ALG(a, n)							\
 		do {							\
@@ -2562,7 +2566,7 @@ static int calculate_device_limits(struct dm_integrity_c *ic)
 		if (last_sector < ic->start || last_sector >= ic->meta_device_sectors)
 			return -EINVAL;
 	} else {
-		__u64 meta_size = ic->provided_data_sectors * ic->tag_size;
+		__u64 meta_size = (ic->provided_data_sectors >> ic->sb->log2_sectors_per_block) * ic->tag_size;
 		meta_size = (meta_size + ((1U << (ic->log2_buffer_sectors + SECTOR_SHIFT)) - 1))
 				>> (ic->log2_buffer_sectors + SECTOR_SHIFT);
 		meta_size <<= ic->log2_buffer_sectors;
@@ -3071,10 +3075,12 @@ bad:
  *		buffer_sectors
  *		journal_watermark
  *		commit_time
+ *		meta_device
+ *		block_size
  *		internal_hash
  *		journal_crypt
  *		journal_mac
- *		block_size
+ *		recalculate
  */
 static int dm_integrity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 {
@@ -3433,7 +3439,7 @@ try_smaller_buffer:
 	DEBUG_print("	journal_sections %u\n", (unsigned)le32_to_cpu(ic->sb->journal_sections));
 	DEBUG_print("	journal_entries %u\n", ic->journal_entries);
 	DEBUG_print("	log2_interleave_sectors %d\n", ic->sb->log2_interleave_sectors);
-	DEBUG_print("	device_sectors 0x%llx\n", (unsigned long long)ic->device_sectors);
+	DEBUG_print("	data_device_sectors 0x%llx\n", (unsigned long long)ic->data_device_sectors);
 	DEBUG_print("	initial_sectors 0x%x\n", ic->initial_sectors);
 	DEBUG_print("	metadata_run 0x%x\n", ic->metadata_run);
 	DEBUG_print("	log2_metadata_run %d\n", ic->log2_metadata_run);
@@ -3542,10 +3548,8 @@ static void dm_integrity_dtr(struct dm_target *ti)
 		destroy_workqueue(ic->writer_wq);
 	if (ic->recalc_wq)
 		destroy_workqueue(ic->recalc_wq);
-	if (ic->recalc_buffer)
-		vfree(ic->recalc_buffer);
-	if (ic->recalc_tags)
-		kvfree(ic->recalc_tags);
+	vfree(ic->recalc_buffer);
+	kvfree(ic->recalc_tags);
 	if (ic->bufio)
 		dm_bufio_client_destroy(ic->bufio);
 	mempool_exit(&ic->journal_io_mempool);
