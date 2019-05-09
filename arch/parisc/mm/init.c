@@ -610,8 +610,11 @@ void __init mem_init(void)
 	       "     memory  : 0x%px - 0x%px   (%4ld MB)\n"
 	       "       .init : 0x%px - 0x%px   (%4ld kB)\n"
 	       "       .data : 0x%px - 0x%px   (%4ld kB)\n"
-	       "       .text : 0x%px - 0x%px   (%4ld kB)\n",
-
+	       "       .text : 0x%px - 0x%px   (%4ld kB)\n"
+#if defined(CONFIG_SPARSEMEM) && defined(CONFIG_SPARSEMEM_VMEMMAP)
+	       "     vmemmap : 0x%px - 0x%px   (%4ld MB)\n"
+#endif
+		,
 	       (void*)VMALLOC_START, (void*)VMALLOC_END,
 	       (VMALLOC_END - VMALLOC_START) >> 20,
 
@@ -628,7 +631,15 @@ void __init mem_init(void)
 	       ((unsigned long)_edata - (unsigned long)_etext) >> 10,
 
 	       _text, _etext,
-	       ((unsigned long)_etext - (unsigned long)_text) >> 10);
+	       ((unsigned long)_etext - (unsigned long)_text) >> 10
+
+#if defined(CONFIG_SPARSEMEM) && defined(CONFIG_SPARSEMEM_VMEMMAP)
+		,
+	       (void *)VMEMMAP_BASE, (void *)(VMEMMAP_BASE + VMEMMAP_SIZE),
+	       (unsigned long)(VMEMMAP_SIZE >> 20)
+#endif
+		);
+
 #endif
 }
 
@@ -922,5 +933,13 @@ void flush_tlb_all(void)
 void free_initrd_mem(unsigned long start, unsigned long end)
 {
 	free_reserved_area((void *)start, (void *)end, -1, "initrd");
+}
+#endif
+
+#if defined(CONFIG_SPARSEMEM) && defined(CONFIG_SPARSEMEM_VMEMMAP)
+int __meminit vmemmap_populate(unsigned long vstart, unsigned long vend,
+			       int node, struct vmem_altmap *altmap)
+{
+	return vmemmap_populate_basepages(vstart, vend, node);
 }
 #endif

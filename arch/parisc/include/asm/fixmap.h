@@ -43,6 +43,12 @@ extern void *parisc_vmalloc_start;
 void set_fixmap(enum fixed_addresses idx, phys_addr_t phys);
 void clear_fixmap(enum fixed_addresses idx);
 
+#if defined(CONFIG_SPARSEMEM) && defined(CONFIG_SPARSEMEM_VMEMMAP)
+#define VMEMMAP_BASE	(UL(1) << MAX_PHYSMEM_BITS)
+#define VMEMMAP_SIZE	(UL(1) << (MAX_PHYSMEM_BITS - PAGE_SHIFT - 1 + STRUCT_PAGE_MAX_SHIFT))
+#define vmemmap		((struct page *) VMEMMAP_BASE)
+#endif
+
 #endif /*__ASSEMBLY__*/
 
 #endif /*_ASM_FIXMAP_H*/
