@@ -393,6 +393,19 @@ static const struct snd_soc_ops kabylake_rt5663_fe_ops = {
 	.startup = kbl_fe_startup,
 };
 
+struct snd_soc_dai_link *kabylake_find_fe_dai(struct snd_soc_pcm_runtime *be)
+{
+	struct snd_soc_dpcm *dpcm;
+	int stream;
+
+	for (stream = 0; stream < 2; stream++) {
+		for_each_dpcm_fe(be, stream, dpcm)
+			if (dpcm->be == be)
+				return dpcm->fe->dai_link;
+	}
+	return NULL;
+}
+
 static int kabylake_ssp_fixup(struct snd_soc_pcm_runtime *rtd,
 	struct snd_pcm_hw_params *params)
 {
@@ -401,10 +414,10 @@ static int kabylake_ssp_fixup(struct snd_soc_pcm_runtime *rtd,
 	struct snd_interval *channels = hw_param_interval(params,
 			SNDRV_PCM_HW_PARAM_CHANNELS);
 	struct snd_mask *fmt = hw_param_mask(params, SNDRV_PCM_HW_PARAM_FORMAT);
-	struct snd_soc_dpcm *dpcm = container_of(
-			params, struct snd_soc_dpcm, hw_params);
-	struct snd_soc_dai_link *fe_dai_link = dpcm->fe->dai_link;
-	struct snd_soc_dai_link *be_dai_link = dpcm->be->dai_link;
+	struct snd_soc_dai_link *fe_dai_link = kabylake_find_fe_dai(rtd);
+
+	if (!fe_dai_link)
+		return 0;
 
 	/*
 	 * The ADSP will convert the FE rate to 48k, stereo, 24 bit
@@ -417,12 +430,22 @@ static int kabylake_ssp_fixup(struct snd_soc_pcm_runtime *rtd,
 		snd_mask_none(fmt);
 		snd_mask_set_format(fmt, SNDRV_PCM_FORMAT_S24_LE);
 	}
+
+	return 0;
+}
+
+static int kabylake_ssp0_fixup(struct snd_soc_pcm_runtime *rtd,
+	struct snd_pcm_hw_params *params)
+{
+	struct snd_mask *fmt = hw_param_mask(params, SNDRV_PCM_HW_PARAM_FORMAT);
+
+	kabylake_ssp_fixup(rtd, params);
+
 	/*
 	 * The speaker on the SSP0 supports S16_LE and not S24_LE.
 	 * thus changing the mask here
 	 */
-	if (!strcmp(be_dai_link->name, "SSP0-Codec"))
-		snd_mask_set_format(fmt, SNDRV_PCM_FORMAT_S16_LE);
+	snd_mask_set_format(fmt, SNDRV_PCM_FORMAT_S16_LE);
 
 	return 0;
 }
@@ -740,7 +763,7 @@ static struct snd_soc_dai_link kabylake_dais[] = {
 			SND_SOC_DAIFMT_NB_NF |
 			SND_SOC_DAIFMT_CBS_CFS,
 		.ignore_pmdown_time = 1,
-		.be_hw_params_fixup = kabylake_ssp_fixup,
+		.be_hw_params_fixup = kabylake_ssp0_fixup,
 		.dpcm_playback = 1,
 		.ops = &kabylake_ssp0_ops,
 		SND_SOC_DAILINK_REG(ssp0_pin, ssp0_codec, platform),
