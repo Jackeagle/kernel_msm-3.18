@@ -291,6 +291,7 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <741>;
 			dynamic-power-coefficient = <84>;
+			#cooling-cells = <2>;
 			clocks = <&mcucfg CLK_MCU_MP0_SEL>,
 				 <&topckgen CLK_TOP_ARMPLL_DIV_PLL1>;
 			clock-names = "cpu", "intermediate";
@@ -304,6 +305,7 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <741>;
 			dynamic-power-coefficient = <84>;
+			#cooling-cells = <2>;
 			clocks = <&mcucfg CLK_MCU_MP0_SEL>,
 				 <&topckgen CLK_TOP_ARMPLL_DIV_PLL1>;
 			clock-names = "cpu", "intermediate";
@@ -317,6 +319,7 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <741>;
 			dynamic-power-coefficient = <84>;
+			#cooling-cells = <2>;
 			clocks = <&mcucfg CLK_MCU_MP0_SEL>,
 				 <&topckgen CLK_TOP_ARMPLL_DIV_PLL1>;
 			clock-names = "cpu", "intermediate";
@@ -330,6 +333,7 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <741>;
 			dynamic-power-coefficient = <84>;
+			#cooling-cells = <2>;
 			clocks = <&mcucfg CLK_MCU_MP0_SEL>,
 				 <&topckgen CLK_TOP_ARMPLL_DIV_PLL1>;
 			clock-names = "cpu", "intermediate";
@@ -343,6 +347,7 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <1024>;
 			dynamic-power-coefficient = <211>;
+			#cooling-cells = <2>;
 			clocks = <&mcucfg CLK_MCU_MP2_SEL>,
 				 <&topckgen CLK_TOP_ARMPLL_DIV_PLL1>;
 			clock-names = "cpu", "intermediate";
@@ -356,6 +361,7 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <1024>;
 			dynamic-power-coefficient = <211>;
+			#cooling-cells = <2>;
 			clocks = <&mcucfg CLK_MCU_MP2_SEL>,
 				 <&topckgen CLK_TOP_ARMPLL_DIV_PLL1>;
 			clock-names = "cpu", "intermediate";
@@ -369,6 +375,7 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <1024>;
 			dynamic-power-coefficient = <211>;
+			#cooling-cells = <2>;
 			clocks = <&mcucfg CLK_MCU_MP2_SEL>,
 				 <&topckgen CLK_TOP_ARMPLL_DIV_PLL1>;
 			clock-names = "cpu", "intermediate";
@@ -382,6 +389,7 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <1024>;
 			dynamic-power-coefficient = <211>;
+			#cooling-cells = <2>;
 			clocks = <&mcucfg CLK_MCU_MP2_SEL>,
 				 <&topckgen CLK_TOP_ARMPLL_DIV_PLL1>;
 			clock-names = "cpu", "intermediate";
