@@ -806,6 +806,16 @@ config LEDS_LM36274
 	  Say Y to enable the LM36274 LED driver for TI LMU devices.
 	  This supports the LED device LM36274.
 
+config LEDS_SPI_BYTE
+	tristate "LED support for SPI LED controller with a single byte"
+	depends on LEDS_CLASS
+	depends on SPI
+	depends on OF
+	help
+	  This option enables support for LED controller which use a single byte
+	  for controlling the brightness. Currently the following controller is
+	  supported: Ubiquiti airCube ISP microcontroller based LED controller.
+
 comment "LED Triggers"
 source "drivers/leds/trigger/Kconfig"
 
