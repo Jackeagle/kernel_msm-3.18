@@ -68,7 +68,7 @@ void do_page_fault(unsigned long address, struct pt_regs *regs)
 	struct mm_struct *mm = tsk->mm;
 	int sig, si_code = SEGV_MAPERR;
 	unsigned int write = 0, exec = 0, mask;
-	vm_fault_t fault;			/* handle_mm_fault() output */
+	vm_fault_t fault = VM_FAULT_ERROR;	/* handle_mm_fault() output */
 	unsigned int flags;			/* handle_mm_fault() input */
 
 	/*
@@ -155,6 +155,9 @@ retry:
 		}
 	}
 
+bad_area:
+	up_read(&mm->mmap_sem);
+
 	/*
 	 * Major/minor page fault accounting
 	 * (in case of retry we only land here once)
@@ -173,12 +176,8 @@ retry:
 		}
 
 		/* Normal return path: fault Handled Gracefully */
-		up_read(&mm->mmap_sem);
 		return;
 	}
-
-bad_area:
-	up_read(&mm->mmap_sem);
 
 	if (!user_mode(regs))
 		goto no_context;
