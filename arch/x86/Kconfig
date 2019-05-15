@@ -30,6 +30,7 @@ config X86_64
 	select NEED_DMA_MAP_STATE
 	select SWIOTLB
 	select ARCH_HAS_SYSCALL_WRAPPER
+	select DYNAMIC_DEBUG_RELATIVE_POINTERS
 
 #
 # Arch settings
@@ -304,9 +305,6 @@ config ZONE_DMA32
 
 config AUDIT_ARCH
 	def_bool y if X86_64
-
-config ARCH_SUPPORTS_OPTIMIZED_INLINING
-	def_bool y
 
 config ARCH_SUPPORTS_DEBUG_PAGEALLOC
 	def_bool y
