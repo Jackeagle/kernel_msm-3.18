@@ -3614,6 +3614,8 @@ int amdgpu_device_gpu_recover(struct amdgpu_device *adev,
 
 	dev_info(adev->dev, "GPU reset begin!\n");
 
+	cancel_delayed_work_sync(&adev->late_init_work);
+
 	/*
 	 * In case of XGMI hive disallow concurrent resets to be triggered
 	 * by different nodes. No point also since the one node already executing
