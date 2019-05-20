@@ -811,8 +811,8 @@ static int register_process(struct device_queue_manager *dqm,
 
 	retval = dqm->asic_ops.update_qpd(dqm, qpd);
 
-	if (dqm->processes_count++ == 0)
-		amdgpu_amdkfd_set_compute_idle(dqm->dev->kgd, false);
+	dqm->processes_count++;
+	kfd_inc_compute_active(dqm->dev);
 
 	dqm_unlock(dqm);
 
@@ -835,9 +835,8 @@ static int unregister_process(struct device_queue_manager *dqm,
 		if (qpd == cur->qpd) {
 			list_del(&cur->list);
 			kfree(cur);
-			if (--dqm->processes_count == 0)
-				amdgpu_amdkfd_set_compute_idle(
-					dqm->dev->kgd, true);
+			dqm->processes_count--;
+			kfd_dec_compute_active(dqm->dev);
 			goto out;
 		}
 	}
@@ -891,7 +890,7 @@ static int initialize_nocpsch(struct device_queue_manager *dqm)
 	}
 
 	dqm->vmid_bitmap = (1 << dqm->dev->vm_info.vmid_num_kfd) - 1;
-	dqm->sdma_bitmap = (1 << get_num_sdma_queues(dqm)) - 1;
+	dqm->sdma_bitmap = (1ULL << get_num_sdma_queues(dqm)) - 1;
 
 	return 0;
 }
@@ -922,26 +921,26 @@ static int stop_nocpsch(struct device_queue_manager *dqm)
 }
 
 static int allocate_sdma_queue(struct device_queue_manager *dqm,
-				unsigned int *sdma_queue_id)
+				unsigned int *sdma_id)
 {
 	int bit;
 
 	if (dqm->sdma_bitmap == 0)
 		return -ENOMEM;
 
-	bit = ffs(dqm->sdma_bitmap) - 1;
-	dqm->sdma_bitmap &= ~(1 << bit);
-	*sdma_queue_id = bit;
+	bit = __ffs64(dqm->sdma_bitmap);
+	dqm->sdma_bitmap &= ~(1ULL << bit);
+	*sdma_id = bit;
 
 	return 0;
 }
 
 static void deallocate_sdma_queue(struct device_queue_manager *dqm,
-				unsigned int sdma_queue_id)
+				unsigned int sdma_id)
 {
-	if (sdma_queue_id >= get_num_sdma_queues(dqm))
+	if (sdma_id >= get_num_sdma_queues(dqm))
 		return;
-	dqm->sdma_bitmap |= (1 << sdma_queue_id);
+	dqm->sdma_bitmap |= (1ULL << sdma_id);
 }
 
 static int create_sdma_queue_nocpsch(struct device_queue_manager *dqm,
@@ -1047,7 +1046,7 @@ static int initialize_cpsch(struct device_queue_manager *dqm)
 	dqm->queue_count = dqm->processes_count = 0;
 	dqm->sdma_queue_count = 0;
 	dqm->active_runlist = false;
-	dqm->sdma_bitmap = (1 << get_num_sdma_queues(dqm)) - 1;
+	dqm->sdma_bitmap = (1ULL << get_num_sdma_queues(dqm)) - 1;
 
 	INIT_WORK(&dqm->hw_exception_work, kfd_process_hw_exception);
 
@@ -1181,6 +1180,9 @@ static int create_queue_cpsch(struct device_queue_manager *dqm, struct queue *q,
 			q->sdma_id / get_num_sdma_engines(dqm);
 		q->properties.sdma_engine_id =
 			q->sdma_id % get_num_sdma_engines(dqm);
+		pr_debug("SDMA id is:    %d\n", q->sdma_id);
+		pr_debug("SDMA queue id: %d\n", q->properties.sdma_queue_id);
+		pr_debug("SDMA engine id: %d\n", q->properties.sdma_engine_id);
 	}
 
 	retval = allocate_doorbell(qpd, q);
@@ -1539,6 +1541,7 @@ static int process_termination_nocpsch(struct device_queue_manager *dqm,
 			list_del(&cur->list);
 			kfree(cur);
 			dqm->processes_count--;
+			kfd_dec_compute_active(dqm->dev);
 			break;
 		}
 	}
@@ -1626,6 +1629,7 @@ static int process_termination_cpsch(struct device_queue_manager *dqm,
 			list_del(&cur->list);
 			kfree(cur);
 			dqm->processes_count--;
+			kfd_dec_compute_active(dqm->dev);
 			break;
 		}
 	}
