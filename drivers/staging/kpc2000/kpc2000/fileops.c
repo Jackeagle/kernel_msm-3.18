@@ -74,11 +74,6 @@ ssize_t  kp2000_cdev_read(struct file *filp, char __user *buf, size_t count, lof
 	return count;
 }
 
-ssize_t  kp2000_cdev_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
-{
-	return -EINVAL;
-}
-
 long  kp2000_cdev_ioctl(struct file *filp, unsigned int ioctl_num, unsigned long ioctl_param)
 {
 	struct kp2000_device *pcard = filp->private_data;
@@ -88,7 +83,7 @@ long  kp2000_cdev_ioctl(struct file *filp, unsigned int ioctl_num, unsigned long
 	switch (ioctl_num){
 	case KP2000_IOCTL_GET_CPLD_REG:             return readq(pcard->sysinfo_regs_base + REG_CPLD_CONFIG);
 	case KP2000_IOCTL_GET_PCIE_ERROR_REG:       return readq(pcard->sysinfo_regs_base + REG_PCIE_ERROR_COUNT);
-    
+
 	case KP2000_IOCTL_GET_EVERYTHING: {
 		struct kp2000_regs temp;
 		int ret;
@@ -122,9 +117,6 @@ struct file_operations  kp2000_fops = {
 	.open       = kp2000_cdev_open,
 	.release    = kp2000_cdev_close,
 	.read       = kp2000_cdev_read,
-	//.write      = kp2000_cdev_write,
-	//.poll       = kp2000_cdev_poll,
-	//.fasync     = kp2000_cdev_fasync,
 	.llseek     = noop_llseek,
 	.unlocked_ioctl = kp2000_cdev_ioctl,
 };

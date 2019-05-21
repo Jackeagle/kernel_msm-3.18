@@ -52,17 +52,17 @@ struct kp2000_device {
     struct pci_dev     *pdev;
     struct miscdevice   miscdev;
     char                name[16];
-    
+
     unsigned int        card_num;
     struct mutex        sem;
-    
+
     void __iomem       *sysinfo_regs_base;
     void __iomem       *regs_bar_base;
     struct resource     regs_base_resource;
     void __iomem       *dma_bar_base;
     void __iomem       *dma_common_regs;
     struct resource     dma_base_resource;
-    
+
     // "System Registers"
     u32                 card_id;
     u32                 build_version;
@@ -74,18 +74,16 @@ struct kp2000_device {
     u8                  hardware_revision;
     u64                 ssid;
     u64                 ddna;
-    
+
     // IRQ stuff
     unsigned int        irq;
-    
+
     struct list_head    uio_devices_list;
 };
 
 extern struct class *kpc_uio_class;
 extern struct attribute *kpc_uio_class_attrs[];
 
-int   kp2000_pcie_probe(struct pci_dev *dev, const struct pci_device_id *id);
-void  kp2000_pcie_remove(struct pci_dev *pdev);
 int   kp2000_probe_cores(struct kp2000_device *pcard);
 void  kp2000_remove_cores(struct kp2000_device *pcard);
 
@@ -94,19 +92,5 @@ extern struct file_operations  kp2000_fops;
 
 // Define this quick little macro because the expression is used frequently
 #define PCARD_TO_DEV(pcard)  (&(pcard->pdev->dev))
-
-static inline void
-lock_card(struct kp2000_device *pcard)
-{
-    BUG_ON(pcard == NULL);
-    mutex_lock(&pcard->sem);
-}
-static inline void
-unlock_card(struct kp2000_device *pcard)
-{
-    BUG_ON(pcard == NULL);
-    mutex_unlock(&pcard->sem);
-}
-
 
 #endif /* KP2000_PCIE_H */
