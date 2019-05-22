@@ -84,7 +84,7 @@ static int ti_lmu_common_convert_ramp_to_index(unsigned int usec)
 int ti_lmu_common_set_ramp(struct ti_lmu_bank *lmu_bank)
 {
 	struct regmap *regmap = lmu_bank->regmap;
-	u8 ramp, ramp_up, ramp_down;
+	int ramp, ramp_up, ramp_down;
 
 	if (lmu_bank->ramp_up_usec == 0 && lmu_bank->ramp_down_usec == 0) {
 		ramp_up = 0;
