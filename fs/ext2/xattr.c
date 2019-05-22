@@ -134,6 +134,32 @@ ext2_xattr_handler(int name_index)
 	return handler;
 }
 
+static bool
+ext2_xattr_header_valid(struct ext2_xattr_header *header)
+{
+	if (header->h_magic != cpu_to_le32(EXT2_XATTR_MAGIC) ||
+	    header->h_blocks != cpu_to_le32(1))
+		return false;
+
+	return true;
+}
+
+static bool
+ext2_xattr_entry_valid(struct ext2_xattr_entry *entry, size_t end_offs)
+{
+	size_t size;
+
+	if (entry->e_value_block != 0)
+		return false;
+
+	size = le32_to_cpu(entry->e_value_size);
+	if (size > end_offs ||
+	    le16_to_cpu(entry->e_value_offs) + size > end_offs)
+		return false;
+
+	return true;
+}
+
 /*
  * ext2_xattr_get()
  *
@@ -176,9 +202,9 @@ ext2_xattr_get(struct inode *inode, int name_index, const char *name,
 	ea_bdebug(bh, "b_count=%d, refcount=%d",
 		atomic_read(&(bh->b_count)), le32_to_cpu(HDR(bh)->h_refcount));
 	end = bh->b_data + bh->b_size;
-	if (HDR(bh)->h_magic != cpu_to_le32(EXT2_XATTR_MAGIC) ||
-	    HDR(bh)->h_blocks != cpu_to_le32(1)) {
-bad_block:	ext2_error(inode->i_sb, "ext2_xattr_get",
+	if (!ext2_xattr_header_valid(HDR(bh))) {
+bad_block:
+		ext2_error(inode->i_sb, "ext2_xattr_get",
 			"inode %ld: bad block %d", inode->i_ino,
 			EXT2_I(inode)->i_file_acl);
 		error = -EIO;
@@ -192,6 +218,8 @@ bad_block:	ext2_error(inode->i_sb, "ext2_xattr_get",
 			EXT2_XATTR_NEXT(entry);
 		if ((char *)next >= end)
 			goto bad_block;
+		if (!ext2_xattr_entry_valid(entry, inode->i_sb->s_blocksize))
+			goto bad_block;
 		if (name_index == entry->e_name_index &&
 		    name_len == entry->e_name_len &&
 		    memcmp(name, entry->e_name, name_len) == 0)
@@ -203,14 +231,7 @@ bad_block:	ext2_error(inode->i_sb, "ext2_xattr_get",
 	error = -ENODATA;
 	goto cleanup;
 found:
-	/* check the buffer size */
-	if (entry->e_value_block != 0)
-		goto bad_block;
 	size = le32_to_cpu(entry->e_value_size);
-	if (size > inode->i_sb->s_blocksize ||
-	    le16_to_cpu(entry->e_value_offs) + size > inode->i_sb->s_blocksize)
-		goto bad_block;
-
 	if (ext2_xattr_cache_insert(ea_block_cache, bh))
 		ea_idebug(inode, "cache insert failed");
 	if (buffer) {
@@ -266,9 +287,9 @@ ext2_xattr_list(struct dentry *dentry, char *buffer, size_t buffer_size)
 	ea_bdebug(bh, "b_count=%d, refcount=%d",
 		atomic_read(&(bh->b_count)), le32_to_cpu(HDR(bh)->h_refcount));
 	end = bh->b_data + bh->b_size;
-	if (HDR(bh)->h_magic != cpu_to_le32(EXT2_XATTR_MAGIC) ||
-	    HDR(bh)->h_blocks != cpu_to_le32(1)) {
-bad_block:	ext2_error(inode->i_sb, "ext2_xattr_list",
+	if (!ext2_xattr_header_valid(HDR(bh))) {
+bad_block:
+		ext2_error(inode->i_sb, "ext2_xattr_list",
 			"inode %ld: bad block %d", inode->i_ino,
 			EXT2_I(inode)->i_file_acl);
 		error = -EIO;
@@ -281,6 +302,8 @@ bad_block:	ext2_error(inode->i_sb, "ext2_xattr_list",
 		struct ext2_xattr_entry *next = EXT2_XATTR_NEXT(entry);
 
 		if ((char *)next >= end)
+			goto bad_block;
+		if (!ext2_xattr_entry_valid(entry, inode->i_sb->s_blocksize))
 			goto bad_block;
 		entry = next;
 	}
@@ -406,47 +429,46 @@ ext2_xattr_set(struct inode *inode, int name_index, const char *name,
 			le32_to_cpu(HDR(bh)->h_refcount));
 		header = HDR(bh);
 		end = bh->b_data + bh->b_size;
-		if (header->h_magic != cpu_to_le32(EXT2_XATTR_MAGIC) ||
-		    header->h_blocks != cpu_to_le32(1)) {
-bad_block:		ext2_error(sb, "ext2_xattr_set",
+		if (!ext2_xattr_header_valid(header)) {
+bad_block:
+			ext2_error(sb, "ext2_xattr_set",
 				"inode %ld: bad block %d", inode->i_ino, 
 				   EXT2_I(inode)->i_file_acl);
 			error = -EIO;
 			goto cleanup;
 		}
-		/* Find the named attribute. */
-		here = FIRST_ENTRY(bh);
-		while (!IS_LAST_ENTRY(here)) {
-			struct ext2_xattr_entry *next = EXT2_XATTR_NEXT(here);
-			if ((char *)next >= end)
-				goto bad_block;
-			if (!here->e_value_block && here->e_value_size) {
-				size_t offs = le16_to_cpu(here->e_value_offs);
-				if (offs < min_offs)
-					min_offs = offs;
-			}
-			not_found = name_index - here->e_name_index;
-			if (!not_found)
-				not_found = name_len - here->e_name_len;
-			if (!not_found)
-				not_found = memcmp(name, here->e_name,name_len);
-			if (not_found <= 0)
-				break;
-			here = next;
-		}
-		last = here;
-		/* We still need to compute min_offs and last. */
+		/*
+		 * Find the named attribute. If not found, 'here' will point
+		 * to entry where the new attribute should be inserted to
+		 * maintain sorting.
+		 */
+		last = FIRST_ENTRY(bh);
 		while (!IS_LAST_ENTRY(last)) {
 			struct ext2_xattr_entry *next = EXT2_XATTR_NEXT(last);
 			if ((char *)next >= end)
 				goto bad_block;
-			if (!last->e_value_block && last->e_value_size) {
+			if (!ext2_xattr_entry_valid(last, sb->s_blocksize))
+				goto bad_block;
+			if (last->e_value_size) {
 				size_t offs = le16_to_cpu(last->e_value_offs);
 				if (offs < min_offs)
 					min_offs = offs;
 			}
+			if (not_found > 0) {
+				not_found = name_index - last->e_name_index;
+				if (!not_found)
+					not_found = name_len - last->e_name_len;
+				if (!not_found) {
+					not_found = memcmp(name, last->e_name,
+							   name_len);
+				}
+				if (not_found <= 0)
+					here = last;
+			}
 			last = next;
 		}
+		if (not_found > 0)
+			here = last;
 
 		/* Check whether we have enough space left. */
 		free = min_offs - ((char*)last - (char*)header) - sizeof(__u32);
@@ -470,14 +492,7 @@ bad_block:		ext2_error(sb, "ext2_xattr_set",
 		error = -EEXIST;
 		if (flags & XATTR_CREATE)
 			goto cleanup;
-		if (!here->e_value_block && here->e_value_size) {
-			size_t size = le32_to_cpu(here->e_value_size);
-
-			if (le16_to_cpu(here->e_value_offs) + size > 
-			    sb->s_blocksize || size > sb->s_blocksize)
-				goto bad_block;
-			free += EXT2_XATTR_SIZE(size);
-		}
+		free += EXT2_XATTR_SIZE(le32_to_cpu(here->e_value_size));
 		free += EXT2_XATTR_LEN(name_len);
 	}
 	error = -ENOSPC;
@@ -542,7 +557,7 @@ bad_block:		ext2_error(sb, "ext2_xattr_set",
 		here->e_name_len = name_len;
 		memcpy(here->e_name, name, name_len);
 	} else {
-		if (!here->e_value_block && here->e_value_size) {
+		if (here->e_value_size) {
 			char *first_val = (char *)header + min_offs;
 			size_t offs = le16_to_cpu(here->e_value_offs);
 			char *val = (char *)header + offs;
@@ -569,7 +584,7 @@ bad_block:		ext2_error(sb, "ext2_xattr_set",
 			last = ENTRY(header+1);
 			while (!IS_LAST_ENTRY(last)) {
 				size_t o = le16_to_cpu(last->e_value_offs);
-				if (!last->e_value_block && o < offs)
+				if (o < offs)
 					last->e_value_offs =
 						cpu_to_le16(o + size);
 				last = EXT2_XATTR_NEXT(last);
@@ -784,8 +799,7 @@ ext2_xattr_delete_inode(struct inode *inode)
 		goto cleanup;
 	}
 	ea_bdebug(bh, "b_count=%d", atomic_read(&(bh->b_count)));
-	if (HDR(bh)->h_magic != cpu_to_le32(EXT2_XATTR_MAGIC) ||
-	    HDR(bh)->h_blocks != cpu_to_le32(1)) {
+	if (!ext2_xattr_header_valid(HDR(bh))) {
 		ext2_error(inode->i_sb, "ext2_xattr_delete_inode",
 			"inode %ld: bad block %d", inode->i_ino,
 			EXT2_I(inode)->i_file_acl);
