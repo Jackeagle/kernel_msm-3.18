@@ -97,6 +97,28 @@ static const char *amdgpu_asic_name[] = {
 	"LAST",
 };
 
+/**
+ * DOC: pcie_replay_count
+ *
+ * The amdgpu driver provides a sysfs API for reporting the total number
+ * of PCIe replays (NAKs)
+ * The file pcie_replay_count is used for this and returns the total
+ * number of replays as a sum of the NAKs generated and NAKs received
+ */
+
+static ssize_t amdgpu_device_get_pcie_replay_count(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct drm_device *ddev = dev_get_drvdata(dev);
+	struct amdgpu_device *adev = ddev->dev_private;
+	uint64_t cnt = amdgpu_asic_get_pcie_replay_count(adev);
+
+	return snprintf(buf, PAGE_SIZE, "%llu\n", cnt);
+}
+
+static DEVICE_ATTR(pcie_replay_count, S_IRUGO,
+		amdgpu_device_get_pcie_replay_count, NULL);
+
 static void amdgpu_device_get_pcie_info(struct amdgpu_device *adev);
 
 /**
@@ -910,8 +932,10 @@ def_value:
  * Validates certain module parameters and updates
  * the associated values used by the driver (all asics).
  */
-static void amdgpu_device_check_arguments(struct amdgpu_device *adev)
+static int amdgpu_device_check_arguments(struct amdgpu_device *adev)
 {
+	int ret = 0;
+
 	if (amdgpu_sched_jobs < 4) {
 		dev_warn(adev->dev, "sched jobs (%d) must be at least 4\n",
 			 amdgpu_sched_jobs);
@@ -956,12 +980,15 @@ static void amdgpu_device_check_arguments(struct amdgpu_device *adev)
 		amdgpu_vram_page_split = 1024;
 	}
 
-	if (amdgpu_lockup_timeout == 0) {
-		dev_warn(adev->dev, "lockup_timeout msut be > 0, adjusting to 10000\n");
-		amdgpu_lockup_timeout = 10000;
+	ret = amdgpu_device_get_job_timeout_settings(adev);
+	if (ret) {
+		dev_err(adev->dev, "invalid lockup_timeout parameter syntax\n");
+		return ret;
 	}
 
 	adev->firmware.load_type = amdgpu_ucode_get_load_type(adev, amdgpu_fw_load_type);
+
+	return ret;
 }
 
 /**
@@ -1505,6 +1532,9 @@ static int amdgpu_device_ip_early_init(struct amdgpu_device *adev)
 		r = amdgpu_virt_request_full_gpu(adev, true);
 		if (r)
 			return -EAGAIN;
+
+		/* query the reg access mode at the very beginning */
+		amdgpu_virt_init_reg_access_mode(adev);
 	}
 
 	adev->pm.pp_feature = amdgpu_pp_feature_mask;
@@ -1550,6 +1580,7 @@ static int amdgpu_device_ip_hw_init_phase1(struct amdgpu_device *adev)
 		if (adev->ip_blocks[i].status.hw)
 			continue;
 		if (adev->ip_blocks[i].version->type == AMD_IP_BLOCK_TYPE_COMMON ||
+		    (amdgpu_sriov_vf(adev) && (adev->ip_blocks[i].version->type == AMD_IP_BLOCK_TYPE_PSP)) ||
 		    adev->ip_blocks[i].version->type == AMD_IP_BLOCK_TYPE_IH) {
 			r = adev->ip_blocks[i].version->funcs->hw_init(adev);
 			if (r) {
@@ -2473,7 +2504,9 @@ int amdgpu_device_init(struct amdgpu_device *adev,
 	mutex_init(&adev->lock_reset);
 	mutex_init(&adev->virt.dpm_mutex);
 
-	amdgpu_device_check_arguments(adev);
+	r = amdgpu_device_check_arguments(adev);
+	if (r)
+		return r;
 
 	spin_lock_init(&adev->mmio_idx_lock);
 	spin_lock_init(&adev->smc_idx_lock);
@@ -2672,6 +2705,10 @@ fence_driver_init:
 	if (r)
 		DRM_ERROR("registering pm debugfs failed (%d).\n", r);
 
+	r = amdgpu_ucode_sysfs_init(adev);
+	if (r)
+		DRM_ERROR("Creating firmware sysfs failed (%d).\n", r);
+
 	r = amdgpu_debugfs_gem_init(adev);
 	if (r)
 		DRM_ERROR("registering gem debugfs failed (%d).\n", r);
@@ -2712,7 +2749,13 @@ fence_driver_init:
 	}
 
 	/* must succeed. */
-	amdgpu_ras_post_init(adev);
+	amdgpu_ras_resume(adev);
+
+	r = device_create_file(adev->dev, &dev_attr_pcie_replay_count);
+	if (r) {
+		dev_err(adev->dev, "Could not create pcie_replay_count");
+		return r;
+	}
 
 	return 0;
 
@@ -2777,6 +2820,8 @@ void amdgpu_device_fini(struct amdgpu_device *adev)
 	adev->rmmio = NULL;
 	amdgpu_device_doorbell_fini(adev);
 	amdgpu_debugfs_regs_cleanup(adev);
+	device_remove_file(adev->dev, &dev_attr_pcie_replay_count);
+	amdgpu_ucode_sysfs_fini(adev);
 }
 
 
@@ -2856,6 +2901,8 @@ int amdgpu_device_suspend(struct drm_device *dev, bool suspend, bool fbcon)
 	}
 
 	amdgpu_amdkfd_suspend(adev);
+
+	amdgpu_ras_suspend(adev);
 
 	r = amdgpu_device_ip_suspend_phase1(adev);
 
@@ -2976,6 +3023,8 @@ int amdgpu_device_resume(struct drm_device *dev, bool resume, bool fbcon)
 	}
 
 	drm_kms_helper_poll_enable(dev);
+
+	amdgpu_ras_resume(adev);
 
 	/*
 	 * Most of the connector probing functions try to acquire runtime pm
@@ -3458,6 +3507,13 @@ static int amdgpu_do_asic_reset(struct amdgpu_hive_info *hive,
 				if (vram_lost)
 					amdgpu_device_fill_reset_magic(tmp_adev);
 
+				r = amdgpu_device_ip_late_init(tmp_adev);
+				if (r)
+					goto out;
+
+				/* must succeed. */
+				amdgpu_ras_resume(tmp_adev);
+
 				/* Update PSP FW topology after reset */
 				if (hive && tmp_adev->gmc.xgmi.num_physical_nodes > 1)
 					r = amdgpu_xgmi_update_topology(hive, tmp_adev);
@@ -3651,43 +3707,6 @@ retry:	/* Rest of adevs pre asic reset from XGMI hive. */
 	return r;
 }
 
-static void amdgpu_device_get_min_pci_speed_width(struct amdgpu_device *adev,
-						  enum pci_bus_speed *speed,
-						  enum pcie_link_width *width)
-{
-	struct pci_dev *pdev = adev->pdev;
-	enum pci_bus_speed cur_speed;
-	enum pcie_link_width cur_width;
-	u32 ret = 1;
-
-	*speed = PCI_SPEED_UNKNOWN;
-	*width = PCIE_LNK_WIDTH_UNKNOWN;
-
-	while (pdev) {
-		cur_speed = pcie_get_speed_cap(pdev);
-		cur_width = pcie_get_width_cap(pdev);
-		ret = pcie_bandwidth_available(adev->pdev, NULL,
-						       NULL, &cur_width);
-		if (!ret)
-			cur_width = PCIE_LNK_WIDTH_RESRV;
-
-		if (cur_speed != PCI_SPEED_UNKNOWN) {
-			if (*speed == PCI_SPEED_UNKNOWN)
-				*speed = cur_speed;
-			else if (cur_speed < *speed)
-				*speed = cur_speed;
-		}
-
-		if (cur_width != PCIE_LNK_WIDTH_UNKNOWN) {
-			if (*width == PCIE_LNK_WIDTH_UNKNOWN)
-				*width = cur_width;
-			else if (cur_width < *width)
-				*width = cur_width;
-		}
-		pdev = pci_upstream_bridge(pdev);
-	}
-}
-
 /**
  * amdgpu_device_get_pcie_info - fence pcie info about the PCIE slot
  *
@@ -3721,8 +3740,8 @@ static void amdgpu_device_get_pcie_info(struct amdgpu_device *adev)
 	if (adev->pm.pcie_gen_mask && adev->pm.pcie_mlw_mask)
 		return;
 
-	amdgpu_device_get_min_pci_speed_width(adev, &platform_speed_cap,
-					      &platform_link_width);
+	pcie_bandwidth_available(adev->pdev, NULL,
+				 &platform_speed_cap, &platform_link_width);
 
 	if (adev->pm.pcie_gen_mask == 0) {
 		/* asic caps */
