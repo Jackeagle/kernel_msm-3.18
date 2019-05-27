@@ -1377,10 +1377,17 @@ ssize_t fuse_direct_io(struct fuse_io_priv *io, struct iov_iter *iter,
 		if (err && !nbytes)
 			break;
 
-		if (write)
+		if (write) {
+			if (!capable(CAP_FSETID)) {
+				struct fuse_write_in *inarg;
+
+				inarg = &req->misc.write.in;
+				inarg->write_flags |= FUSE_WRITE_KILL_PRIV;
+			}
 			nres = fuse_send_write(req, io, pos, nbytes, owner);
-		else
+		} else {
 			nres = fuse_send_read(req, io, pos, nbytes, owner);
+		}
 
 		if (!io->async)
 			fuse_release_user_pages(req, io->should_dirty);
@@ -3055,7 +3062,7 @@ static long fuse_file_fallocate(struct file *file, int mode, loff_t offset,
 	    offset + length > i_size_read(inode)) {
 		err = inode_newsize_ok(inode, offset + length);
 		if (err)
-			return err;
+			goto out;
 	}
 
 	if (!(mode & FALLOC_FL_KEEP_SIZE))
