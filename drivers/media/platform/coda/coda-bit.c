@@ -1456,6 +1456,13 @@ static int coda_prepare_encode(struct coda_ctx *ctx)
 	return 0;
 }
 
+static char coda_frame_type_char(u32 flags)
+{
+	return (flags & V4L2_BUF_FLAG_KEYFRAME) ? 'I' :
+	       (flags & V4L2_BUF_FLAG_PFRAME) ? 'P' :
+	       (flags & V4L2_BUF_FLAG_BFRAME) ? 'B' : '?';
+}
+
 static void coda_finish_encode(struct coda_ctx *ctx)
 {
 	struct vb2_v4l2_buffer *src_buf, *dst_buf;
@@ -1512,8 +1519,7 @@ static void coda_finish_encode(struct coda_ctx *ctx)
 		ctx->gopcounter = ctx->params.gop_size - 1;
 
 	coda_dbg(1, ctx, "job finished: encoded %c frame (%d)\n",
-		 (dst_buf->flags & V4L2_BUF_FLAG_KEYFRAME) ? 'I' : 'P',
-		 dst_buf->sequence);
+		 coda_frame_type_char(dst_buf->flags), dst_buf->sequence);
 }
 
 static void coda_seq_end_work(struct work_struct *work)
@@ -1806,6 +1812,17 @@ static int __coda_start_decoding(struct coda_ctx *ctx)
 					 (left_right & 0x3ff);
 		q_data_dst->rect.height = height - q_data_dst->rect.top -
 					  (top_bottom & 0x3ff);
+	}
+
+	if (dev->devtype->product != CODA_DX6) {
+		u8 profile, level;
+
+		val = coda_read(dev, CODA7_RET_DEC_SEQ_HEADER_REPORT);
+		profile = val & 0xff;
+		level = (val >> 8) & 0x7f;
+
+		if (profile || level)
+			coda_update_profile_level_ctrls(ctx, profile, level);
 	}
 
 	ret = coda_alloc_framebuffers(ctx, q_data_dst, src_fourcc);
@@ -2240,13 +2257,36 @@ static void coda_finish_decode(struct coda_ctx *ctx)
 		else
 			coda_m2m_buf_done(ctx, dst_buf, VB2_BUF_STATE_DONE);
 
-		coda_dbg(1, ctx, "job finished: decoded %c frame (%u/%u)\n",
-			 (dst_buf->flags & V4L2_BUF_FLAG_KEYFRAME) ? 'I' :
-			 ((dst_buf->flags & V4L2_BUF_FLAG_PFRAME) ? 'P' : 'B'),
-			 dst_buf->sequence, ctx->qsequence);
+		if (decoded_idx >= 0 &&
+		    decoded_idx < ctx->num_internal_frames) {
+			coda_dbg(1, ctx, "job finished: decoded %c frame %u, returned %c frame %u (%u/%u)%s\n",
+				 coda_frame_type_char(ctx->frame_types[decoded_idx]),
+				 ctx->frame_metas[decoded_idx].sequence,
+				 coda_frame_type_char(dst_buf->flags),
+				 ctx->frame_metas[ctx->display_idx].sequence,
+				 dst_buf->sequence, ctx->qsequence,
+				 (dst_buf->flags & V4L2_BUF_FLAG_LAST) ?
+				 " (last)" : "");
+		} else {
+			coda_dbg(1, ctx, "job finished: no frame decoded (%d), returned %c frame %u (%u/%u)%s\n",
+				 decoded_idx,
+				 coda_frame_type_char(dst_buf->flags),
+				 ctx->frame_metas[ctx->display_idx].sequence,
+				 dst_buf->sequence, ctx->qsequence,
+				 (dst_buf->flags & V4L2_BUF_FLAG_LAST) ?
+				 " (last)" : "");
+		}
 	} else {
-		coda_dbg(1, ctx, "job finished: no frame decoded (%u/%u)\n",
-			 ctx->osequence, ctx->qsequence);
+		if (decoded_idx >= 0 &&
+		    decoded_idx < ctx->num_internal_frames) {
+			coda_dbg(1, ctx, "job finished: decoded %c frame %u, no frame returned (%d)\n",
+				 coda_frame_type_char(ctx->frame_types[decoded_idx]),
+				 ctx->frame_metas[decoded_idx].sequence,
+				 ctx->display_idx);
+		} else {
+			coda_dbg(1, ctx, "job finished: no frame decoded (%d) or returned (%d)\n",
+				 decoded_idx, ctx->display_idx);
+		}
 	}
 
 	/* The rotator will copy the current display frame next time */
