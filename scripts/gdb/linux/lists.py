@@ -56,6 +56,27 @@ def hlist_for_each_entry(head, gdbtype, member):
         yield utils.container_of(node, gdbtype, member)
 
 
+def hlist_for_each(head):
+    if head.type == hlist_head.get_type().pointer():
+        head = head.dereference()
+    elif head.type != hlist_head.get_type():
+        raise gdb.GdbError("Must be struct hlist_head not {}"
+                           .format(head.type))
+
+    node = head['first'].dereference()
+    while node.address:
+        yield node.address
+        node = node['next'].dereference()
+
+
+def hlist_for_each_entry(head, gdbtype, member):
+    for node in hlist_for_each(head):
+        if node.type != hlist_node.get_type().pointer():
+            raise TypeError("Type {} found. Expected struct hlist_head *."
+                            .format(node.type))
+        yield utils.container_of(node, gdbtype, member)
+
+
 def list_check(head):
     nb = 0
     if (head.type == list_head.get_type().pointer()):
