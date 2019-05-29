@@ -200,8 +200,8 @@ void ghes_edac_report_mem_error(int sev, struct cper_sec_mem_err *mem_err)
 	struct mem_ctl_info *mci;
 	struct ghes_edac_pvt *pvt = ghes_pvt;
 	unsigned long flags;
+	u8 grain_bits = 0;
 	char *p;
-	u8 grain_bits;
 
 	if (!pvt)
 		return;
@@ -316,8 +316,10 @@ void ghes_edac_report_mem_error(int sev, struct cper_sec_mem_err *mem_err)
 	}
 
 	/* Error grain */
-	if (mem_err->validation_bits & CPER_MEM_VALID_PA_MASK)
-		e->grain = ~(mem_err->physical_addr_mask & ~PAGE_MASK);
+	if (mem_err->validation_bits & CPER_MEM_VALID_PA_MASK) {
+		grain_bits = fls_long(~mem_err->physical_addr_mask);
+		e->grain = 1UL<<grain_bits;
+	}
 
 	/* Memory error location, mapped on e->location */
 	p = e->location;
@@ -434,7 +436,6 @@ void ghes_edac_report_mem_error(int sev, struct cper_sec_mem_err *mem_err)
 		*(p - 1) = '\0';
 
 	/* Generate the trace event */
-	grain_bits = fls_long(e->grain);
 	snprintf(pvt->detail_location, sizeof(pvt->detail_location),
 		 "APEI location: %s %s", e->location, e->other_detail);
 	trace_mc_event(type, e->msg, e->label, e->error_count,
