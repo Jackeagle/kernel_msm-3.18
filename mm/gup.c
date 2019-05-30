@@ -515,7 +515,7 @@ static struct page *follow_p4d_mask(struct vm_area_struct *vma,
  * an error pointer if there is a mapping to something not represented
  * by a page descriptor (see also vm_normal_page()).
  */
-struct page *follow_page_mask(struct vm_area_struct *vma,
+static struct page *follow_page_mask(struct vm_area_struct *vma,
 			      unsigned long address, unsigned int flags,
 			      struct follow_page_context *ctx)
 {
@@ -1042,10 +1042,6 @@ static __always_inline long __get_user_pages_locked(struct task_struct *tsk,
 			BUG_ON(ret >= nr_pages);
 		}
 
-		if (!pages)
-			/* If it's a prefault don't insist harder */
-			return ret;
-
 		if (ret > 0) {
 			nr_pages -= ret;
 			pages_done += ret;
@@ -1061,8 +1057,12 @@ static __always_inline long __get_user_pages_locked(struct task_struct *tsk,
 				pages_done = ret;
 			break;
 		}
-		/* VM_FAULT_RETRY triggered, so seek to the faulting offset */
-		pages += ret;
+		/*
+		 * VM_FAULT_RETRY triggered, so seek to the faulting offset.
+		 * For the prefault case (!pages) we only update counts.
+		 */
+		if (likely(pages))
+			pages += ret;
 		start += ret << PAGE_SHIFT;
 
 		/*
@@ -1085,7 +1085,8 @@ static __always_inline long __get_user_pages_locked(struct task_struct *tsk,
 		pages_done++;
 		if (!nr_pages)
 			break;
-		pages++;
+		if (likely(pages))
+			pages++;
 		start += PAGE_SIZE;
 	}
 	if (lock_dropped && *locked) {
@@ -1800,7 +1801,7 @@ static int gup_pte_range(pmd_t pmd, unsigned long addr, unsigned long end,
 }
 #endif /* CONFIG_ARCH_HAS_PTE_SPECIAL */
 
-#if defined(__HAVE_ARCH_PTE_DEVMAP) && defined(CONFIG_TRANSPARENT_HUGEPAGE)
+#if defined(CONFIG_ARCH_HAS_PTE_DEVMAP) && defined(CONFIG_TRANSPARENT_HUGEPAGE)
 static int __gup_device_huge(unsigned long pfn, unsigned long addr,
 		unsigned long end, struct page **pages, int *nr)
 {
