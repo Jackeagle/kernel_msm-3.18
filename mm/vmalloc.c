@@ -322,7 +322,7 @@ int vmap_range(unsigned long addr,
 	int ret;
 
 	ret = vmap_range_noflush(addr, end, phys_addr, prot, max_page_shift);
-	flush_cache_vmap(start, end);
+	flush_cache_vmap(addr, end);
 	return ret;
 }
 
