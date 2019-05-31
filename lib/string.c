@@ -400,6 +400,9 @@ EXPORT_SYMBOL(strncmp);
  * strchr - Find the first occurrence of a character in a string
  * @s: The string to be searched
  * @c: The character to search for
+ *
+ * Note that the %NUL-terminator is considered part of the string, and can
+ * be searched for.
  */
 char *strchr(const char *s, int c)
 {
@@ -429,6 +432,23 @@ char *strchrnul(const char *s, int c)
 EXPORT_SYMBOL(strchrnul);
 #endif
 
+/**
+ * strnchrnul - Find and return a character in a length limited string,
+ * or end of string
+ * @s: The string to be searched
+ * @count: The number of characters to be searched
+ * @c: The character to search for
+ *
+ * Returns pointer to the first occurrence of 'c' in s. If c is not found,
+ * then return a pointer to the last character of the string.
+ */
+char *strnchrnul(const char *s, size_t count, int c)
+{
+	while (count-- && *s && *s != (char)c)
+		s++;
+	return (char *)s;
+}
+
 #ifndef __HAVE_ARCH_STRRCHR
 /**
  * strrchr - Find the last occurrence of a character in a string
@@ -453,12 +473,18 @@ EXPORT_SYMBOL(strrchr);
  * @s: The string to be searched
  * @count: The number of characters to be searched
  * @c: The character to search for
+ *
+ * Note that the %NUL-terminator is considered part of the string, and can
+ * be searched for.
  */
 char *strnchr(const char *s, size_t count, int c)
 {
-	for (; count-- && *s != '\0'; ++s)
+	while (count--) {
 		if (*s == (char)c)
 			return (char *)s;
+		if (*s++ == '\0')
+			break;
+	}
 	return NULL;
 }
 EXPORT_SYMBOL(strnchr);

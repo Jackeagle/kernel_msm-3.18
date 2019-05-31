@@ -16,15 +16,14 @@
  * firmware fallback configuration table
  */
 
-static unsigned int zero;
-static unsigned int one = 1;
-
 struct firmware_fallback_config fw_fallback_config = {
 	.force_sysfs_fallback = IS_ENABLED(CONFIG_FW_LOADER_USER_HELPER_FALLBACK),
 	.loading_timeout = 60,
 	.old_timeout = 60,
 };
 EXPORT_SYMBOL_GPL(fw_fallback_config);
+
+#ifdef CONFIG_PROC_SYSCTL
 
 struct ctl_table firmware_config_table[] = {
 	{
@@ -33,8 +32,8 @@ struct ctl_table firmware_config_table[] = {
 		.maxlen         = sizeof(unsigned int),
 		.mode           = 0644,
 		.proc_handler   = proc_douintvec_minmax,
-		.extra1		= &zero,
-		.extra2		= &one,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
 	},
 	{
 		.procname	= "ignore_sysfs_fallback",
@@ -42,9 +41,11 @@ struct ctl_table firmware_config_table[] = {
 		.maxlen         = sizeof(unsigned int),
 		.mode           = 0644,
 		.proc_handler   = proc_douintvec_minmax,
-		.extra1		= &zero,
-		.extra2		= &one,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
 	},
 	{ }
 };
 EXPORT_SYMBOL_GPL(firmware_config_table);
+
+#endif
