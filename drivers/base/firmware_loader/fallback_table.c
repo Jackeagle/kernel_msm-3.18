@@ -23,6 +23,8 @@ struct firmware_fallback_config fw_fallback_config = {
 };
 EXPORT_SYMBOL_GPL(fw_fallback_config);
 
+#ifdef CONFIG_PROC_SYSCTL
+
 struct ctl_table firmware_config_table[] = {
 	{
 		.procname	= "force_sysfs_fallback",
@@ -45,3 +47,5 @@ struct ctl_table firmware_config_table[] = {
 	{ }
 };
 EXPORT_SYMBOL_GPL(firmware_config_table);
+
+#endif
