@@ -346,7 +346,7 @@ static int shmem_replace_entry(struct address_space *mapping,
 	item = xas_load(&xas);
 	if (item != expected)
 		return -ENOENT;
-	xas_replace(&xas, item, replacement);
+	xas_store(&xas, replacement);
 	return 0;
 }
 

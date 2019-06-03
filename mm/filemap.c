@@ -133,8 +133,8 @@ static void page_cache_delete(struct address_space *mapping,
 	VM_BUG_ON_PAGE(PageTail(page), page);
 	VM_BUG_ON_PAGE(nr != 1 && shadow, page);
 
+	xas_store(&xas, shadow);
 	xas_init_marks(&xas);
-	xas_replace(&xas, page, shadow);
 
 	page->mapping = NULL;
 	/* Leave page->index set: truncation lookup relies upon it */
@@ -332,7 +332,7 @@ static void page_cache_delete_batch(struct address_space *mapping,
 		if (page->index + (1UL << compound_order(page)) - 1 ==
 				xas.xa_index)
 			i++;
-		xas_replace(&xas, page, NULL);
+		xas_store(&xas, NULL);
 		total_pages++;
 	}
 	mapping->nrpages -= total_pages;
@@ -798,7 +798,7 @@ int replace_page_cache_page(struct page *old, struct page *new, gfp_t gfp_mask)
 	new->index = offset;
 
 	xas_lock_irqsave(&xas, flags);
-	xas_replace(&xas, old, new);
+	xas_store(&xas, new);
 
 	old->mapping = NULL;
 	/* hugetlb pages do not participate in page cache accounting. */

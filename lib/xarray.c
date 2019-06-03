@@ -621,7 +621,7 @@ static int xas_expand(struct xa_state *xas, void *head)
 /*
  * xas_create() - Create a slot to store an entry in.
  * @xas: XArray operation state.
- * @entry: Entry which will be stored in the slot.
+ * @allow_root: %true if we can store the entry in the root directly
  *
  * Most users will not need to call this function directly, as it is called
  * by xas_store().  It is useful for doing conditional store operations
@@ -631,14 +631,14 @@ static int xas_expand(struct xa_state *xas, void *head)
  * If the slot was newly created, returns %NULL.  If it failed to create the
  * slot, returns %NULL and indicates the error in @xas.
  */
-static void *xas_create(struct xa_state *xas, void *entry)
+static void *xas_create(struct xa_state *xas, bool allow_root)
 {
 	struct xarray *xa = xas->xa;
+	void *entry;
 	void __rcu **slot;
 	struct xa_node *node = xas->xa_node;
 	int shift;
 	unsigned int order = xas->xa_shift;
-	bool allow_root = !xa_is_node(entry) && !xa_is_zero(entry);
 
 	if (xas_top(node)) {
 		entry = xa_head_locked(xa);
@@ -709,7 +709,7 @@ void xas_create_range(struct xa_state *xas)
 	xas->xa_sibs = 0;
 
 	for (;;) {
-		xas_create(xas, XA_ZERO_ENTRY);
+		xas_create(xas, true);
 		if (xas_error(xas))
 			goto restore;
 		if (xas->xa_index <= (index | XA_CHUNK_MASK))
@@ -753,37 +753,44 @@ static void update_node(struct xa_state *xas, struct xa_node *node,
 }
 
 /**
- * xas_replace() - Replace one XArray entry with another.
+ * xas_store() - Store this entry in the XArray.
  * @xas: XArray operation state.
- * @curr: Current entry.
  * @entry: New entry.
  *
- * This is not a cmpxchg operation.  The caller asserts that @curr is the
- * current entry at the index referred to by @xas and wishes to replace it
- * with @entry.  The slot must have already been created by xas_create()
- * or by virtue of @curr being non-NULL.  The marks are not changed by
- * this operation.
+ * If @xas is operating on a multi-index entry, the entry returned by this
+ * function is essentially meaningless (it may be an internal entry or it
+ * may be %NULL, even if there are non-NULL entries at some of the indices
+ * covered by the range).  This is not a problem for any current users,
+ * and can be changed if needed.
+ *
+ * Return: The old entry at this index.
  */
-void xas_replace(struct xa_state *xas, void *curr, void *entry)
+void *xas_store(struct xa_state *xas, void *entry)
 {
 	struct xa_node *node;
 	void __rcu **slot = &xas->xa->xa_head;
 	unsigned int offset, max;
 	int count = 0;
 	int values = 0;
-	void *next;
+	void *first, *next;
 	bool value = xa_is_value(entry);
 
+	if (entry) {
+		bool allow_root = !xa_is_node(entry) && !xa_is_zero(entry);
+		first = xas_create(xas, allow_root);
+	} else {
+		first = xas_load(xas);
+	}
+
 	if (xas_invalid(xas))
-		return;
-	XA_BUG_ON(xas->xa, xas_reload(xas) != curr);
+		return first;
 	node = xas->xa_node;
 	if (node && (xas->xa_shift < node->shift))
 		xas->xa_sibs = 0;
-	if ((curr == entry) && !xas->xa_sibs)
-		return;
+	if ((first == entry) && !xas->xa_sibs)
+		return first;
 
-	next = curr;
+	next = first;
 	offset = xas->xa_offset;
 	max = xas->xa_offset + xas->xa_sibs;
 	if (node) {
@@ -791,6 +798,8 @@ void xas_replace(struct xa_state *xas, void *curr, void *entry)
 		if (xas->xa_sibs)
 			xas_squash_marks(xas);
 	}
+	if (!entry)
+		xas_init_marks(xas);
 
 	for (;;) {
 		/*
@@ -806,7 +815,7 @@ void xas_replace(struct xa_state *xas, void *curr, void *entry)
 		if (!node)
 			break;
 		count += !next - !entry;
-		values += !xa_is_value(curr) - !value;
+		values += !xa_is_value(first) - !value;
 		if (entry) {
 			if (offset == max)
 				break;
@@ -820,41 +829,13 @@ void xas_replace(struct xa_state *xas, void *curr, void *entry)
 		if (!xa_is_sibling(next)) {
 			if (!entry && (offset > max))
 				break;
-			curr = next;
+			first = next;
 		}
 		slot++;
 	}
 
 	update_node(xas, node, count, values);
-}
-
-/**
- * xas_store() - Store this entry in the XArray.
- * @xas: XArray operation state.
- * @entry: New entry.
- *
- * If @xas is operating on a multi-index entry, the entry returned by this
- * function is essentially meaningless (it may be an internal entry or it
- * may be %NULL, even if there are non-NULL entries at some of the indices
- * covered by the range).  This is not a problem for any current users,
- * and can be changed if needed.
- *
- * Return: The old entry at this index.
- */
-void *xas_store(struct xa_state *xas, void *entry)
-{
-	void *curr;
-
-	if (entry) {
-		curr = xas_create(xas, entry);
-	} else {
-		curr = xas_load(xas);
-		if (curr)
-			xas_init_marks(xas);
-	}
-
-	xas_replace(xas, curr, entry);
-	return curr;
+	return first;
 }
 EXPORT_SYMBOL_GPL(xas_store);
 
@@ -1499,9 +1480,9 @@ int __xa_insert(struct xarray *xa, unsigned long index, void *entry, gfp_t gfp)
 		entry = XA_ZERO_ENTRY;
 
 	do {
-		curr = xas_create(&xas, entry);
+		curr = xas_load(&xas);
 		if (!curr) {
-			xas_replace(&xas, curr, entry);
+			xas_store(&xas, entry);
 			if (xa_track_free(xa))
 				xas_clear_mark(&xas, XA_FREE_MARK);
 		} else {
@@ -1580,7 +1561,7 @@ void *xa_store_range(struct xarray *xa, unsigned long first,
 			if (last + 1)
 				order = __ffs(last + 1);
 			xas_set_order(&xas, last, order);
-			xas_create(&xas, entry);
+			xas_create(&xas, true);
 			if (xas_error(&xas))
 				goto unlock;
 		}
@@ -1633,13 +1614,11 @@ int __xa_alloc(struct xarray *xa, u32 *id, void *entry,
 	do {
 		xas.xa_index = limit.min;
 		xas_find_marked(&xas, limit.max, XA_FREE_MARK);
-		if (xas.xa_node == XAS_RESTART) {
+		if (xas.xa_node == XAS_RESTART)
 			xas_set_err(&xas, -EBUSY);
-		} else {
-			xas_create(&xas, entry);
+		else
 			*id = xas.xa_index;
-		}
-		xas_replace(&xas, NULL, entry);
+		xas_store(&xas, entry);
 		xas_clear_mark(&xas, XA_FREE_MARK);
 	} while (__xas_nomem(&xas, gfp));
 
