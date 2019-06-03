@@ -457,13 +457,13 @@ int migrate_page_move_mapping(struct address_space *mapping,
 		SetPageDirty(newpage);
 	}
 
-	xas_store(&xas, newpage);
+	xas_replace(&xas, page, newpage);
 	if (PageTransHuge(page)) {
 		int i;
 
 		for (i = 1; i < HPAGE_PMD_NR; i++) {
 			xas_next(&xas);
-			xas_store(&xas, newpage);
+			xas_replace(&xas, page, newpage);
 		}
 	}
 
@@ -534,7 +534,7 @@ int migrate_huge_page_move_mapping(struct address_space *mapping,
 
 	get_page(newpage);
 
-	xas_store(&xas, newpage);
+	xas_replace(&xas, page, newpage);
 
 	page_ref_unfreeze(page, expected_count - 1);
 
