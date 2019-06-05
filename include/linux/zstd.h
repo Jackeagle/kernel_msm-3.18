@@ -254,7 +254,7 @@ ZSTD_CCtx *ZSTD_initCCtx(void *workspace, size_t workspaceSize);
  *               ZSTD_isError().
  */
 size_t ZSTD_compressCCtx(ZSTD_CCtx *ctx, void *dst, size_t dstCapacity,
-	const void *src, size_t srcSize, ZSTD_parameters params);
+	const void *src, size_t srcSize, const ZSTD_parameters *params);
 
 /**
  * ZSTD_DCtxWorkspaceBound() - amount of memory needed to initialize a ZSTD_DCtx
@@ -324,7 +324,7 @@ size_t ZSTD_decompressDCtx(ZSTD_DCtx *ctx, void *dst, size_t dstCapacity,
  */
 size_t ZSTD_compress_usingDict(ZSTD_CCtx *ctx, void *dst, size_t dstCapacity,
 	const void *src, size_t srcSize, const void *dict, size_t dictSize,
-	ZSTD_parameters params);
+	const ZSTD_parameters *params);
 
 /**
  * ZSTD_decompress_usingDict() - decompress src into dst using a dictionary
@@ -381,7 +381,7 @@ typedef struct ZSTD_CDict_s ZSTD_CDict;
  * Return:         The digested dictionary emplaced into workspace.
  */
 ZSTD_CDict *ZSTD_initCDict(const void *dictBuffer, size_t dictSize,
-	ZSTD_parameters params, void *workspace, size_t workspaceSize);
+	const ZSTD_parameters *params, void *workspace, size_t workspaceSize);
 
 /**
  * ZSTD_compress_usingCDict() - compress src into dst using a ZSTD_CDict
@@ -552,7 +552,7 @@ typedef struct ZSTD_CStream_s ZSTD_CStream;
  *
  * Return:          The zstd streaming compression context.
  */
-ZSTD_CStream *ZSTD_initCStream(ZSTD_parameters params,
+ZSTD_CStream *ZSTD_initCStream(const ZSTD_parameters *params,
 	unsigned long long pledgedSrcSize, void *workspace,
 	size_t workspaceSize);
 
@@ -1006,7 +1006,7 @@ size_t ZSTD_compressBegin(ZSTD_CCtx *cctx, int compressionLevel);
 size_t ZSTD_compressBegin_usingDict(ZSTD_CCtx *cctx, const void *dict,
 	size_t dictSize, int compressionLevel);
 size_t ZSTD_compressBegin_advanced(ZSTD_CCtx *cctx, const void *dict,
-	size_t dictSize, ZSTD_parameters params,
+	size_t dictSize, const ZSTD_parameters *params,
 	unsigned long long pledgedSrcSize);
 size_t ZSTD_copyCCtx(ZSTD_CCtx *cctx, const ZSTD_CCtx *preparedCCtx,
 	unsigned long long pledgedSrcSize);
