@@ -24,6 +24,8 @@ struct zstd_ctx {
 	void *dwksp;
 };
 
+static ZSTD_parameters params;
+
 static ZSTD_parameters zstd_params(void)
 {
 	return ZSTD_getParams(ZSTD_DEF_LEVEL, 0, 0);
@@ -32,8 +34,10 @@ static ZSTD_parameters zstd_params(void)
 static int zstd_comp_init(struct zstd_ctx *ctx)
 {
 	int ret = 0;
-	const ZSTD_parameters params = zstd_params();
-	const size_t wksp_size = ZSTD_CCtxWorkspaceBound(params.cParams);
+	size_t wksp_size;
+
+	params = zstd_params();
+	wksp_size = ZSTD_CCtxWorkspaceBound(params.cParams);
 
 	ctx->cwksp = vzalloc(wksp_size);
 	if (!ctx->cwksp) {
@@ -152,7 +156,6 @@ static int __zstd_compress(const u8 *src, unsigned int slen,
 {
 	size_t out_len;
 	struct zstd_ctx *zctx = ctx;
-	const ZSTD_parameters params = zstd_params();
 
 	out_len = ZSTD_compressCCtx(zctx->cctx, dst, *dlen, src, slen, &params);
 	if (ZSTD_isError(out_len))
