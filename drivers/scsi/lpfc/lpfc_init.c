@@ -72,7 +72,7 @@ unsigned long _dump_buf_dif_order;
 spinlock_t _dump_buf_lock;
 
 /* Used when mapping IRQ vectors in a driver centric manner */
-uint32_t lpfc_present_cpu;
+static uint32_t lpfc_present_cpu;
 
 static void lpfc_get_hba_model_desc(struct lpfc_hba *, uint8_t *, uint8_t *);
 static int lpfc_post_rcv_buf(struct lpfc_hba *);
@@ -9356,10 +9356,8 @@ static void
 lpfc_setup_cq_lookup(struct lpfc_hba *phba)
 {
 	struct lpfc_queue *eq, *childq;
-	struct lpfc_sli4_hdw_queue *qp;
 	int qidx;
 
-	qp = phba->sli4_hba.hdwq;
 	memset(phba->sli4_hba.cq_lookup, 0,
 	       (sizeof(struct lpfc_queue *) * (phba->sli4_hba.cq_max + 1)));
 	/* Loop thru all IRQ vectors */
