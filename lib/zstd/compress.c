@@ -2435,9 +2435,9 @@ static size_t ZSTD_writeFrameHeader(void *dst, size_t dstCapacity, ZSTD_paramete
 {
 	BYTE *const op = (BYTE *)dst;
 	U32 const dictIDSizeCode = (dictID > 0) + (dictID >= 256) + (dictID >= 65536); /* 0-3 */
-	U32 const checksumFlag = params->fParams.checksumFlag > 0;
+	BYTE const checksumFlag = params->fParams.checksumFlag > 0;
 	U32 const windowSize = 1U << params->cParams.windowLog;
-	U32 const singleSegment = params->fParams.contentSizeFlag && (windowSize >= pledgedSrcSize);
+	BYTE const singleSegment = params->fParams.contentSizeFlag && (windowSize >= pledgedSrcSize);
 	BYTE const windowLogByte = (BYTE)((params->cParams.windowLog - ZSTD_WINDOWLOG_ABSOLUTEMIN) << 3);
 	U32 const fcsCode =
 	    params->fParams.contentSizeFlag ? (pledgedSrcSize >= 256) + (pledgedSrcSize >= 65536 + 256) + (pledgedSrcSize >= 0xFFFFFFFFU) : 0; /* 0-3 */

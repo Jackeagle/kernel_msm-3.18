@@ -164,9 +164,9 @@ typedef struct {
  * The default value is all fields set to 0.
  */
 typedef struct {
-	unsigned int contentSizeFlag;
-	unsigned int checksumFlag;
-	unsigned int noDictIDFlag;
+	unsigned char contentSizeFlag;
+	unsigned char checksumFlag;
+	unsigned char noDictIDFlag;
 } ZSTD_frameParameters;
 
 /**
