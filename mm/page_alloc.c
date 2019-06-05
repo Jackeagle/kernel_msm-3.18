@@ -50,7 +50,6 @@
 #include <linux/backing-dev.h>
 #include <linux/fault-inject.h>
 #include <linux/page-isolation.h>
-#include <linux/page_ext.h>
 #include <linux/debugobjects.h>
 #include <linux/kmemleak.h>
 #include <linux/compaction.h>
@@ -646,30 +645,29 @@ void prep_compound_page(struct page *page, unsigned int order)
 
 #ifdef CONFIG_DEBUG_PAGEALLOC
 unsigned int _debug_guardpage_minorder;
-bool _debug_pagealloc_enabled __read_mostly
-			= IS_ENABLED(CONFIG_DEBUG_PAGEALLOC_ENABLE_DEFAULT);
+
+#ifdef CONFIG_DEBUG_PAGEALLOC_ENABLE_DEFAULT
+DEFINE_STATIC_KEY_TRUE(_debug_pagealloc_enabled);
+#else
+DEFINE_STATIC_KEY_FALSE(_debug_pagealloc_enabled);
+#endif
 EXPORT_SYMBOL(_debug_pagealloc_enabled);
-bool _debug_guardpage_enabled __read_mostly;
+
+DEFINE_STATIC_KEY_FALSE(_debug_guardpage_enabled);
 
 static int __init early_debug_pagealloc(char *buf)
 {
-	if (!buf)
+	bool enable = false;
+
+	if (kstrtobool(buf, &enable))
 		return -EINVAL;
-	return kstrtobool(buf, &_debug_pagealloc_enabled);
+
+	if (enable)
+		static_branch_enable(&_debug_pagealloc_enabled);
+
+	return 0;
 }
 early_param("debug_pagealloc", early_debug_pagealloc);
-
-static bool need_debug_guardpage(void)
-{
-	/* If we don't use debug_pagealloc, we don't need guard page */
-	if (!debug_pagealloc_enabled())
-		return false;
-
-	if (!debug_guardpage_minorder())
-		return false;
-
-	return true;
-}
 
 static void init_debug_guardpage(void)
 {
@@ -679,13 +677,8 @@ static void init_debug_guardpage(void)
 	if (!debug_guardpage_minorder())
 		return;
 
-	_debug_guardpage_enabled = true;
+	static_branch_enable(&_debug_guardpage_enabled);
 }
-
-struct page_ext_operations debug_guardpage_ops = {
-	.need = need_debug_guardpage,
-	.init = init_debug_guardpage,
-};
 
 static int __init debug_guardpage_minorder_setup(char *buf)
 {
@@ -704,20 +697,13 @@ early_param("debug_guardpage_minorder", debug_guardpage_minorder_setup);
 static inline bool set_page_guard(struct zone *zone, struct page *page,
 				unsigned int order, int migratetype)
 {
-	struct page_ext *page_ext;
-
 	if (!debug_guardpage_enabled())
 		return false;
 
 	if (order >= debug_guardpage_minorder())
 		return false;
 
-	page_ext = lookup_page_ext(page);
-	if (unlikely(!page_ext))
-		return false;
-
-	__set_bit(PAGE_EXT_DEBUG_GUARD, &page_ext->flags);
-
+	__SetPageGuard(page);
 	INIT_LIST_HEAD(&page->lru);
 	set_page_private(page, order);
 	/* Guard pages are not available for any usage */
@@ -729,23 +715,16 @@ static inline bool set_page_guard(struct zone *zone, struct page *page,
 static inline void clear_page_guard(struct zone *zone, struct page *page,
 				unsigned int order, int migratetype)
 {
-	struct page_ext *page_ext;
-
 	if (!debug_guardpage_enabled())
 		return;
 
-	page_ext = lookup_page_ext(page);
-	if (unlikely(!page_ext))
-		return;
-
-	__clear_bit(PAGE_EXT_DEBUG_GUARD, &page_ext->flags);
+	__ClearPageGuard(page);
 
 	set_page_private(page, 0);
 	if (!is_migrate_isolate(migratetype))
 		__mod_zone_freepage_state(zone, (1 << order), migratetype);
 }
 #else
-struct page_ext_operations debug_guardpage_ops;
 static inline bool set_page_guard(struct zone *zone, struct page *page,
 			unsigned int order, int migratetype) { return false; }
 static inline void clear_page_guard(struct zone *zone, struct page *page,
@@ -1151,19 +1130,36 @@ static __always_inline bool free_pages_prepare(struct page *page,
 }
 
 #ifdef CONFIG_DEBUG_VM
-static inline bool free_pcp_prepare(struct page *page)
+/*
+ * With DEBUG_VM enabled, order-0 pages are checked immediately when being freed
+ * to pcp lists. With debug_pagealloc also enabled, they are also rechecked when
+ * moved from pcp lists to free lists.
+ */
+static bool free_pcp_prepare(struct page *page)
 {
 	return free_pages_prepare(page, 0, true);
 }
 
-static inline bool bulkfree_pcp_prepare(struct page *page)
+static bool bulkfree_pcp_prepare(struct page *page)
 {
-	return false;
+	if (debug_pagealloc_enabled())
+		return free_pages_check(page);
+	else
+		return false;
 }
 #else
+/*
+ * With DEBUG_VM disabled, order-0 pages being freed are checked only when
+ * moving from pcp lists to free list in order to reduce overhead. With
+ * debug_pagealloc enabled, they are checked also immediately when being freed
+ * to the pcp lists.
+ */
 static bool free_pcp_prepare(struct page *page)
 {
-	return free_pages_prepare(page, 0, false);
+	if (debug_pagealloc_enabled())
+		return free_pages_prepare(page, 0, true);
+	else
+		return free_pages_prepare(page, 0, false);
 }
 
 static bool bulkfree_pcp_prepare(struct page *page)
@@ -1903,6 +1899,10 @@ void __init page_alloc_init_late(void)
 
 	for_each_populated_zone(zone)
 		set_zone_contiguous(zone);
+
+#ifdef CONFIG_DEBUG_PAGEALLOC
+	init_debug_guardpage();
+#endif
 }
 
 #ifdef CONFIG_CMA
@@ -2025,23 +2025,39 @@ static inline bool free_pages_prezeroed(void)
 }
 
 #ifdef CONFIG_DEBUG_VM
-static bool check_pcp_refill(struct page *page)
+/*
+ * With DEBUG_VM enabled, order-0 pages are checked for expected state when
+ * being allocated from pcp lists. With debug_pagealloc also enabled, they are
+ * also checked when pcp lists are refilled from the free lists.
+ */
+static inline bool check_pcp_refill(struct page *page)
 {
-	return false;
+	if (debug_pagealloc_enabled())
+		return check_new_page(page);
+	else
+		return false;
 }
 
-static bool check_new_pcp(struct page *page)
+static inline bool check_new_pcp(struct page *page)
 {
 	return check_new_page(page);
 }
 #else
-static bool check_pcp_refill(struct page *page)
+/*
+ * With DEBUG_VM disabled, free order-0 pages are checked for expected state
+ * when pcp lists are being refilled from the free lists. With debug_pagealloc
+ * enabled, they are also checked when being allocated from the pcp lists.
+ */
+static inline bool check_pcp_refill(struct page *page)
 {
 	return check_new_page(page);
 }
-static bool check_new_pcp(struct page *page)
+static inline bool check_new_pcp(struct page *page)
 {
-	return false;
+	if (debug_pagealloc_enabled())
+		return check_new_page(page);
+	else
+		return false;
 }
 #endif /* CONFIG_DEBUG_VM */
 
@@ -5535,6 +5551,8 @@ static void build_zonelists(pg_data_t *pgdat)
 	int node, load, nr_nodes = 0;
 	nodemask_t used_mask;
 	int local_node, prev_node;
+	struct zone *zone;
+	struct zoneref *z;
 
 	/* NUMA-aware ordering of nodes */
 	local_node = pgdat->node_id;
@@ -5560,6 +5578,11 @@ static void build_zonelists(pg_data_t *pgdat)
 
 	build_zonelists_in_node_order(pgdat, node_order, nr_nodes);
 	build_thisnode_zonelists(pgdat);
+
+	pr_info("node[%d] zonelist: ", pgdat->node_id);
+	for_each_zone_zonelist(zone, z, &pgdat->node_zonelists[ZONELIST_FALLBACK], MAX_NR_ZONES-1)
+		pr_cont("%d:%s ", zone_to_nid(zone), zone->name);
+	pr_cont("\n");
 }
 
 #ifdef CONFIG_HAVE_MEMORYLESS_NODES
@@ -5662,10 +5685,11 @@ static void __build_all_zonelists(void *data)
 	if (self && !node_online(self->node_id)) {
 		build_zonelists(self);
 	} else {
-		for_each_online_node(nid) {
+		for_each_node(nid) {
 			pg_data_t *pgdat = NODE_DATA(nid);
 
-			build_zonelists(pgdat);
+			if (pgdat)
+				build_zonelists(pgdat);
 		}
 
 #ifdef CONFIG_HAVE_MEMORYLESS_NODES
@@ -6948,10 +6972,8 @@ static unsigned long __init find_min_pfn_for_node(int nid)
 	for_each_mem_pfn_range(i, nid, &start_pfn, NULL, NULL)
 		min_pfn = min(min_pfn, start_pfn);
 
-	if (min_pfn == ULONG_MAX) {
-		pr_warn("Could not find start_pfn for node %d\n", nid);
+	if (min_pfn == ULONG_MAX)
 		return 0;
-	}
 
 	return min_pfn;
 }
@@ -7295,8 +7317,12 @@ void __init free_area_init_nodes(unsigned long *max_zone_pfn)
 	mminit_verify_pageflags_layout();
 	setup_nr_node_ids();
 	zero_resv_unavail();
-	for_each_online_node(nid) {
+	for_each_node(nid) {
 		pg_data_t *pgdat = NODE_DATA(nid);
+
+		if (!pgdat)
+			continue;
+
 		free_area_init_node(nid, NULL,
 				find_min_pfn_for_node(nid), NULL);
 

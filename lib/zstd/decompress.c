@@ -233,7 +233,7 @@ size_t ZSTD_getFrameParams(ZSTD_frameParams *fparamsPtr, const void *src, size_t
 		BYTE const fhdByte = ip[4];
 		size_t pos = 5;
 		U32 const dictIDSizeCode = fhdByte & 3;
-		U32 const checksumFlag = (fhdByte >> 2) & 1;
+		BYTE const checksumFlag = (fhdByte >> 2) & 1;
 		U32 const singleSegment = (fhdByte >> 5) & 1;
 		U32 const fcsID = fhdByte >> 6;
 		U32 const windowSizeMax = 1U << ZSTD_WINDOWLOG_MAX;
