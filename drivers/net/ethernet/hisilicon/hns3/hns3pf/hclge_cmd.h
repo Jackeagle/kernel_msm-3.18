@@ -243,6 +243,9 @@ enum hclge_opcode_type {
 
 	/* NCL config command */
 	HCLGE_OPC_QUERY_NCL_CONFIG	= 0x7011,
+	/* M7 stats command */
+	HCLGE_OPC_M7_STATS_BD		= 0x7012,
+	HCLGE_OPC_M7_STATS_INFO		= 0x7013,
 
 	/* SFP command */
 	HCLGE_OPC_GET_SFP_INFO		= 0x7104,
@@ -674,7 +677,6 @@ struct hclge_umv_spc_alc_cmd {
 #define HCLGE_MAC_MGR_MASK_VLAN_B		BIT(0)
 #define HCLGE_MAC_MGR_MASK_MAC_B		BIT(1)
 #define HCLGE_MAC_MGR_MASK_ETHERTYPE_B		BIT(2)
-#define HCLGE_MAC_ETHERTYPE_LLDP		0x88cc
 
 struct hclge_mac_mgr_tbl_entry_cmd {
 	u8      flags;
@@ -968,6 +970,11 @@ struct hclge_fd_ad_config_cmd {
 	__le32 index;
 	__le64 ad_data;
 	u8 rsv2[8];
+};
+
+struct hclge_get_m7_bd_cmd {
+	__le32 bd_num;
+	u8 rsv[20];
 };
 
 int hclge_cmd_init(struct hclge_dev *hdev);
