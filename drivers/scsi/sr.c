@@ -634,7 +634,7 @@ static int sr_block_compat_ioctl(struct block_device *bdev, fmode_t mode, unsign
 	 */
 	ret = scsi_cmd_blk_ioctl(bdev, mode, cmd, argp);
 	if (ret != -ENOTTY)
-		return ret;
+		goto put;
 
 	ret = scsi_compat_ioctl(sdev, cmd, argp);
 
