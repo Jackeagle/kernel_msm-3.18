@@ -21,6 +21,7 @@
 #include <linux/math64.h>
 #include <linux/time.h>
 #include <linux/kernel.h>
+#include <clocksource/hyperv_timer.h>
 
 #define gtod (&VVAR(vsyscall_gtod_data))
 
