@@ -1,8 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
-/*
- * Copyright (c) 2016 MediaTek Inc.
- * Author: PC Chen <pc.chen@mediatek.com>
- */
+// SPDX-License-Identifier: GPL-2.0
 
 #include "mtk_vcodec_drv.h"
 #include "mtk_vcodec_util.h"
