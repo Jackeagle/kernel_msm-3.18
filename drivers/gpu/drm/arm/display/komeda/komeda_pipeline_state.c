@@ -249,18 +249,55 @@ komeda_component_validate_private(struct komeda_component *c,
 	return err;
 }
 
+/* Get current available scaler from the component->supported_outputs */
+static struct komeda_scaler *
+komeda_component_get_avail_scaler(struct komeda_component *c,
+				  struct drm_atomic_state *state)
+{
+	struct komeda_pipeline_state *pipe_st;
+	u32 avail_scalers;
+
+	pipe_st = komeda_pipeline_get_state(c->pipeline, state);
+	if (!pipe_st)
+		return NULL;
+
+	avail_scalers = (pipe_st->active_comps & KOMEDA_PIPELINE_SCALERS) ^
+			KOMEDA_PIPELINE_SCALERS;
+
+	c = komeda_component_pickup_output(c, avail_scalers);
+
+	return to_scaler(c);
+}
+
 static int
 komeda_layer_check_cfg(struct komeda_layer *layer,
-		       struct komeda_plane_state *kplane_st,
+		       struct komeda_fb *kfb,
 		       struct komeda_data_flow_cfg *dflow)
 {
-	if (!in_range(&layer->hsize_in, dflow->in_w)) {
-		DRM_DEBUG_ATOMIC("src_w: %d is out of range.\n", dflow->in_w);
+	u32 hsize_in, vsize_in;
+
+	if (!komeda_fb_is_layer_supported(kfb, layer->layer_type, dflow->rot))
+		return -EINVAL;
+
+	if (komeda_fb_check_src_coords(kfb, dflow->in_x, dflow->in_y,
+				       dflow->in_w, dflow->in_h))
+		return -EINVAL;
+
+	if (layer->base.id == KOMEDA_COMPONENT_WB_LAYER) {
+		hsize_in = dflow->out_w;
+		vsize_in = dflow->out_h;
+	} else {
+		hsize_in = dflow->in_w;
+		vsize_in = dflow->in_h;
+	}
+
+	if (!in_range(&layer->hsize_in, hsize_in)) {
+		DRM_DEBUG_ATOMIC("invalidate src_w %d.\n", hsize_in);
 		return -EINVAL;
 	}
 
-	if (!in_range(&layer->vsize_in, dflow->in_h)) {
-		DRM_DEBUG_ATOMIC("src_h: %d is out of range.\n", dflow->in_h);
+	if (!in_range(&layer->vsize_in, vsize_in)) {
+		DRM_DEBUG_ATOMIC("invalidate src_h %d.\n", vsize_in);
 		return -EINVAL;
 	}
 
@@ -279,7 +316,7 @@ komeda_layer_validate(struct komeda_layer *layer,
 	struct komeda_layer_state *st;
 	int i, err;
 
-	err = komeda_layer_check_cfg(layer, kplane_st, dflow);
+	err = komeda_layer_check_cfg(layer, kfb, dflow);
 	if (err)
 		return err;
 
@@ -291,8 +328,22 @@ komeda_layer_validate(struct komeda_layer *layer,
 	st = to_layer_st(c_st);
 
 	st->rot = dflow->rot;
-	st->hsize = kfb->aligned_w;
-	st->vsize = kfb->aligned_h;
+
+	if (fb->modifier) {
+		st->hsize = kfb->aligned_w;
+		st->vsize = kfb->aligned_h;
+		st->afbc_crop_l = dflow->in_x;
+		st->afbc_crop_r = kfb->aligned_w - dflow->in_x - dflow->in_w;
+		st->afbc_crop_t = dflow->in_y;
+		st->afbc_crop_b = kfb->aligned_h - dflow->in_y - dflow->in_h;
+	} else {
+		st->hsize = dflow->in_w;
+		st->vsize = dflow->in_h;
+		st->afbc_crop_l = 0;
+		st->afbc_crop_r = 0;
+		st->afbc_crop_t = 0;
+		st->afbc_crop_b = 0;
+	}
 
 	for (i = 0; i < fb->format->num_planes; i++)
 		st->addr[i] = komeda_fb_get_pixel_addr(kfb, dflow->in_x,
@@ -305,11 +356,170 @@ komeda_layer_validate(struct komeda_layer *layer,
 	/* update the data flow for the next stage */
 	komeda_component_set_output(&dflow->input, &layer->base, 0);
 
+	/*
+	 * The rotation has been handled by layer, so adjusted the data flow for
+	 * the next stage.
+	 */
+	if (drm_rotation_90_or_270(st->rot))
+		swap(dflow->in_h, dflow->in_w);
+
 	return 0;
 }
 
-static void pipeline_composition_size(struct komeda_crtc_state *kcrtc_st,
-				      u16 *hsize, u16 *vsize)
+static int
+komeda_wb_layer_validate(struct komeda_layer *wb_layer,
+			 struct drm_connector_state *conn_st,
+			 struct komeda_data_flow_cfg *dflow)
+{
+	struct komeda_fb *kfb = to_kfb(conn_st->writeback_job->fb);
+	struct komeda_component_state *c_st;
+	struct komeda_layer_state *st;
+	int i, err;
+
+	err = komeda_layer_check_cfg(wb_layer, kfb, dflow);
+	if (err)
+		return err;
+
+	c_st = komeda_component_get_state_and_set_user(&wb_layer->base,
+			conn_st->state, conn_st->connector, conn_st->crtc);
+	if (IS_ERR(c_st))
+		return PTR_ERR(c_st);
+
+	st = to_layer_st(c_st);
+
+	st->hsize = dflow->out_w;
+	st->vsize = dflow->out_h;
+
+	for (i = 0; i < kfb->base.format->num_planes; i++)
+		st->addr[i] = komeda_fb_get_pixel_addr(kfb, dflow->out_x,
+						       dflow->out_y, i);
+
+	komeda_component_add_input(&st->base, &dflow->input, 0);
+	komeda_component_set_output(&dflow->input, &wb_layer->base, 0);
+
+	return 0;
+}
+
+static bool scaling_ratio_valid(u32 size_in, u32 size_out,
+				u32 max_upscaling, u32 max_downscaling)
+{
+	if (size_out > size_in * max_upscaling)
+		return false;
+	else if (size_in > size_out * max_downscaling)
+		return false;
+	return true;
+}
+
+static int
+komeda_scaler_check_cfg(struct komeda_scaler *scaler,
+			struct komeda_crtc_state *kcrtc_st,
+			struct komeda_data_flow_cfg *dflow)
+{
+	u32 hsize_in, vsize_in, hsize_out, vsize_out;
+	u32 max_upscaling;
+
+	hsize_in = dflow->in_w;
+	vsize_in = dflow->in_h;
+	hsize_out = dflow->out_w;
+	vsize_out = dflow->out_h;
+
+	if (!in_range(&scaler->hsize, hsize_in) ||
+	    !in_range(&scaler->hsize, hsize_out)) {
+		DRM_DEBUG_ATOMIC("Invalid horizontal sizes");
+		return -EINVAL;
+	}
+
+	if (!in_range(&scaler->vsize, vsize_in) ||
+	    !in_range(&scaler->vsize, vsize_out)) {
+		DRM_DEBUG_ATOMIC("Invalid vertical sizes");
+		return -EINVAL;
+	}
+
+	/* If input comes from compiz that means the scaling is for writeback
+	 * and scaler can not do upscaling for writeback
+	 */
+	if (has_bit(dflow->input.component->id, KOMEDA_PIPELINE_COMPIZS))
+		max_upscaling = 1;
+	else
+		max_upscaling = scaler->max_upscaling;
+
+	if (!scaling_ratio_valid(hsize_in, hsize_out, max_upscaling,
+				 scaler->max_downscaling)) {
+		DRM_DEBUG_ATOMIC("Invalid horizontal scaling ratio");
+		return -EINVAL;
+	}
+
+	if (!scaling_ratio_valid(vsize_in, vsize_out, max_upscaling,
+				 scaler->max_downscaling)) {
+		DRM_DEBUG_ATOMIC("Invalid vertical scaling ratio");
+		return -EINVAL;
+	}
+
+	if (hsize_in > hsize_out || vsize_in > vsize_out) {
+		struct komeda_pipeline *pipe = scaler->base.pipeline;
+		int err;
+
+		err = pipe->funcs->downscaling_clk_check(pipe,
+					&kcrtc_st->base.adjusted_mode,
+					komeda_calc_aclk(kcrtc_st), dflow);
+		if (err) {
+			DRM_DEBUG_ATOMIC("aclk can't satisfy the clock requirement of the downscaling\n");
+			return err;
+		}
+	}
+
+	return 0;
+}
+
+static int
+komeda_scaler_validate(void *user,
+		       struct komeda_crtc_state *kcrtc_st,
+		       struct komeda_data_flow_cfg *dflow)
+{
+	struct drm_atomic_state *drm_st = kcrtc_st->base.state;
+	struct komeda_component_state *c_st;
+	struct komeda_scaler_state *st;
+	struct komeda_scaler *scaler;
+	int err = 0;
+
+	if (!(dflow->en_scaling || dflow->en_img_enhancement))
+		return 0;
+
+	scaler = komeda_component_get_avail_scaler(dflow->input.component,
+						   drm_st);
+	if (!scaler) {
+		DRM_DEBUG_ATOMIC("No scaler available");
+		return -EINVAL;
+	}
+
+	err = komeda_scaler_check_cfg(scaler, kcrtc_st, dflow);
+	if (err)
+		return err;
+
+	c_st = komeda_component_get_state_and_set_user(&scaler->base,
+			drm_st, user, kcrtc_st->base.crtc);
+	if (IS_ERR(c_st))
+		return PTR_ERR(c_st);
+
+	st = to_scaler_st(c_st);
+
+	st->hsize_in = dflow->in_w;
+	st->vsize_in = dflow->in_h;
+	st->hsize_out = dflow->out_w;
+	st->vsize_out = dflow->out_h;
+
+	/* Enable alpha processing if the next stage needs the pixel alpha */
+	st->en_alpha = dflow->pixel_blend_mode != DRM_MODE_BLEND_PIXEL_NONE;
+	st->en_scaling = dflow->en_scaling;
+	st->en_img_enhancement = dflow->en_img_enhancement;
+
+	komeda_component_add_input(&st->base, &dflow->input, 0);
+	komeda_component_set_output(&dflow->input, &scaler->base, 0);
+	return err;
+}
+
+void pipeline_composition_size(struct komeda_crtc_state *kcrtc_st,
+			       u16 *hsize, u16 *vsize)
 {
 	struct drm_display_mode *m = &kcrtc_st->base.adjusted_mode;
 
@@ -455,6 +665,17 @@ komeda_timing_ctrlr_validate(struct komeda_timing_ctrlr *ctrlr,
 	return 0;
 }
 
+void komeda_complete_data_flow_cfg(struct komeda_data_flow_cfg *dflow)
+{
+	u32 w = dflow->in_w;
+	u32 h = dflow->in_h;
+
+	if (drm_rotation_90_or_270(dflow->rot))
+		swap(w, h);
+
+	dflow->en_scaling = (w != dflow->out_w) || (h != dflow->out_h);
+}
+
 int komeda_build_layer_data_flow(struct komeda_layer *layer,
 				 struct komeda_plane_state *kplane_st,
 				 struct komeda_crtc_state *kcrtc_st,
@@ -473,9 +694,29 @@ int komeda_build_layer_data_flow(struct komeda_layer *layer,
 	if (err)
 		return err;
 
+	err = komeda_scaler_validate(plane, kcrtc_st, dflow);
+	if (err)
+		return err;
+
 	err = komeda_compiz_set_input(pipe->compiz, kcrtc_st, dflow);
 
 	return err;
+}
+
+/* writeback data path: compiz -> scaler -> wb_layer -> memory */
+int komeda_build_wb_data_flow(struct komeda_layer *wb_layer,
+			      struct drm_connector_state *conn_st,
+			      struct komeda_crtc_state *kcrtc_st,
+			      struct komeda_data_flow_cfg *dflow)
+{
+	struct drm_connector *conn = conn_st->connector;
+	int err;
+
+	err = komeda_scaler_validate(conn, kcrtc_st, dflow);
+	if (err)
+		return err;
+
+	return komeda_wb_layer_validate(wb_layer, conn_st, dflow);
 }
 
 /* build display output data flow, the data path is:
