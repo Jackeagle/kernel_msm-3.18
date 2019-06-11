@@ -27,15 +27,17 @@
 /* 307s to avoid pathologically clashing with transaction commit */
 #define ZSTD_BTRFS_RECLAIM_JIFFIES (307 * HZ)
 
-static ZSTD_parameters zstd_get_btrfs_parameters(unsigned int level,
+static ZSTD_parameters *zstd_get_btrfs_parameters(unsigned int level,
 						 size_t src_len)
 {
-	ZSTD_parameters params = ZSTD_getParams(level, src_len, 0);
+	static ZSTD_parameters params;
+
+	params = ZSTD_getParams(level, src_len, 0);
 
 	if (params.cParams.windowLog > ZSTD_BTRFS_MAX_WINDOWLOG)
 		params.cParams.windowLog = ZSTD_BTRFS_MAX_WINDOWLOG;
 	WARN_ON(src_len > ZSTD_BTRFS_MAX_INPUT);
-	return params;
+	return &params;
 }
 
 struct workspace {
@@ -155,11 +157,12 @@ static void zstd_calc_ws_mem_sizes(void)
 	unsigned int level;
 
 	for (level = 1; level <= ZSTD_BTRFS_MAX_LEVEL; level++) {
-		ZSTD_parameters params =
-			zstd_get_btrfs_parameters(level, ZSTD_BTRFS_MAX_INPUT);
-		size_t level_size =
-			max_t(size_t,
-			      ZSTD_CStreamWorkspaceBound(params.cParams),
+		ZSTD_parameters *params;
+		size_t level_size;
+
+		params = zstd_get_btrfs_parameters(level, ZSTD_BTRFS_MAX_INPUT);
+		level_size = max_t(size_t,
+			      ZSTD_CStreamWorkspaceBound(params->cParams),
 			      ZSTD_DStreamWorkspaceBound(ZSTD_BTRFS_MAX_INPUT));
 
 		max_size = max_t(size_t, max_size, level_size);
@@ -385,8 +388,9 @@ static int zstd_compress_pages(struct list_head *ws,
 	unsigned long len = *total_out;
 	const unsigned long nr_dest_pages = *out_pages;
 	unsigned long max_out = nr_dest_pages * PAGE_SIZE;
-	ZSTD_parameters params = zstd_get_btrfs_parameters(workspace->req_level,
-							   len);
+	ZSTD_parameters *params;
+
+	params = zstd_get_btrfs_parameters(workspace->req_level, len);
 
 	*out_pages = 0;
 	*total_out = 0;
