@@ -1,8 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
-/*
-* Copyright (c) 2016 MediaTek Inc.
-* Author: Tiffany Lin <tiffany.lin@mediatek.com>
-*/
+// SPDX-License-Identifier: GPL-2.0
 
 #include <linux/errno.h>
 #include <linux/wait.h>

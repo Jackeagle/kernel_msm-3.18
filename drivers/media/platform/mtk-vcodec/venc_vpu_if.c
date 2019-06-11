@@ -1,8 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
-/*
- * Copyright (c) 2016 MediaTek Inc.
- * Author: PoChun Lin <pochun.lin@mediatek.com>
- */
+// SPDX-License-Identifier: GPL-2.0
 
 #include "mtk_vpu.h"
 #include "venc_ipi_msg.h"

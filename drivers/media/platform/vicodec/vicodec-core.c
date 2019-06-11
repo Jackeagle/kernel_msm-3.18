@@ -1188,44 +1188,17 @@ static void vicodec_mark_last_buf(struct vicodec_ctx *ctx)
 	spin_unlock(ctx->lock);
 }
 
-static int vicodec_try_encoder_cmd(struct file *file, void *fh,
-				struct v4l2_encoder_cmd *ec)
-{
-	if (ec->cmd != V4L2_ENC_CMD_STOP)
-		return -EINVAL;
-
-	if (ec->flags & V4L2_ENC_CMD_STOP_AT_GOP_END)
-		return -EINVAL;
-
-	return 0;
-}
-
 static int vicodec_encoder_cmd(struct file *file, void *fh,
 			    struct v4l2_encoder_cmd *ec)
 {
 	struct vicodec_ctx *ctx = file2ctx(file);
 	int ret;
 
-	ret = vicodec_try_encoder_cmd(file, fh, ec);
+	ret = v4l2_m2m_ioctl_try_encoder_cmd(file, fh, ec);
 	if (ret < 0)
 		return ret;
 
 	vicodec_mark_last_buf(ctx);
-	return 0;
-}
-
-static int vicodec_try_decoder_cmd(struct file *file, void *fh,
-				struct v4l2_decoder_cmd *dc)
-{
-	if (dc->cmd != V4L2_DEC_CMD_STOP)
-		return -EINVAL;
-
-	if (dc->flags & V4L2_DEC_CMD_STOP_TO_BLACK)
-		return -EINVAL;
-
-	if (!(dc->flags & V4L2_DEC_CMD_STOP_IMMEDIATELY) && (dc->stop.pts != 0))
-		return -EINVAL;
-
 	return 0;
 }
 
@@ -1235,7 +1208,7 @@ static int vicodec_decoder_cmd(struct file *file, void *fh,
 	struct vicodec_ctx *ctx = file2ctx(file);
 	int ret;
 
-	ret = vicodec_try_decoder_cmd(file, fh, dc);
+	ret = v4l2_m2m_ioctl_try_decoder_cmd(file, fh, dc);
 	if (ret < 0)
 		return ret;
 
@@ -1297,7 +1270,6 @@ static const struct v4l2_ioctl_ops vicodec_ioctl_ops = {
 	.vidioc_try_fmt_vid_cap	= vidioc_try_fmt_vid_cap,
 	.vidioc_s_fmt_vid_cap	= vidioc_s_fmt_vid_cap,
 
-	.vidioc_enum_fmt_vid_cap_mplane = vidioc_enum_fmt_vid_cap,
 	.vidioc_g_fmt_vid_cap_mplane	= vidioc_g_fmt_vid_cap,
 	.vidioc_try_fmt_vid_cap_mplane	= vidioc_try_fmt_vid_cap,
 	.vidioc_s_fmt_vid_cap_mplane	= vidioc_s_fmt_vid_cap,
@@ -1307,7 +1279,6 @@ static const struct v4l2_ioctl_ops vicodec_ioctl_ops = {
 	.vidioc_try_fmt_vid_out	= vidioc_try_fmt_vid_out,
 	.vidioc_s_fmt_vid_out	= vidioc_s_fmt_vid_out,
 
-	.vidioc_enum_fmt_vid_out_mplane = vidioc_enum_fmt_vid_out,
 	.vidioc_g_fmt_vid_out_mplane	= vidioc_g_fmt_vid_out,
 	.vidioc_try_fmt_vid_out_mplane	= vidioc_try_fmt_vid_out,
 	.vidioc_s_fmt_vid_out_mplane	= vidioc_s_fmt_vid_out,
@@ -1326,9 +1297,9 @@ static const struct v4l2_ioctl_ops vicodec_ioctl_ops = {
 	.vidioc_g_selection	= vidioc_g_selection,
 	.vidioc_s_selection	= vidioc_s_selection,
 
-	.vidioc_try_encoder_cmd	= vicodec_try_encoder_cmd,
+	.vidioc_try_encoder_cmd	= v4l2_m2m_ioctl_try_encoder_cmd,
 	.vidioc_encoder_cmd	= vicodec_encoder_cmd,
-	.vidioc_try_decoder_cmd	= vicodec_try_decoder_cmd,
+	.vidioc_try_decoder_cmd	= v4l2_m2m_ioctl_try_decoder_cmd,
 	.vidioc_decoder_cmd	= vicodec_decoder_cmd,
 	.vidioc_enum_framesizes = vicodec_enum_framesizes,
 
@@ -2013,18 +1984,31 @@ static int register_instance(struct vicodec_dev *dev,
 	return 0;
 }
 
+static void vicodec_v4l2_dev_release(struct v4l2_device *v4l2_dev)
+{
+	struct vicodec_dev *dev = container_of(v4l2_dev, struct vicodec_dev, v4l2_dev);
+
+	v4l2_device_unregister(&dev->v4l2_dev);
+	v4l2_m2m_release(dev->stateful_enc.m2m_dev);
+	v4l2_m2m_release(dev->stateful_dec.m2m_dev);
+	v4l2_m2m_release(dev->stateless_dec.m2m_dev);
+	kfree(dev);
+}
+
 static int vicodec_probe(struct platform_device *pdev)
 {
 	struct vicodec_dev *dev;
 	int ret;
 
-	dev = devm_kzalloc(&pdev->dev, sizeof(*dev), GFP_KERNEL);
+	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
 	if (!dev)
 		return -ENOMEM;
 
 	ret = v4l2_device_register(&pdev->dev, &dev->v4l2_dev);
 	if (ret)
-		return ret;
+		goto free_dev;
+
+	dev->v4l2_dev.release = vicodec_v4l2_dev_release;
 
 #ifdef CONFIG_MEDIA_CONTROLLER
 	dev->mdev.dev = &pdev->dev;
@@ -2102,6 +2086,8 @@ unreg_sf_enc:
 	v4l2_m2m_release(dev->stateful_enc.m2m_dev);
 unreg_dev:
 	v4l2_device_unregister(&dev->v4l2_dev);
+free_dev:
+	kfree(dev);
 
 	return ret;
 }
@@ -2120,12 +2106,10 @@ static int vicodec_remove(struct platform_device *pdev)
 	media_device_cleanup(&dev->mdev);
 #endif
 
-	v4l2_m2m_release(dev->stateful_enc.m2m_dev);
-	v4l2_m2m_release(dev->stateful_dec.m2m_dev);
 	video_unregister_device(&dev->stateful_enc.vfd);
 	video_unregister_device(&dev->stateful_dec.vfd);
 	video_unregister_device(&dev->stateless_dec.vfd);
-	v4l2_device_unregister(&dev->v4l2_dev);
+	v4l2_device_put(&dev->v4l2_dev);
 
 	return 0;
 }
