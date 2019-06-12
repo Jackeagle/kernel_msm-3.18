@@ -2197,6 +2197,26 @@ static int __gup_longterm_unlocked(unsigned long start, int nr_pages,
 	return ret;
 }
 
+#ifdef CONFIG_CMA
+static inline int reject_cma_pages(int nr_pinned, struct page **pages)
+{
+	int i;
+
+	for (i = 0; i < nr_pinned; i++)
+		if (is_migrate_cma_page(pages[i])) {
+			put_user_pages(pages + i, nr_pinned - i);
+			return i;
+		}
+
+	return nr_pinned;
+}
+#else
+static inline int reject_cma_pages(int nr_pinned, struct page **pages)
+{
+	return nr_pinned;
+}
+#endif
+
 /**
  * get_user_pages_fast() - pin user pages in memory
  * @start:	starting user address
@@ -2236,6 +2256,9 @@ int get_user_pages_fast(unsigned long start, int nr_pages,
 		local_irq_enable();
 		ret = nr;
 	}
+
+	if (unlikely(gup_flags & FOLL_LONGTERM) && nr)
+		nr = reject_cma_pages(nr, pages);
 
 	if (nr < nr_pages) {
 		/* Try to get the remaining pages with get_user_pages */
