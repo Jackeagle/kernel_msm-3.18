@@ -255,13 +255,10 @@ void __init register_page_bootmem_info_node(struct pglist_data *pgdat)
 static int __meminit __add_section(int nid, unsigned long pfn,
 		unsigned long nr_pages,	struct vmem_altmap *altmap)
 {
-	int ret;
-
 	if (pfn_valid(pfn))
 		return -EEXIST;
 
-	ret = sparse_add_section(nid, pfn, nr_pages, altmap);
-	return ret < 0 ? ret : 0;
+	return sparse_add_section(nid, pfn, nr_pages, altmap);
 }
 
 static int check_pfn_span(unsigned long pfn, unsigned long nr_pages,
@@ -541,7 +538,7 @@ static void __remove_section(struct zone *zone, unsigned long pfn,
 		return;
 
 	__remove_zone(zone, pfn, nr_pages);
-	sparse_remove_one_section(ms, pfn, nr_pages, map_offset, altmap);
+	sparse_remove_section(ms, pfn, nr_pages, map_offset, altmap);
 }
 
 /**
