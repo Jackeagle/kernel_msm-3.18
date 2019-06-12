@@ -10,6 +10,9 @@
  */
 #define SECTION_SIZE_BITS       24
 
+/* Reflect the largest possible PMD-size as the subsection-size constant */
+#define ARCH_SUBSECTION_SHIFT 24
+
 #endif /* CONFIG_SPARSEMEM */
 
 #ifdef CONFIG_MEMORY_HOTPLUG
