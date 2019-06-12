@@ -22,6 +22,9 @@
  * Authors: AMD
  *
  */
+
+#include <linux/slab.h>
+
 #include "../dc.h"
 #include "reg_helper.h"
 #include "dce_audio.h"
