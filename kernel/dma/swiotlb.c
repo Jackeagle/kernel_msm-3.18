@@ -129,15 +129,17 @@ setup_io_tlb_npages(char *str)
 }
 early_param("swiotlb", setup_io_tlb_npages);
 
+static bool no_iotlb_memory;
+
 unsigned long swiotlb_nr_tbl(void)
 {
-	return io_tlb_nslabs;
+	return unlikely(no_iotlb_memory) ? 0 : io_tlb_nslabs;
 }
 EXPORT_SYMBOL_GPL(swiotlb_nr_tbl);
 
 unsigned int swiotlb_max_segment(void)
 {
-	return max_segment;
+	return unlikely(no_iotlb_memory) ? 0 : max_segment;
 }
 EXPORT_SYMBOL_GPL(swiotlb_max_segment);
 
@@ -159,8 +161,6 @@ unsigned long swiotlb_size_or_default(void)
 
 	return size ? size : (IO_TLB_DEFAULT_SIZE);
 }
-
-static bool no_iotlb_memory;
 
 void swiotlb_print_info(void)
 {
@@ -317,6 +317,14 @@ swiotlb_late_init_with_default_size(size_t default_size)
 	return rc;
 }
 
+static void swiotlb_cleanup(void)
+{
+	io_tlb_end = 0;
+	io_tlb_start = 0;
+	io_tlb_nslabs = 0;
+	max_segment = 0;
+}
+
 int
 swiotlb_late_init_with_tbl(char *tlb, unsigned long nslabs)
 {
@@ -367,10 +375,7 @@ cleanup4:
 	                                                 sizeof(int)));
 	io_tlb_list = NULL;
 cleanup3:
-	io_tlb_end = 0;
-	io_tlb_start = 0;
-	io_tlb_nslabs = 0;
-	max_segment = 0;
+	swiotlb_cleanup();
 	return -ENOMEM;
 }
 
@@ -394,10 +399,7 @@ void __init swiotlb_exit(void)
 		memblock_free_late(io_tlb_start,
 				   PAGE_ALIGN(io_tlb_nslabs << IO_TLB_SHIFT));
 	}
-	io_tlb_start = 0;
-	io_tlb_end = 0;
-	io_tlb_nslabs = 0;
-	max_segment = 0;
+	swiotlb_cleanup();
 }
 
 /*
