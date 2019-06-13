@@ -235,16 +235,27 @@ struct komeda_layer_state {
 	/* layer specific configuration state */
 	u16 hsize, vsize;
 	u32 rot;
+	u16 afbc_crop_l;
+	u16 afbc_crop_r;
+	u16 afbc_crop_t;
+	u16 afbc_crop_b;
 	dma_addr_t addr[3];
 };
 
 struct komeda_scaler {
 	struct komeda_component base;
-	/* scaler features and caps */
+	struct malidp_range hsize, vsize;
+	u32 max_upscaling;
+	u32 max_downscaling;
 };
 
 struct komeda_scaler_state {
 	struct komeda_component_state base;
+	u16 hsize_in, vsize_in;
+	u16 hsize_out, vsize_out;
+	u8 en_scaling : 1,
+	   en_alpha : 1, /* enable alpha processing */
+	   en_img_enhancement : 1;
 };
 
 struct komeda_compiz {
@@ -303,10 +314,18 @@ struct komeda_data_flow_cfg {
 	u32 rot;
 	int blending_zorder;
 	u8 pixel_blend_mode, layer_alpha;
+	u8 en_scaling : 1,
+	   en_img_enhancement : 1;
 };
 
-/** struct komeda_pipeline_funcs */
 struct komeda_pipeline_funcs {
+	/* check if the aclk (main engine clock) can satisfy the clock
+	 * requirements of the downscaling that specified by dflow
+	 */
+	int (*downscaling_clk_check)(struct komeda_pipeline *pipe,
+				     struct drm_display_mode *mode,
+				     unsigned long aclk_rate,
+				     struct komeda_data_flow_cfg *dflow);
 	/* dump_register: Optional, dump registers to seq_file */
 	void (*dump_register)(struct komeda_pipeline *pipe,
 			      struct seq_file *sf);
@@ -324,8 +343,6 @@ struct komeda_pipeline {
 	struct komeda_dev *mdev;
 	/** @pxlclk: pixel clock */
 	struct clk *pxlclk;
-	/** @aclk: AXI clock */
-	struct clk *aclk;
 	/** @id: pipeline id */
 	int id;
 	/** @avail_comps: available components mask of pipeline */
@@ -403,6 +420,9 @@ void komeda_pipeline_destroy(struct komeda_dev *mdev,
 int komeda_assemble_pipelines(struct komeda_dev *mdev);
 struct komeda_component *
 komeda_pipeline_get_component(struct komeda_pipeline *pipe, int id);
+struct komeda_component *
+komeda_pipeline_get_first_component(struct komeda_pipeline *pipe,
+				    u32 comp_mask);
 
 void komeda_pipeline_dump_register(struct komeda_pipeline *pipe,
 				   struct seq_file *sf);
@@ -419,14 +439,29 @@ komeda_component_add(struct komeda_pipeline *pipe,
 void komeda_component_destroy(struct komeda_dev *mdev,
 			      struct komeda_component *c);
 
+static inline struct komeda_component *
+komeda_component_pickup_output(struct komeda_component *c, u32 avail_comps)
+{
+	u32 avail_inputs = c->supported_outputs & (avail_comps);
+
+	return komeda_pipeline_get_first_component(c->pipeline, avail_inputs);
+}
+
 struct komeda_plane_state;
 struct komeda_crtc_state;
 struct komeda_crtc;
+
+void pipeline_composition_size(struct komeda_crtc_state *kcrtc_st,
+			       u16 *hsize, u16 *vsize);
 
 int komeda_build_layer_data_flow(struct komeda_layer *layer,
 				 struct komeda_plane_state *kplane_st,
 				 struct komeda_crtc_state *kcrtc_st,
 				 struct komeda_data_flow_cfg *dflow);
+int komeda_build_wb_data_flow(struct komeda_layer *wb_layer,
+			      struct drm_connector_state *conn_st,
+			      struct komeda_crtc_state *kcrtc_st,
+			      struct komeda_data_flow_cfg *dflow);
 int komeda_build_display_data_flow(struct komeda_crtc *kcrtc,
 				   struct komeda_crtc_state *kcrtc_st);
 
@@ -440,5 +475,7 @@ void komeda_pipeline_disable(struct komeda_pipeline *pipe,
 			     struct drm_atomic_state *old_state);
 void komeda_pipeline_update(struct komeda_pipeline *pipe,
 			    struct drm_atomic_state *old_state);
+
+void komeda_complete_data_flow_cfg(struct komeda_data_flow_cfg *dflow);
 
 #endif /* _KOMEDA_PIPELINE_H_*/

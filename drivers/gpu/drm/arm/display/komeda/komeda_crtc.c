@@ -18,6 +18,22 @@
 #include "komeda_dev.h"
 #include "komeda_kms.h"
 
+static void komeda_crtc_update_clock_ratio(struct komeda_crtc_state *kcrtc_st)
+{
+	u64 pxlclk, aclk;
+
+	if (!kcrtc_st->base.active) {
+		kcrtc_st->clock_ratio = 0;
+		return;
+	}
+
+	pxlclk = kcrtc_st->base.adjusted_mode.clock * 1000;
+	aclk = komeda_calc_aclk(kcrtc_st) << 32;
+
+	do_div(aclk, pxlclk);
+	kcrtc_st->clock_ratio = aclk;
+}
+
 /**
  * komeda_crtc_atomic_check - build display output data flow
  * @crtc: DRM crtc
@@ -38,6 +54,9 @@ komeda_crtc_atomic_check(struct drm_crtc *crtc,
 	struct komeda_crtc_state *kcrtc_st = to_kcrtc_st(state);
 	int err;
 
+	if (drm_atomic_crtc_needs_modeset(state))
+		komeda_crtc_update_clock_ratio(kcrtc_st);
+
 	if (state->active) {
 		err = komeda_build_display_data_flow(kcrtc, kcrtc_st);
 		if (err)
@@ -52,11 +71,12 @@ komeda_crtc_atomic_check(struct drm_crtc *crtc,
 	return 0;
 }
 
-static u32 komeda_calc_mclk(struct komeda_crtc_state *kcrtc_st)
+unsigned long komeda_calc_aclk(struct komeda_crtc_state *kcrtc_st)
 {
-	unsigned long mclk = kcrtc_st->base.adjusted_mode.clock * 1000;
+	struct komeda_dev *mdev = kcrtc_st->base.crtc->dev->dev_private;
+	unsigned long pxlclk = kcrtc_st->base.adjusted_mode.clock;
 
-	return mclk;
+	return clk_round_rate(mdev->aclk, pxlclk * 1000);
 }
 
 /* For active a crtc, mainly need two parts of preparation
@@ -89,23 +109,20 @@ komeda_crtc_prepare(struct komeda_crtc *kcrtc)
 	}
 
 	mdev->dpmode = new_mode;
-	/* Only need to enable mclk on single display mode, but no need to
-	 * enable mclk it on dual display mode, since the dual mode always
-	 * switch from single display mode, the mclk already enabled, no need
+	/* Only need to enable aclk on single display mode, but no need to
+	 * enable aclk it on dual display mode, since the dual mode always
+	 * switch from single display mode, the aclk already enabled, no need
 	 * to enable it again.
 	 */
 	if (new_mode != KOMEDA_MODE_DUAL_DISP) {
-		err = clk_set_rate(mdev->mclk, komeda_calc_mclk(kcrtc_st));
+		err = clk_set_rate(mdev->aclk, komeda_calc_aclk(kcrtc_st));
 		if (err)
-			DRM_ERROR("failed to set mclk.\n");
-		err = clk_prepare_enable(mdev->mclk);
+			DRM_ERROR("failed to set aclk.\n");
+		err = clk_prepare_enable(mdev->aclk);
 		if (err)
-			DRM_ERROR("failed to enable mclk.\n");
+			DRM_ERROR("failed to enable aclk.\n");
 	}
 
-	err = clk_prepare_enable(master->aclk);
-	if (err)
-		DRM_ERROR("failed to enable axi clk for pipe%d.\n", master->id);
 	err = clk_set_rate(master->pxlclk, pxlclk_rate);
 	if (err)
 		DRM_ERROR("failed to set pxlclk for pipe%d\n", master->id);
@@ -146,9 +163,8 @@ komeda_crtc_unprepare(struct komeda_crtc *kcrtc)
 	mdev->dpmode = new_mode;
 
 	clk_disable_unprepare(master->pxlclk);
-	clk_disable_unprepare(master->aclk);
 	if (new_mode == KOMEDA_MODE_INACTIVE)
-		clk_disable_unprepare(mdev->mclk);
+		clk_disable_unprepare(mdev->aclk);
 
 unlock:
 	mutex_unlock(&mdev->lock);
@@ -165,6 +181,15 @@ void komeda_crtc_handle_event(struct komeda_crtc   *kcrtc,
 	if (events & KOMEDA_EVENT_VSYNC)
 		drm_crtc_handle_vblank(crtc);
 
+	if (events & KOMEDA_EVENT_EOW) {
+		struct komeda_wb_connector *wb_conn = kcrtc->wb_conn;
+
+		if (wb_conn)
+			drm_writeback_signal_completion(&wb_conn->base, 0);
+		else
+			DRM_WARN("CRTC[%d]: EOW happen but no wb_connector.\n",
+				 drm_crtc_index(&kcrtc->base));
+	}
 	/* will handle it together with the write back support */
 	if (events & KOMEDA_EVENT_EOW)
 		DRM_DEBUG("EOW.\n");
@@ -201,6 +226,8 @@ komeda_crtc_do_flush(struct drm_crtc *crtc,
 	struct komeda_crtc_state *kcrtc_st = to_kcrtc_st(crtc->state);
 	struct komeda_dev *mdev = kcrtc->base.dev->dev_private;
 	struct komeda_pipeline *master = kcrtc->master;
+	struct komeda_wb_connector *wb_conn = kcrtc->wb_conn;
+	struct drm_connector_state *conn_st;
 
 	DRM_DEBUG_ATOMIC("CRTC%d_FLUSH: active_pipes: 0x%x, affected: 0x%x.\n",
 			 drm_crtc_index(crtc),
@@ -209,6 +236,10 @@ komeda_crtc_do_flush(struct drm_crtc *crtc,
 	/* step 1: update the pipeline/component state to HW */
 	if (has_bit(master->id, kcrtc_st->affected_pipes))
 		komeda_pipeline_update(master, old->state);
+
+	conn_st = wb_conn ? wb_conn->base.base.state : NULL;
+	if (conn_st && conn_st->writeback_job)
+		drm_writeback_queue_job(&wb_conn->base, conn_st);
 
 	/* step 2: notify the HW to kickoff the update */
 	mdev->funcs->flush(mdev, master->id, kcrtc_st->active_pipes);
@@ -311,7 +342,6 @@ komeda_crtc_mode_valid(struct drm_crtc *crtc, const struct drm_display_mode *m)
 	if (m->flags & DRM_MODE_FLAG_INTERLACE)
 		return MODE_NO_INTERLACE;
 
-	/* main clock/AXI clk must be faster than pxlclk*/
 	mode_clk = m->clock * 1000;
 	pxlclk = clk_round_rate(master->pxlclk, mode_clk);
 	if (pxlclk != mode_clk) {
@@ -320,15 +350,9 @@ komeda_crtc_mode_valid(struct drm_crtc *crtc, const struct drm_display_mode *m)
 		return MODE_NOCLOCK;
 	}
 
-	if (clk_round_rate(mdev->mclk, mode_clk) < pxlclk) {
-		DRM_DEBUG_ATOMIC("mclk can't satisfy the requirement of %s-clk: %ld.\n",
-				 m->name, pxlclk);
-
-		return MODE_CLOCK_HIGH;
-	}
-
-	if (clk_round_rate(master->aclk, mode_clk) < pxlclk) {
-		DRM_DEBUG_ATOMIC("aclk can't satisfy the requirement of %s-clk: %ld.\n",
+	/* main engine clock must be faster than pxlclk*/
+	if (clk_round_rate(mdev->aclk, mode_clk) < pxlclk) {
+		DRM_DEBUG_ATOMIC("engine clk can't satisfy the requirement of %s-clk: %ld.\n",
 				 m->name, pxlclk);
 
 		return MODE_CLOCK_HIGH;
@@ -389,6 +413,7 @@ komeda_crtc_atomic_duplicate_state(struct drm_crtc *crtc)
 	__drm_atomic_helper_crtc_duplicate_state(crtc, &new->base);
 
 	new->affected_pipes = old->active_pipes;
+	new->clock_ratio = old->clock_ratio;
 
 	return &new->base;
 }
@@ -417,6 +442,24 @@ static void komeda_crtc_vblank_disable(struct drm_crtc *crtc)
 	mdev->funcs->on_off_vblank(mdev, kcrtc->master->id, false);
 }
 
+static int
+komeda_crtc_atomic_get_property(struct drm_crtc *crtc,
+				const struct drm_crtc_state *state,
+				struct drm_property *property, uint64_t *val)
+{
+	struct komeda_crtc *kcrtc = to_kcrtc(crtc);
+	struct komeda_crtc_state *kcrtc_st = to_kcrtc_st(state);
+
+	if (property == kcrtc->clock_ratio_property) {
+		*val = kcrtc_st->clock_ratio;
+	} else {
+		DRM_DEBUG_DRIVER("Unknown property %s\n", property->name);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static const struct drm_crtc_funcs komeda_crtc_funcs = {
 	.gamma_set		= drm_atomic_helper_legacy_gamma_set,
 	.destroy		= drm_crtc_cleanup,
@@ -427,6 +470,7 @@ static const struct drm_crtc_funcs komeda_crtc_funcs = {
 	.atomic_destroy_state	= komeda_crtc_atomic_destroy_state,
 	.enable_vblank		= komeda_crtc_vblank_enable,
 	.disable_vblank		= komeda_crtc_vblank_disable,
+	.atomic_get_property	= komeda_crtc_atomic_get_property,
 };
 
 int komeda_kms_setup_crtcs(struct komeda_kms_dev *kms,
@@ -458,6 +502,22 @@ int komeda_kms_setup_crtcs(struct komeda_kms_dev *kms,
 
 		kms->n_crtcs++;
 	}
+
+	return 0;
+}
+
+static int komeda_crtc_create_clock_ratio_property(struct komeda_crtc *kcrtc)
+{
+	struct drm_crtc *crtc = &kcrtc->base;
+	struct drm_property *prop;
+
+	prop = drm_property_create_range(crtc->dev, DRM_MODE_PROP_ATOMIC,
+					 "CLOCK_RATIO", 0, U64_MAX);
+	if (!prop)
+		return -ENOMEM;
+
+	drm_object_attach_property(&crtc->base, prop, 0);
+	kcrtc->clock_ratio_property = prop;
 
 	return 0;
 }
@@ -497,6 +557,10 @@ static int komeda_crtc_add(struct komeda_kms_dev *kms,
 	drm_crtc_vblank_reset(crtc);
 
 	crtc->port = kcrtc->master->of_output_port;
+
+	err = komeda_crtc_create_clock_ratio_property(kcrtc);
+	if (err)
+		return err;
 
 	return 0;
 }
