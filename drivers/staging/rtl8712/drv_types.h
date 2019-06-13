@@ -148,14 +148,9 @@ struct _adapter {
 	bool	driver_stopped;
 	bool	surprise_removed;
 	bool	suspended;
-	u32	IsrContent;
-	u32	ImrContent;
-	u8	EepromAddressSize;
+	u8	eeprom_address_size;
 	u8	hw_init_completed;
-	struct task_struct *cmdThread;
-	pid_t evtThread;
-	struct task_struct *xmitThread;
-	pid_t recvThread;
+	struct task_struct *cmd_thread;
 	uint (*dvobj_init)(struct _adapter *adapter);
 	void (*dvobj_deinit)(struct _adapter *adapter);
 	struct net_device *pnetdev;
