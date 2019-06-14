@@ -1686,31 +1686,14 @@ static int eswitch_vport_event(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
-static int query_esw_functions(struct mlx5_core_dev *dev,
-			       u32 *out, int outlen)
+int mlx5_esw_query_functions(struct mlx5_core_dev *dev, u32 *out, int outlen)
 {
-	u32 in[MLX5_ST_SZ_DW(query_esw_functions_in)] = {0};
+	u32 in[MLX5_ST_SZ_DW(query_esw_functions_in)] = {};
 
 	MLX5_SET(query_esw_functions_in, in, opcode,
 		 MLX5_CMD_OP_QUERY_ESW_FUNCTIONS);
 
 	return mlx5_cmd_exec(dev, in, sizeof(in), out, outlen);
-}
-
-int mlx5_esw_query_functions(struct mlx5_core_dev *dev, u16 *num_vfs)
-{
-	u32 out[MLX5_ST_SZ_DW(query_esw_functions_out)] = {0};
-	int err;
-
-	err = query_esw_functions(dev, out, sizeof(out));
-	if (err)
-		return err;
-
-	*num_vfs = MLX5_GET(query_esw_functions_out, out,
-			    host_params_context.host_num_of_vfs);
-	esw_debug(dev, "host_num_of_vfs=%d\n", *num_vfs);
-
-	return 0;
 }
 
 /* Public E-Switch API */
@@ -1720,7 +1703,6 @@ int mlx5_eswitch_enable_sriov(struct mlx5_eswitch *esw, int nvfs, int mode)
 {
 	struct mlx5_vport *vport;
 	int total_nvports = 0;
-	u16 vf_nvports = 0;
 	int err;
 	int i, enabled_events;
 
@@ -1739,15 +1721,10 @@ int mlx5_eswitch_enable_sriov(struct mlx5_eswitch *esw, int nvfs, int mode)
 	esw_info(esw->dev, "E-Switch enable SRIOV: nvfs(%d) mode (%d)\n", nvfs, mode);
 
 	if (mode == SRIOV_OFFLOADS) {
-		if (mlx5_core_is_ecpf_esw_manager(esw->dev)) {
-			err = mlx5_esw_query_functions(esw->dev, &vf_nvports);
-			if (err)
-				return err;
+		if (mlx5_core_is_ecpf_esw_manager(esw->dev))
 			total_nvports = esw->total_vports;
-		} else {
-			vf_nvports = nvfs;
+		else
 			total_nvports = nvfs + MLX5_SPECIAL_VPORTS(esw->dev);
-		}
 	}
 
 	esw->mode = mode;
@@ -1761,7 +1738,7 @@ int mlx5_eswitch_enable_sriov(struct mlx5_eswitch *esw, int nvfs, int mode)
 	} else {
 		mlx5_reload_interface(esw->dev, MLX5_INTERFACE_PROTOCOL_ETH);
 		mlx5_reload_interface(esw->dev, MLX5_INTERFACE_PROTOCOL_IB);
-		err = esw_offloads_init(esw, vf_nvports, total_nvports);
+		err = esw_offloads_init(esw, nvfs, total_nvports);
 	}
 
 	if (err)
