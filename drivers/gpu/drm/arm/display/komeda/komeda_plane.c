@@ -10,20 +10,23 @@
 #include <drm/drm_print.h>
 #include "komeda_dev.h"
 #include "komeda_kms.h"
+#include "komeda_framebuffer.h"
 
 static int
 komeda_plane_init_data_flow(struct drm_plane_state *st,
 			    struct komeda_data_flow_cfg *dflow)
 {
+	struct komeda_plane_state *kplane_st = to_kplane_st(st);
 	struct drm_framebuffer *fb = st->fb;
+	const struct komeda_format_caps *caps = to_kfb(fb)->format_caps;
 
 	memset(dflow, 0, sizeof(*dflow));
 
-	dflow->blending_zorder = st->zpos;
+	dflow->blending_zorder = st->normalized_zpos;
 
 	/* if format doesn't have alpha, fix blend mode to PIXEL_NONE */
 	dflow->pixel_blend_mode = fb->format->has_alpha ?
-		st->pixel_blend_mode : DRM_MODE_BLEND_PIXEL_NONE;
+			st->pixel_blend_mode : DRM_MODE_BLEND_PIXEL_NONE;
 	dflow->layer_alpha = st->alpha >> 8;
 
 	dflow->out_x = st->crtc_x;
@@ -35,6 +38,19 @@ komeda_plane_init_data_flow(struct drm_plane_state *st,
 	dflow->in_y = st->src_y >> 16;
 	dflow->in_w = st->src_w >> 16;
 	dflow->in_h = st->src_h >> 16;
+
+	dflow->en_img_enhancement = kplane_st->img_enhancement;
+
+	dflow->rot = drm_rotation_simplify(st->rotation, caps->supported_rots);
+	if (!has_bits(dflow->rot, caps->supported_rots)) {
+		DRM_DEBUG_ATOMIC("rotation(0x%x) isn't supported by %s.\n",
+				 dflow->rot,
+				 komeda_get_format_name(caps->fourcc,
+							fb->modifier));
+		return -EINVAL;
+	}
+
+	komeda_complete_data_flow_cfg(dflow);
 
 	return 0;
 }
@@ -121,6 +137,8 @@ static void komeda_plane_reset(struct drm_plane *plane)
 		state->base.pixel_blend_mode = DRM_MODE_BLEND_PREMULTI;
 		state->base.alpha = DRM_BLEND_ALPHA_OPAQUE;
 		state->base.zpos = kplane->layer->base.id;
+		state->base.color_encoding = DRM_COLOR_YCBCR_BT601;
+		state->base.color_range = DRM_COLOR_YCBCR_LIMITED_RANGE;
 		plane->state = &state->base;
 		plane->state->plane = plane;
 	}
@@ -129,7 +147,7 @@ static void komeda_plane_reset(struct drm_plane *plane)
 static struct drm_plane_state *
 komeda_plane_atomic_duplicate_state(struct drm_plane *plane)
 {
-	struct komeda_plane_state *new;
+	struct komeda_plane_state *new, *old;
 
 	if (WARN_ON(!plane->state))
 		return NULL;
@@ -139,6 +157,10 @@ komeda_plane_atomic_duplicate_state(struct drm_plane *plane)
 		return NULL;
 
 	__drm_atomic_helper_plane_duplicate_state(plane, &new->base);
+
+	old = to_kplane_st(plane->state);
+
+	new->img_enhancement = old->img_enhancement;
 
 	return &new->base;
 }
@@ -151,6 +173,52 @@ komeda_plane_atomic_destroy_state(struct drm_plane *plane,
 	kfree(to_kplane_st(state));
 }
 
+static int
+komeda_plane_atomic_get_property(struct drm_plane *plane,
+				 const struct drm_plane_state *state,
+				 struct drm_property *property,
+				 uint64_t *val)
+{
+	struct komeda_plane *kplane = to_kplane(plane);
+	struct komeda_plane_state *st = to_kplane_st(state);
+
+	if (property == kplane->prop_img_enhancement)
+		*val = st->img_enhancement;
+	else
+		return -EINVAL;
+
+	return 0;
+}
+
+static int
+komeda_plane_atomic_set_property(struct drm_plane *plane,
+				 struct drm_plane_state *state,
+				 struct drm_property *property,
+				 uint64_t val)
+{
+	struct komeda_plane *kplane = to_kplane(plane);
+	struct komeda_plane_state *st = to_kplane_st(state);
+
+	if (property == kplane->prop_img_enhancement)
+		st->img_enhancement = !!val;
+	else
+		return -EINVAL;
+
+	return 0;
+}
+
+static bool
+komeda_plane_format_mod_supported(struct drm_plane *plane,
+				  u32 format, u64 modifier)
+{
+	struct komeda_dev *mdev = plane->dev->dev_private;
+	struct komeda_plane *kplane = to_kplane(plane);
+	u32 layer_type = kplane->layer->layer_type;
+
+	return komeda_format_mod_supported(&mdev->fmt_tbl, layer_type,
+					   format, modifier, 0);
+}
+
 static const struct drm_plane_funcs komeda_plane_funcs = {
 	.update_plane		= drm_atomic_helper_update_plane,
 	.disable_plane		= drm_atomic_helper_disable_plane,
@@ -158,7 +226,32 @@ static const struct drm_plane_funcs komeda_plane_funcs = {
 	.reset			= komeda_plane_reset,
 	.atomic_duplicate_state	= komeda_plane_atomic_duplicate_state,
 	.atomic_destroy_state	= komeda_plane_atomic_destroy_state,
+	.atomic_get_property	= komeda_plane_atomic_get_property,
+	.atomic_set_property	= komeda_plane_atomic_set_property,
+	.format_mod_supported	= komeda_plane_format_mod_supported,
 };
+
+static int
+komeda_plane_create_layer_properties(struct komeda_plane *kplane,
+				     struct komeda_layer *layer)
+{
+	struct drm_device *drm = kplane->base.dev;
+	struct drm_plane *plane = &kplane->base;
+	struct drm_property *prop = NULL;
+
+	/* property: layer image_enhancement */
+	if (layer->base.supported_outputs & KOMEDA_PIPELINE_SCALERS) {
+		prop = drm_property_create_bool(drm, DRM_MODE_PROP_ATOMIC,
+						"img_enhancement");
+		if (!prop)
+			return -ENOMEM;
+
+		drm_object_attach_property(&plane->base, prop, 0);
+		kplane->prop_img_enhancement = prop;
+	}
+
+	return 0;
+}
 
 /* for komeda, which is pipeline can be share between crtcs */
 static u32 get_possible_crtcs(struct komeda_kms_dev *kms,
@@ -210,7 +303,7 @@ static int komeda_plane_add(struct komeda_kms_dev *kms,
 	err = drm_universal_plane_init(&kms->base, plane,
 			get_possible_crtcs(kms, c->pipeline),
 			&komeda_plane_funcs,
-			formats, n_formats, NULL,
+			formats, n_formats, komeda_supported_modifiers,
 			get_plane_type(kms, c),
 			"%s", c->name);
 
@@ -220,6 +313,41 @@ static int komeda_plane_add(struct komeda_kms_dev *kms,
 		goto cleanup;
 
 	drm_plane_helper_add(plane, &komeda_plane_helper_funcs);
+
+	err = drm_plane_create_rotation_property(plane, DRM_MODE_ROTATE_0,
+						 layer->supported_rots);
+	if (err)
+		goto cleanup;
+
+	err = drm_plane_create_alpha_property(plane);
+	if (err)
+		goto cleanup;
+
+	err = drm_plane_create_blend_mode_property(plane,
+			BIT(DRM_MODE_BLEND_PIXEL_NONE) |
+			BIT(DRM_MODE_BLEND_PREMULTI)   |
+			BIT(DRM_MODE_BLEND_COVERAGE));
+	if (err)
+		goto cleanup;
+
+	err = komeda_plane_create_layer_properties(kplane, layer);
+	if (err)
+		goto cleanup;
+
+	err = drm_plane_create_color_properties(plane,
+			BIT(DRM_COLOR_YCBCR_BT601) |
+			BIT(DRM_COLOR_YCBCR_BT709) |
+			BIT(DRM_COLOR_YCBCR_BT2020),
+			BIT(DRM_COLOR_YCBCR_LIMITED_RANGE) |
+			BIT(DRM_COLOR_YCBCR_FULL_RANGE),
+			DRM_COLOR_YCBCR_BT601,
+			DRM_COLOR_YCBCR_LIMITED_RANGE);
+	if (err)
+		goto cleanup;
+
+	err = drm_plane_create_zpos_property(plane, layer->base.id, 0, 8);
+	if (err)
+		goto cleanup;
 
 	return 0;
 cleanup:
