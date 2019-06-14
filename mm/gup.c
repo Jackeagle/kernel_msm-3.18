@@ -1758,6 +1758,14 @@ static int gup_pte_range(pmd_t pmd, unsigned long addr, unsigned long end,
 		VM_BUG_ON(!pfn_valid(pte_pfn(pte)));
 		page = pte_page(pte);
 
+		/*
+		 * FOLL_LONGTERM suggests a pin given to hardware. Prevent it
+		 * from truncating CMA area
+		 */
+		if (unlikely(flags & FOLL_LONGTERM) &&
+			is_migrate_cma_page(page))
+			goto pte_unmap;
+
 		head = try_get_compound_head(page, 1);
 		if (!head)
 			goto pte_unmap;
@@ -1901,6 +1909,12 @@ static int gup_huge_pmd(pmd_t orig, pmd_t *pmdp, unsigned long addr,
 		refs++;
 	} while (addr += PAGE_SIZE, addr != end);
 
+	if (unlikely(flags & FOLL_LONGTERM) &&
+		is_migrate_cma_page(page)) {
+		*nr -= refs;
+		return 0;
+	}
+
 	head = try_get_compound_head(pmd_page(orig), refs);
 	if (!head) {
 		*nr -= refs;
@@ -1942,6 +1956,12 @@ static int gup_huge_pud(pud_t orig, pud_t *pudp, unsigned long addr,
 		refs++;
 	} while (addr += PAGE_SIZE, addr != end);
 
+	if (unlikely(flags & FOLL_LONGTERM) &&
+		is_migrate_cma_page(page)) {
+		*nr -= refs;
+		return 0;
+	}
+
 	head = try_get_compound_head(pud_page(orig), refs);
 	if (!head) {
 		*nr -= refs;
@@ -1978,6 +1998,12 @@ static int gup_huge_pgd(pgd_t orig, pgd_t *pgdp, unsigned long addr,
 		page++;
 		refs++;
 	} while (addr += PAGE_SIZE, addr != end);
+
+	if (unlikely(flags & FOLL_LONGTERM) &&
+		is_migrate_cma_page(page)) {
+		*nr -= refs;
+		return 0;
+	}
 
 	head = try_get_compound_head(pgd_page(orig), refs);
 	if (!head) {
