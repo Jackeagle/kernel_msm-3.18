@@ -2329,6 +2329,10 @@ struct iw_cm_conn_param;
  * need to define the supported operations, otherwise they will be set to null.
  */
 struct ib_device_ops {
+	struct module *owner;
+	enum rdma_driver_id driver_id;
+	u32 uverbs_abi_ver;
+
 	int (*post_send)(struct ib_qp *qp, const struct ib_send_wr *send_wr,
 			 const struct ib_send_wr **bad_send_wr);
 	int (*post_recv)(struct ib_qp *qp, const struct ib_recv_wr *recv_wr,
@@ -2454,11 +2458,10 @@ struct ib_device_ops {
 	int (*query_qp)(struct ib_qp *qp, struct ib_qp_attr *qp_attr,
 			int qp_attr_mask, struct ib_qp_init_attr *qp_init_attr);
 	int (*destroy_qp)(struct ib_qp *qp, struct ib_udata *udata);
-	struct ib_cq *(*create_cq)(struct ib_device *device,
-				   const struct ib_cq_init_attr *attr,
-				   struct ib_udata *udata);
+	int (*create_cq)(struct ib_cq *cq, const struct ib_cq_init_attr *attr,
+			 struct ib_udata *udata);
 	int (*modify_cq)(struct ib_cq *cq, u16 cq_count, u16 cq_period);
-	int (*destroy_cq)(struct ib_cq *cq, struct ib_udata *udata);
+	void (*destroy_cq)(struct ib_cq *cq, struct ib_udata *udata);
 	int (*resize_cq)(struct ib_cq *cq, int cqe, struct ib_udata *udata);
 	struct ib_mr *(*get_dma_mr)(struct ib_pd *pd, int mr_access_flags);
 	struct ib_mr *(*reg_user_mr)(struct ib_pd *pd, u64 start, u64 length,
@@ -2597,6 +2600,7 @@ struct ib_device_ops {
 	int (*iw_destroy_listen)(struct iw_cm_id *cm_id);
 
 	DECLARE_RDMA_OBJ_SIZE(ib_ah);
+	DECLARE_RDMA_OBJ_SIZE(ib_cq);
 	DECLARE_RDMA_OBJ_SIZE(ib_pd);
 	DECLARE_RDMA_OBJ_SIZE(ib_srq);
 	DECLARE_RDMA_OBJ_SIZE(ib_ucontext);
@@ -2636,7 +2640,6 @@ struct ib_device {
 
 	int			      num_comp_vectors;
 
-	struct module               *owner;
 	union {
 		struct device		dev;
 		struct ib_core_device	coredev;
@@ -2648,7 +2651,6 @@ struct ib_device {
 	 */
 	const struct attribute_group	*groups[3];
 
-	int			     uverbs_abi_ver;
 	u64			     uverbs_cmd_mask;
 	u64			     uverbs_ex_cmd_mask;
 
@@ -2672,7 +2674,6 @@ struct ib_device {
 	struct rdma_restrack_root *res;
 
 	const struct uapi_definition   *driver_def;
-	enum rdma_driver_id		driver_id;
 
 	/*
 	 * Positive refcount indicates that the device is currently
@@ -3859,9 +3860,9 @@ int ib_destroy_cq_user(struct ib_cq *cq, struct ib_udata *udata);
  *
  * NOTE: for user cq use ib_destroy_cq_user with valid udata!
  */
-static inline int ib_destroy_cq(struct ib_cq *cq)
+static inline void ib_destroy_cq(struct ib_cq *cq)
 {
-	return ib_destroy_cq_user(cq, NULL);
+	ib_destroy_cq_user(cq, NULL);
 }
 
 /**

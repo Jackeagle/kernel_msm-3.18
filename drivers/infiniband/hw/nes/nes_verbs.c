@@ -1374,16 +1374,17 @@ static int nes_destroy_qp(struct ib_qp *ibqp, struct ib_udata *udata)
 /**
  * nes_create_cq
  */
-static struct ib_cq *nes_create_cq(struct ib_device *ibdev,
+static int nes_create_cq(struct ib_cq *ibcq,
 				   const struct ib_cq_init_attr *attr,
 				   struct ib_udata *udata)
 {
+	struct ib_device *ibdev = ibcq->device;
 	int entries = attr->cqe;
 	u64 u64temp;
 	struct nes_vnic *nesvnic = to_nesvnic(ibdev);
 	struct nes_device *nesdev = nesvnic->nesdev;
 	struct nes_adapter *nesadapter = nesdev->nesadapter;
-	struct nes_cq *nescq;
+	struct nes_cq *nescq = to_nescq(ibcq);
 	struct nes_ucontext *nes_ucontext = NULL;
 	struct nes_cqp_request *cqp_request;
 	void *mem = NULL;
@@ -1399,22 +1400,15 @@ static struct ib_cq *nes_create_cq(struct ib_device *ibdev,
 	int ret;
 
 	if (attr->flags)
-		return ERR_PTR(-EINVAL);
+		return -EINVAL;
 
 	if (entries > nesadapter->max_cqe)
-		return ERR_PTR(-EINVAL);
+		return -EINVAL;
 
 	err = nes_alloc_resource(nesadapter, nesadapter->allocated_cqs,
 			nesadapter->max_cq, &cq_num, &nesadapter->next_cq, NES_RESOURCE_CQ);
-	if (err) {
-		return ERR_PTR(err);
-	}
-
-	nescq = kzalloc(sizeof(struct nes_cq), GFP_KERNEL);
-	if (!nescq) {
-		nes_free_resource(nesadapter, nesadapter->allocated_cqs, cq_num);
-		return ERR_PTR(-ENOMEM);
-	}
+	if (err)
+		return err;
 
 	nescq->hw_cq.cq_size = max(entries + 1, 5);
 	nescq->hw_cq.cq_number = cq_num;
@@ -1424,10 +1418,10 @@ static struct ib_cq *nes_create_cq(struct ib_device *ibdev,
 		struct nes_ucontext *nes_ucontext = rdma_udata_to_drv_context(
 			udata, struct nes_ucontext, ibucontext);
 
-		if (ib_copy_from_udata(&req, udata, sizeof (struct nes_create_cq_req))) {
+		if (ib_copy_from_udata(&req, udata,
+				       sizeof(struct nes_create_cq_req))) {
 			nes_free_resource(nesadapter, nesadapter->allocated_cqs, cq_num);
-			kfree(nescq);
-			return ERR_PTR(-EFAULT);
+			return -EFAULT;
 		}
 		nesvnic->mcrq_ucontext = nes_ucontext;
 		nes_ucontext->mcrqf = req.mcrqf;
@@ -1441,8 +1435,6 @@ static struct ib_cq *nes_create_cq(struct ib_device *ibdev,
 			nescq->mcrqf = nes_ucontext->mcrqf;
 			nes_free_resource(nesadapter, nesadapter->allocated_cqs, cq_num);
 		}
-		nes_debug(NES_DBG_CQ, "CQ Virtual Address = %08lX, size = %u.\n",
-				(unsigned long)req.user_cq_buffer, entries);
 		err = 1;
 		list_for_each_entry(nespbl, &nes_ucontext->cq_reg_mem_list, list) {
 			if (nespbl->user_base == (unsigned long )req.user_cq_buffer) {
@@ -1455,8 +1447,7 @@ static struct ib_cq *nes_create_cq(struct ib_device *ibdev,
 		}
 		if (err) {
 			nes_free_resource(nesadapter, nesadapter->allocated_cqs, cq_num);
-			kfree(nescq);
-			return ERR_PTR(-EFAULT);
+			return -EFAULT;
 		}
 
 		pbl_entries = nespbl->pbl_size >> 3;
@@ -1472,15 +1463,11 @@ static struct ib_cq *nes_create_cq(struct ib_device *ibdev,
 		if (!mem) {
 			printk(KERN_ERR PFX "Unable to allocate pci memory for cq\n");
 			nes_free_resource(nesadapter, nesadapter->allocated_cqs, cq_num);
-			kfree(nescq);
-			return ERR_PTR(-ENOMEM);
+			return -ENOMEM;
 		}
 
 		nescq->hw_cq.cq_vbase = mem;
 		nescq->hw_cq.cq_head = 0;
-		nes_debug(NES_DBG_CQ, "CQ%u virtual address @ %p, phys = 0x%08X\n",
-				nescq->hw_cq.cq_number, nescq->hw_cq.cq_vbase,
-				(u32)nescq->hw_cq.cq_pbase);
 	}
 
 	nescq->hw_cq.ce_handler = nes_iwarp_ce_handler;
@@ -1500,8 +1487,7 @@ static struct ib_cq *nes_create_cq(struct ib_device *ibdev,
 		}
 
 		nes_free_resource(nesadapter, nesadapter->allocated_cqs, cq_num);
-		kfree(nescq);
-		return ERR_PTR(-ENOMEM);
+		return -ENOMEM;
 	}
 	cqp_request->waiting = 1;
 	cqp_wqe = &cqp_request->cqp_wqe;
@@ -1528,8 +1514,7 @@ static struct ib_cq *nes_create_cq(struct ib_device *ibdev,
 					kfree(nespbl);
 				}
 				nes_free_resource(nesadapter, nesadapter->allocated_cqs, cq_num);
-				kfree(nescq);
-				return ERR_PTR(-ENOMEM);
+				return -ENOMEM;
 			} else {
 				opcode |= (NES_CQP_CQ_VIRT | NES_CQP_CQ_4KB_CHUNK);
 				nescq->virtual_cq = 2;
@@ -1550,8 +1535,7 @@ static struct ib_cq *nes_create_cq(struct ib_device *ibdev,
 					kfree(nespbl);
 				}
 				nes_free_resource(nesadapter, nesadapter->allocated_cqs, cq_num);
-				kfree(nescq);
-				return ERR_PTR(-ENOMEM);
+				return -ENOMEM;
 			} else {
 				opcode |= NES_CQP_CQ_VIRT;
 				nescq->virtual_cq = 1;
@@ -1607,8 +1591,7 @@ static struct ib_cq *nes_create_cq(struct ib_device *ibdev,
 			kfree(nespbl);
 		}
 		nes_free_resource(nesadapter, nesadapter->allocated_cqs, cq_num);
-		kfree(nescq);
-		return ERR_PTR(-EIO);
+		return -EIO;
 	}
 	nes_put_cqp_request(nesdev, cqp_request);
 
@@ -1620,34 +1603,29 @@ static struct ib_cq *nes_create_cq(struct ib_device *ibdev,
 		resp.cq_id = nescq->hw_cq.cq_number;
 		resp.cq_size = nescq->hw_cq.cq_size;
 		resp.mmap_db_index = 0;
-		if (ib_copy_to_udata(udata, &resp, sizeof resp - sizeof resp.reserved)) {
+		if (ib_copy_to_udata(udata, &resp,
+				     sizeof(resp) - sizeof(resp.reserved))) {
 			nes_free_resource(nesadapter, nesadapter->allocated_cqs, cq_num);
-			kfree(nescq);
-			return ERR_PTR(-EFAULT);
+			return -EFAULT;
 		}
 	}
 
-	return &nescq->ibcq;
+	return 0;
 }
-
 
 /**
  * nes_destroy_cq
  */
-static int nes_destroy_cq(struct ib_cq *ib_cq, struct ib_udata *udata)
+static void nes_destroy_cq(struct ib_cq *ib_cq, struct ib_udata *udata)
 {
 	struct nes_cq *nescq;
 	struct nes_device *nesdev;
 	struct nes_vnic *nesvnic;
 	struct nes_adapter *nesadapter;
 	struct nes_hw_cqp_wqe *cqp_wqe;
-	struct nes_cqp_request *cqp_request;
+	struct nes_cqp_request cqp_request = {};
 	unsigned long flags;
 	u32 opcode = 0;
-	int ret;
-
-	if (ib_cq == NULL)
-		return 0;
 
 	nescq = to_nescq(ib_cq);
 	nesvnic = to_nesvnic(ib_cq->device);
@@ -1657,13 +1635,11 @@ static int nes_destroy_cq(struct ib_cq *ib_cq, struct ib_udata *udata)
 	nes_debug(NES_DBG_CQ, "Destroy CQ%u\n", nescq->hw_cq.cq_number);
 
 	/* Send DestroyCQ request to CQP */
-	cqp_request = nes_get_cqp_request(nesdev);
-	if (cqp_request == NULL) {
-		nes_debug(NES_DBG_CQ, "Failed to get a cqp_request.\n");
-		return -ENOMEM;
-	}
-	cqp_request->waiting = 1;
-	cqp_wqe = &cqp_request->cqp_wqe;
+	INIT_LIST_HEAD(&cqp_request.list);
+	init_waitqueue_head(&cqp_request.waitq);
+
+	cqp_request.waiting = 1;
+	cqp_wqe = &cqp_request.cqp_wqe;
 	opcode = NES_CQP_DESTROY_CQ | (nescq->hw_cq.cq_size << 16);
 	spin_lock_irqsave(&nesadapter->pbl_lock, flags);
 	if (nescq->virtual_cq == 1) {
@@ -1690,37 +1666,22 @@ static int nes_destroy_cq(struct ib_cq *ib_cq, struct ib_udata *udata)
 	if (!nescq->mcrqf)
 		nes_free_resource(nesadapter, nesadapter->allocated_cqs, nescq->hw_cq.cq_number);
 
-	atomic_set(&cqp_request->refcount, 2);
-	nes_post_cqp_request(nesdev, cqp_request);
+	nes_post_cqp_request(nesdev, &cqp_request);
 
 	/* Wait for CQP */
 	nes_debug(NES_DBG_CQ, "Waiting for destroy iWARP CQ%u to complete.\n",
 			nescq->hw_cq.cq_number);
-	ret = wait_event_timeout(cqp_request->waitq, (0 != cqp_request->request_done),
-			NES_EVENT_TIMEOUT);
-	nes_debug(NES_DBG_CQ, "Destroy iWARP CQ%u completed, wait_event_timeout ret = %u,"
-			" CQP Major:Minor codes = 0x%04X:0x%04X.\n",
-			nescq->hw_cq.cq_number, ret, cqp_request->major_code,
-			cqp_request->minor_code);
-	if (!ret) {
-		nes_debug(NES_DBG_CQ, "iWARP CQ%u destroy timeout expired\n",
-					nescq->hw_cq.cq_number);
-		ret = -ETIME;
-	} else if (cqp_request->major_code) {
-		nes_debug(NES_DBG_CQ, "iWARP CQ%u destroy failed\n",
-					nescq->hw_cq.cq_number);
-		ret = -EIO;
-	} else {
-		ret = 0;
-	}
-	nes_put_cqp_request(nesdev, cqp_request);
+	wait_event_timeout(cqp_request.waitq, cqp_request.request_done,
+			   NES_EVENT_TIMEOUT);
+	nes_debug(
+		NES_DBG_CQ,
+		"Destroy iWARP CQ%u completed CQP Major:Minor codes = 0x%04X:0x%04X.\n",
+		nescq->hw_cq.cq_number, cqp_request.major_code,
+		cqp_request.minor_code);
 
 	if (nescq->cq_mem_size)
 		pci_free_consistent(nesdev->pcidev, nescq->cq_mem_size,
 				    nescq->hw_cq.cq_vbase, nescq->hw_cq.cq_pbase);
-	kfree(nescq);
-
-	return ret;
 }
 
 /**
@@ -1902,7 +1863,6 @@ static int nes_reg_mr(struct nes_device *nesdev, struct nes_pd *nespd,
 	}
 	barrier();
 
-	atomic_set(&cqp_request->refcount, 2);
 	nes_post_cqp_request(nesdev, cqp_request);
 
 	/* Wait for CQP */
@@ -2112,10 +2072,11 @@ static struct ib_mr *nes_reg_user_mr(struct ib_pd *pd, u64 start, u64 length,
 		return (struct ib_mr *)region;
 	}
 
-	nes_debug(NES_DBG_MR, "User base = 0x%lX, Virt base = 0x%lX, length = %u,"
-			" offset = %u, page size = %lu.\n",
-			(unsigned long int)start, (unsigned long int)virt, (u32)length,
-			ib_umem_offset(region), BIT(region->page_shift));
+	nes_debug(
+		NES_DBG_MR,
+		"User base = 0x%lX, Virt base = 0x%lX, length = %u, offset = %u, page size = %lu.\n",
+		(unsigned long)start, (unsigned long)virt, (u32)length,
+		ib_umem_offset(region), PAGE_SIZE);
 
 	skip_pages = ((u32)ib_umem_offset(region)) >> 12;
 
@@ -3560,6 +3521,11 @@ static void get_dev_fw_str(struct ib_device *dev, char *str)
 }
 
 static const struct ib_device_ops nes_dev_ops = {
+	.owner = THIS_MODULE,
+	.driver_id = RDMA_DRIVER_NES,
+	/* NOTE: Older kernels wrongly use 0 for the uverbs_abi_ver */
+	.uverbs_abi_ver = NES_ABI_USERSPACE_VER,
+
 	.alloc_mr = nes_alloc_mr,
 	.alloc_mw = nes_alloc_mw,
 	.alloc_pd = nes_alloc_pd,
@@ -3599,6 +3565,7 @@ static const struct ib_device_ops nes_dev_ops = {
 	.reg_user_mr = nes_reg_user_mr,
 	.req_notify_cq = nes_req_notify_cq,
 	INIT_RDMA_OBJ_SIZE(ib_pd, nes_pd, ibpd),
+	INIT_RDMA_OBJ_SIZE(ib_cq, nes_cq, ibcq),
 	INIT_RDMA_OBJ_SIZE(ib_ucontext, nes_ucontext, ibucontext),
 };
 
@@ -3615,7 +3582,6 @@ struct nes_ib_device *nes_init_ofa_device(struct net_device *netdev)
 	if (nesibdev == NULL) {
 		return NULL;
 	}
-	nesibdev->ibdev.owner = THIS_MODULE;
 
 	nesibdev->ibdev.node_type = RDMA_NODE_RNIC;
 	memset(&nesibdev->ibdev.node_guid, 0, sizeof(nesibdev->ibdev.node_guid));
@@ -3707,9 +3673,6 @@ void  nes_port_ibevent(struct nes_vnic *nesvnic)
  */
 void nes_destroy_ofa_device(struct nes_ib_device *nesibdev)
 {
-	if (nesibdev == NULL)
-		return;
-
 	nes_unregister_ofa_device(nesibdev);
 
 	ib_dealloc_device(&nesibdev->ibdev);
@@ -3727,7 +3690,6 @@ int nes_register_ofa_device(struct nes_ib_device *nesibdev)
 	int ret;
 
 	rdma_set_device_sysfs_group(&nesvnic->nesibdev->ibdev, &nes_attr_group);
-	nesvnic->nesibdev->ibdev.driver_id = RDMA_DRIVER_NES;
 	ret = ib_register_device(&nesvnic->nesibdev->ibdev, "nes%d");
 	if (ret) {
 		return ret;

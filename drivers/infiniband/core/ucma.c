@@ -81,7 +81,7 @@ struct ucma_file {
 };
 
 struct ucma_context {
-	int			id;
+	u32			id;
 	struct completion	comp;
 	atomic_t		ref;
 	int			events_reported;
@@ -94,7 +94,7 @@ struct ucma_context {
 	struct list_head	list;
 	struct list_head	mc_list;
 	/* mark that device is in process of destroying the internal HW
-	 * resources, protected by the global mut
+	 * resources, protected by the ctx_table lock
 	 */
 	int			closing;
 	/* sync between removal event and id destroy, protected by file mut */
@@ -104,7 +104,7 @@ struct ucma_context {
 
 struct ucma_multicast {
 	struct ucma_context	*ctx;
-	int			id;
+	u32			id;
 	int			events_reported;
 
 	u64			uid;
@@ -122,9 +122,8 @@ struct ucma_event {
 	struct work_struct	close_work;
 };
 
-static DEFINE_MUTEX(mut);
-static DEFINE_IDR(ctx_idr);
-static DEFINE_IDR(multicast_idr);
+static DEFINE_XARRAY_ALLOC(ctx_table);
+static DEFINE_XARRAY_ALLOC(multicast_table);
 
 static const struct file_operations ucma_fops;
 
@@ -133,7 +132,7 @@ static inline struct ucma_context *_ucma_find_context(int id,
 {
 	struct ucma_context *ctx;
 
-	ctx = idr_find(&ctx_idr, id);
+	ctx = xa_load(&ctx_table, id);
 	if (!ctx)
 		ctx = ERR_PTR(-ENOENT);
 	else if (ctx->file != file || !ctx->cm_id)
@@ -145,7 +144,7 @@ static struct ucma_context *ucma_get_ctx(struct ucma_file *file, int id)
 {
 	struct ucma_context *ctx;
 
-	mutex_lock(&mut);
+	xa_lock(&ctx_table);
 	ctx = _ucma_find_context(id, file);
 	if (!IS_ERR(ctx)) {
 		if (ctx->closing)
@@ -153,7 +152,7 @@ static struct ucma_context *ucma_get_ctx(struct ucma_file *file, int id)
 		else
 			atomic_inc(&ctx->ref);
 	}
-	mutex_unlock(&mut);
+	xa_unlock(&ctx_table);
 	return ctx;
 }
 
@@ -216,10 +215,7 @@ static struct ucma_context *ucma_alloc_ctx(struct ucma_file *file)
 	INIT_LIST_HEAD(&ctx->mc_list);
 	ctx->file = file;
 
-	mutex_lock(&mut);
-	ctx->id = idr_alloc(&ctx_idr, ctx, 0, 0, GFP_KERNEL);
-	mutex_unlock(&mut);
-	if (ctx->id < 0)
+	if (xa_alloc(&ctx_table, &ctx->id, ctx, xa_limit_32b, GFP_KERNEL))
 		goto error;
 
 	list_add_tail(&ctx->list, &file->ctx_list);
@@ -238,13 +234,10 @@ static struct ucma_multicast* ucma_alloc_multicast(struct ucma_context *ctx)
 	if (!mc)
 		return NULL;
 
-	mutex_lock(&mut);
-	mc->id = idr_alloc(&multicast_idr, NULL, 0, 0, GFP_KERNEL);
-	mutex_unlock(&mut);
-	if (mc->id < 0)
+	mc->ctx = ctx;
+	if (xa_alloc(&multicast_table, &mc->id, NULL, xa_limit_32b, GFP_KERNEL))
 		goto error;
 
-	mc->ctx = ctx;
 	list_add_tail(&mc->list, &ctx->mc_list);
 	return mc;
 
@@ -319,9 +312,9 @@ static void ucma_removal_event_handler(struct rdma_cm_id *cm_id)
 	 * handled separately below.
 	 */
 	if (ctx->cm_id == cm_id) {
-		mutex_lock(&mut);
+		xa_lock(&ctx_table);
 		ctx->closing = 1;
-		mutex_unlock(&mut);
+		xa_unlock(&ctx_table);
 		queue_work(ctx->file->close_wq, &ctx->close_work);
 		return;
 	}
@@ -523,9 +516,7 @@ static ssize_t ucma_create_id(struct ucma_file *file, const char __user *inbuf,
 err2:
 	rdma_destroy_id(cm_id);
 err1:
-	mutex_lock(&mut);
-	idr_remove(&ctx_idr, ctx->id);
-	mutex_unlock(&mut);
+	xa_erase(&ctx_table, ctx->id);
 	mutex_lock(&file->mut);
 	list_del(&ctx->list);
 	mutex_unlock(&file->mut);
@@ -537,13 +528,13 @@ static void ucma_cleanup_multicast(struct ucma_context *ctx)
 {
 	struct ucma_multicast *mc, *tmp;
 
-	mutex_lock(&mut);
+	mutex_lock(&ctx->file->mut);
 	list_for_each_entry_safe(mc, tmp, &ctx->mc_list, list) {
 		list_del(&mc->list);
-		idr_remove(&multicast_idr, mc->id);
+		xa_erase(&multicast_table, mc->id);
 		kfree(mc);
 	}
-	mutex_unlock(&mut);
+	mutex_unlock(&ctx->file->mut);
 }
 
 static void ucma_cleanup_mc_events(struct ucma_multicast *mc)
@@ -614,11 +605,11 @@ static ssize_t ucma_destroy_id(struct ucma_file *file, const char __user *inbuf,
 	if (copy_from_user(&cmd, inbuf, sizeof(cmd)))
 		return -EFAULT;
 
-	mutex_lock(&mut);
+	xa_lock(&ctx_table);
 	ctx = _ucma_find_context(cmd.id, file);
 	if (!IS_ERR(ctx))
-		idr_remove(&ctx_idr, ctx->id);
-	mutex_unlock(&mut);
+		__xa_erase(&ctx_table, ctx->id);
+	xa_unlock(&ctx_table);
 
 	if (IS_ERR(ctx))
 		return PTR_ERR(ctx);
@@ -630,14 +621,14 @@ static ssize_t ucma_destroy_id(struct ucma_file *file, const char __user *inbuf,
 	flush_workqueue(ctx->file->close_wq);
 	/* At this point it's guaranteed that there is no inflight
 	 * closing task */
-	mutex_lock(&mut);
+	xa_lock(&ctx_table);
 	if (!ctx->closing) {
-		mutex_unlock(&mut);
+		xa_unlock(&ctx_table);
 		ucma_put_ctx(ctx);
 		wait_for_completion(&ctx->comp);
 		rdma_destroy_id(ctx->cm_id);
 	} else {
-		mutex_unlock(&mut);
+		xa_unlock(&ctx_table);
 	}
 
 	resp.events_reported = ucma_free_ctx(ctx);
@@ -951,8 +942,7 @@ static ssize_t ucma_query_path(struct ucma_context *ctx,
 		}
 	}
 
-	if (copy_to_user(response, resp,
-			 sizeof(*resp) + (i * sizeof(struct ib_path_rec_data))))
+	if (copy_to_user(response, resp, struct_size(resp, path_data, i)))
 		ret = -EFAULT;
 
 	kfree(resp);
@@ -1432,9 +1422,7 @@ static ssize_t ucma_process_join(struct ucma_file *file,
 		goto err3;
 	}
 
-	mutex_lock(&mut);
-	idr_replace(&multicast_idr, mc, mc->id);
-	mutex_unlock(&mut);
+	xa_store(&multicast_table, mc->id, mc, 0);
 
 	mutex_unlock(&file->mut);
 	ucma_put_ctx(ctx);
@@ -1444,9 +1432,7 @@ err3:
 	rdma_leave_multicast(ctx->cm_id, (struct sockaddr *) &mc->addr);
 	ucma_cleanup_mc_events(mc);
 err2:
-	mutex_lock(&mut);
-	idr_remove(&multicast_idr, mc->id);
-	mutex_unlock(&mut);
+	xa_erase(&multicast_table, mc->id);
 	list_del(&mc->list);
 	kfree(mc);
 err1:
@@ -1508,8 +1494,8 @@ static ssize_t ucma_leave_multicast(struct ucma_file *file,
 	if (copy_from_user(&cmd, inbuf, sizeof(cmd)))
 		return -EFAULT;
 
-	mutex_lock(&mut);
-	mc = idr_find(&multicast_idr, cmd.id);
+	xa_lock(&multicast_table);
+	mc = xa_load(&multicast_table, cmd.id);
 	if (!mc)
 		mc = ERR_PTR(-ENOENT);
 	else if (mc->ctx->file != file)
@@ -1517,8 +1503,8 @@ static ssize_t ucma_leave_multicast(struct ucma_file *file,
 	else if (!atomic_inc_not_zero(&mc->ctx->ref))
 		mc = ERR_PTR(-ENXIO);
 	else
-		idr_remove(&multicast_idr, mc->id);
-	mutex_unlock(&mut);
+		__xa_erase(&multicast_table, mc->id);
+	xa_unlock(&multicast_table);
 
 	if (IS_ERR(mc)) {
 		ret = PTR_ERR(mc);
@@ -1615,14 +1601,14 @@ static ssize_t ucma_migrate_id(struct ucma_file *new_file,
 	 * events being added before existing events.
 	 */
 	ucma_lock_files(cur_file, new_file);
-	mutex_lock(&mut);
+	xa_lock(&ctx_table);
 
 	list_move_tail(&ctx->list, &new_file->ctx_list);
 	ucma_move_events(ctx, new_file);
 	ctx->file = new_file;
 	resp.events_reported = ctx->events_reported;
 
-	mutex_unlock(&mut);
+	xa_unlock(&ctx_table);
 	ucma_unlock_files(cur_file, new_file);
 
 response:
@@ -1757,18 +1743,15 @@ static int ucma_close(struct inode *inode, struct file *filp)
 		ctx->destroying = 1;
 		mutex_unlock(&file->mut);
 
-		mutex_lock(&mut);
-		idr_remove(&ctx_idr, ctx->id);
-		mutex_unlock(&mut);
-
+		xa_erase(&ctx_table, ctx->id);
 		flush_workqueue(file->close_wq);
 		/* At that step once ctx was marked as destroying and workqueue
 		 * was flushed we are safe from any inflights handlers that
 		 * might put other closing task.
 		 */
-		mutex_lock(&mut);
+		xa_lock(&ctx_table);
 		if (!ctx->closing) {
-			mutex_unlock(&mut);
+			xa_unlock(&ctx_table);
 			ucma_put_ctx(ctx);
 			wait_for_completion(&ctx->comp);
 			/* rdma_destroy_id ensures that no event handlers are
@@ -1776,7 +1759,7 @@ static int ucma_close(struct inode *inode, struct file *filp)
 			 */
 			rdma_destroy_id(ctx->cm_id);
 		} else {
-			mutex_unlock(&mut);
+			xa_unlock(&ctx_table);
 		}
 
 		ucma_free_ctx(ctx);
@@ -1846,8 +1829,6 @@ static void __exit ucma_cleanup(void)
 	unregister_net_sysctl_table(ucma_ctl_table_hdr);
 	device_remove_file(ucma_misc.this_device, &dev_attr_abi_version);
 	misc_deregister(&ucma_misc);
-	idr_destroy(&ctx_idr);
-	idr_destroy(&multicast_idr);
 }
 
 module_init(ucma_init);
