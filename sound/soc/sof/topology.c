@@ -394,6 +394,8 @@ static const struct sof_process_types sof_process[] = {
 	{"KEYWORD_DETECT", SOF_PROCESS_KEYWORD_DETECT, SOF_COMP_KEYWORD_DETECT},
 	{"KPB", SOF_PROCESS_KPB, SOF_COMP_KPB},
 	{"CHAN_SELECTOR", SOF_PROCESS_CHAN_SELECTOR, SOF_COMP_SELECTOR},
+	{"MUX", SOF_PROCESS_MUX, SOF_COMP_MUX},
+	{"DEMUX", SOF_PROCESS_DEMUX, SOF_COMP_DEMUX},
 };
 
 static enum sof_ipc_process_type find_process(const char *name)
@@ -442,14 +444,15 @@ static int sof_control_load_volume(struct snd_soc_component *scomp,
 		return -EINVAL;
 
 	/* init the volume get/put data */
-	scontrol->size = sizeof(struct sof_ipc_ctrl_data) +
-			 sizeof(struct sof_ipc_ctrl_value_chan) *
-			 le32_to_cpu(mc->num_channels);
+	scontrol->size = struct_size(scontrol->control_data, chanv,
+				     le32_to_cpu(mc->num_channels));
 	scontrol->control_data = kzalloc(scontrol->size, GFP_KERNEL);
 	if (!scontrol->control_data)
 		return -ENOMEM;
 
 	scontrol->comp_id = sdev->next_comp_id;
+	scontrol->min_volume_step = le32_to_cpu(mc->min);
+	scontrol->max_volume_step = le32_to_cpu(mc->max);
 	scontrol->num_channels = le32_to_cpu(mc->num_channels);
 
 	/* set cmd for mixer control */
@@ -501,9 +504,8 @@ static int sof_control_load_enum(struct snd_soc_component *scomp,
 		return -EINVAL;
 
 	/* init the enum get/put data */
-	scontrol->size = sizeof(struct sof_ipc_ctrl_data) +
-			 sizeof(struct sof_ipc_ctrl_value_chan) *
-			 le32_to_cpu(ec->num_channels);
+	scontrol->size = struct_size(scontrol->control_data, chanv,
+				     le32_to_cpu(ec->num_channels));
 	scontrol->control_data = kzalloc(scontrol->size, GFP_KERNEL);
 	if (!scontrol->control_data)
 		return -ENOMEM;
@@ -777,6 +779,10 @@ static const struct sof_topology_token dmic_tokens[] = {
 	{SOF_TKN_INTEL_DMIC_FIFO_WORD_LENGTH,
 		SND_SOC_TPLG_TUPLE_TYPE_SHORT, get_token_u16,
 		offsetof(struct sof_ipc_dai_dmic_params, fifo_bits), 0},
+	{SOF_TKN_INTEL_DMIC_UNMUTE_RAMP_TIME_MS,
+		SND_SOC_TPLG_TUPLE_TYPE_WORD, get_token_u32,
+		offsetof(struct sof_ipc_dai_dmic_params, unmute_ramp_time), 0},
+
 };
 
 /*
@@ -1550,6 +1556,9 @@ static int sof_widget_load_pga(struct snd_soc_component *scomp, int index,
 	struct snd_sof_dev *sdev = snd_soc_component_get_drvdata(scomp);
 	struct snd_soc_tplg_private *private = &tw->priv;
 	struct sof_ipc_comp_volume *volume;
+	struct snd_sof_control *scontrol;
+	int min_step;
+	int max_step;
 	int ret;
 
 	volume = kzalloc(sizeof(*volume), GFP_KERNEL);
@@ -1591,6 +1600,17 @@ static int sof_widget_load_pga(struct snd_soc_component *scomp, int index,
 	sof_dbg_comp_config(scomp, &volume->config);
 
 	swidget->private = volume;
+
+	list_for_each_entry(scontrol, &sdev->kcontrol_list, list) {
+		if (scontrol->comp_id == swidget->comp_id) {
+			min_step = scontrol->min_volume_step;
+			max_step = scontrol->max_volume_step;
+			volume->min_value = scontrol->volume_table[min_step];
+			volume->max_value = scontrol->volume_table[max_step];
+			volume->channels = scontrol->num_channels;
+			break;
+		}
+	}
 
 	ret = sof_ipc_tx_message(sdev->ipc, volume->comp.hdr.cmd, volume,
 				 sizeof(*volume), r, sizeof(*r));
@@ -2639,7 +2659,6 @@ static int sof_link_hda_load(struct snd_soc_component *scomp, int index,
 			     struct sof_ipc_dai_config *config)
 {
 	struct snd_sof_dev *sdev = snd_soc_component_get_drvdata(scomp);
-	struct snd_soc_dai_link_component dai_component;
 	struct snd_soc_tplg_private *private = &cfg->priv;
 	struct snd_soc_dai *dai;
 	u32 size = sizeof(*config);
@@ -2650,7 +2669,6 @@ static int sof_link_hda_load(struct snd_soc_component *scomp, int index,
 	int ret;
 
 	/* init IPC */
-	memset(&dai_component, 0, sizeof(dai_component));
 	memset(&config->hda, 0, sizeof(struct sof_ipc_dai_hda_params));
 	config->hdr.size = size;
 
@@ -2664,11 +2682,10 @@ static int sof_link_hda_load(struct snd_soc_component *scomp, int index,
 		return ret;
 	}
 
-	dai_component.dai_name = link->cpu_dai_name;
-	dai = snd_soc_find_dai(&dai_component);
+	dai = snd_soc_find_dai(link->cpus);
 	if (!dai) {
 		dev_err(sdev->dev, "error: failed to find dai %s in %s",
-			dai_component.dai_name, __func__);
+			link->cpus->dai_name, __func__);
 		return -EINVAL;
 	}
 
@@ -2708,7 +2725,11 @@ static int sof_link_load(struct snd_soc_component *scomp, int index,
 	int ret;
 	int i = 0;
 
-	link->platform_name = dev_name(sdev->dev);
+	if (!link->platforms) {
+		dev_err(sdev->dev, "error: no platforms\n");
+		return -EINVAL;
+	}
+	link->platforms->name = dev_name(sdev->dev);
 
 	/*
 	 * Set nonatomic property for FE dai links as their trigger action
@@ -2801,16 +2822,13 @@ static int sof_link_load(struct snd_soc_component *scomp, int index,
 static int sof_link_hda_unload(struct snd_sof_dev *sdev,
 			       struct snd_soc_dai_link *link)
 {
-	struct snd_soc_dai_link_component dai_component;
 	struct snd_soc_dai *dai;
 	int ret = 0;
 
-	memset(&dai_component, 0, sizeof(dai_component));
-	dai_component.dai_name = link->cpu_dai_name;
-	dai = snd_soc_find_dai(&dai_component);
+	dai = snd_soc_find_dai(link->cpus);
 	if (!dai) {
 		dev_err(sdev->dev, "error: failed to find dai %s in %s",
-			dai_component.dai_name, __func__);
+			link->cpus->dai_name, __func__);
 		return -EINVAL;
 	}
 
@@ -2998,6 +3016,49 @@ err:
 	return ret;
 }
 
+/* Function to set the initial value of SOF kcontrols.
+ * The value will be stored in scontrol->control_data
+ */
+static int snd_sof_cache_kcontrol_val(struct snd_sof_dev *sdev)
+{
+	struct snd_sof_control *scontrol = NULL;
+	int ipc_cmd, ctrl_type;
+	int ret = 0;
+
+	list_for_each_entry(scontrol, &sdev->kcontrol_list, list) {
+
+		/* notify DSP of kcontrol values */
+		switch (scontrol->cmd) {
+		case SOF_CTRL_CMD_VOLUME:
+		case SOF_CTRL_CMD_ENUM:
+		case SOF_CTRL_CMD_SWITCH:
+			ipc_cmd = SOF_IPC_COMP_GET_VALUE;
+			ctrl_type = SOF_CTRL_TYPE_VALUE_CHAN_GET;
+			break;
+		case SOF_CTRL_CMD_BINARY:
+			ipc_cmd = SOF_IPC_COMP_GET_DATA;
+			ctrl_type = SOF_CTRL_TYPE_DATA_GET;
+			break;
+		default:
+			dev_err(sdev->dev,
+				"error: Invalid scontrol->cmd: %d\n",
+				scontrol->cmd);
+			return -EINVAL;
+		}
+		ret = snd_sof_ipc_set_get_comp_data(sdev->ipc, scontrol,
+						    ipc_cmd, ctrl_type,
+						    scontrol->cmd,
+						    false);
+		if (ret < 0) {
+			dev_warn(sdev->dev,
+				"error: kcontrol value get for widget: %d\n",
+				scontrol->comp_id);
+		}
+	}
+
+	return ret;
+}
+
 int snd_sof_complete_pipeline(struct snd_sof_dev *sdev,
 			      struct snd_sof_widget *swidget)
 {
@@ -3041,6 +3102,11 @@ static void sof_complete(struct snd_soc_component *scomp)
 			break;
 		}
 	}
+	/*
+	 * cache initial values of SOF kcontrols by reading DSP value over
+	 * IPC. It may be overwritten by alsa-mixer after booting up
+	 */
+	snd_sof_cache_kcontrol_val(sdev);
 }
 
 /* manifest - optional to inform component of manifest */
