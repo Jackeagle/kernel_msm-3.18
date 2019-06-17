@@ -222,7 +222,7 @@ static ssize_t firmware_loading_show(struct device *dev,
 /* one pages buffer should be mapped/unmapped only once */
 static int map_fw_priv_pages(struct fw_priv *fw_priv)
 {
-	if (!fw_priv->is_paged_buf)
+	if (!fw_priv->pages)
 		return 0;
 
 	vunmap(fw_priv->data);
@@ -230,6 +230,11 @@ static int map_fw_priv_pages(struct fw_priv *fw_priv)
 			     PAGE_KERNEL_RO);
 	if (!fw_priv->data)
 		return -ENOMEM;
+
+	/* page table is no longer needed after mapping, let's free */
+	kvfree(fw_priv->pages);
+	fw_priv->pages = NULL;
+
 	return 0;
 }
 
@@ -254,7 +259,6 @@ static ssize_t firmware_loading_store(struct device *dev,
 	struct fw_priv *fw_priv;
 	ssize_t written = count;
 	int loading = simple_strtol(buf, NULL, 10);
-	int i;
 
 	mutex_lock(&fw_lock);
 	fw_priv = fw_sysfs->fw_priv;
@@ -265,12 +269,7 @@ static ssize_t firmware_loading_store(struct device *dev,
 	case 1:
 		/* discarding any previous partial load */
 		if (!fw_sysfs_done(fw_priv)) {
-			for (i = 0; i < fw_priv->nr_pages; i++)
-				__free_page(fw_priv->pages[i]);
-			vfree(fw_priv->pages);
-			fw_priv->pages = NULL;
-			fw_priv->page_array_size = 0;
-			fw_priv->nr_pages = 0;
+			fw_free_paged_buf(fw_priv);
 			fw_state_start(fw_priv);
 		}
 		break;
@@ -398,7 +397,8 @@ static int fw_realloc_pages(struct fw_sysfs *fw_sysfs, int min_size)
 					 fw_priv->page_array_size * 2);
 		struct page **new_pages;
 
-		new_pages = vmalloc(array_size(new_array_size, sizeof(void *)));
+		new_pages = kvmalloc_array(new_array_size, sizeof(void *),
+					   GFP_KERNEL);
 		if (!new_pages) {
 			fw_load_abort(fw_sysfs);
 			return -ENOMEM;
@@ -407,7 +407,7 @@ static int fw_realloc_pages(struct fw_sysfs *fw_sysfs, int min_size)
 		       fw_priv->page_array_size * sizeof(void *));
 		memset(&new_pages[fw_priv->page_array_size], 0, sizeof(void *) *
 		       (new_array_size - fw_priv->page_array_size));
-		vfree(fw_priv->pages);
+		kvfree(fw_priv->pages);
 		fw_priv->pages = new_pages;
 		fw_priv->page_array_size = new_array_size;
 	}
