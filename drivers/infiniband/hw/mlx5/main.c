@@ -4891,17 +4891,18 @@ static int create_dev_resources(struct mlx5_ib_resources *devr)
 	if (ret)
 		goto error0;
 
-	devr->c0 = mlx5_ib_create_cq(&dev->ib_dev, &cq_attr, NULL);
-	if (IS_ERR(devr->c0)) {
-		ret = PTR_ERR(devr->c0);
+	devr->c0 = rdma_zalloc_drv_obj(ibdev, ib_cq);
+	if (!devr->c0) {
+		ret = -ENOMEM;
 		goto error1;
 	}
-	devr->c0->device        = &dev->ib_dev;
-	devr->c0->uobject       = NULL;
-	devr->c0->comp_handler  = NULL;
-	devr->c0->event_handler = NULL;
-	devr->c0->cq_context    = NULL;
+
+	devr->c0->device = &dev->ib_dev;
 	atomic_set(&devr->c0->usecnt, 0);
+
+	ret = mlx5_ib_create_cq(devr->c0, &cq_attr, NULL);
+	if (ret)
+		goto err_create_cq;
 
 	devr->x0 = mlx5_ib_alloc_xrcd(&dev->ib_dev, NULL);
 	if (IS_ERR(devr->x0)) {
@@ -4994,6 +4995,8 @@ error3:
 	mlx5_ib_dealloc_xrcd(devr->x0, NULL);
 error2:
 	mlx5_ib_destroy_cq(devr->c0, NULL);
+err_create_cq:
+	kfree(devr->c0);
 error1:
 	mlx5_ib_dealloc_pd(devr->p0, NULL);
 error0:
@@ -5012,6 +5015,7 @@ static void destroy_dev_resources(struct mlx5_ib_resources *devr)
 	mlx5_ib_dealloc_xrcd(devr->x0, NULL);
 	mlx5_ib_dealloc_xrcd(devr->x1, NULL);
 	mlx5_ib_destroy_cq(devr->c0, NULL);
+	kfree(devr->c0);
 	mlx5_ib_dealloc_pd(devr->p0, NULL);
 	kfree(devr->p0);
 
@@ -6044,7 +6048,6 @@ static int mlx5_ib_stage_init_init(struct mlx5_ib_dev *dev)
 	if (mlx5_use_mad_ifc(dev))
 		get_ext_port_caps(dev);
 
-	dev->ib_dev.owner		= THIS_MODULE;
 	dev->ib_dev.node_type		= RDMA_NODE_IB_CA;
 	dev->ib_dev.local_dma_lkey	= 0 /* not supported for now */;
 	dev->ib_dev.phys_port_cnt	= dev->num_ports;
@@ -6124,6 +6127,10 @@ static void mlx5_ib_stage_flow_db_cleanup(struct mlx5_ib_dev *dev)
 }
 
 static const struct ib_device_ops mlx5_ib_dev_ops = {
+	.owner = THIS_MODULE,
+	.driver_id = RDMA_DRIVER_MLX5,
+	.uverbs_abi_ver	= MLX5_IB_UVERBS_ABI_VERSION,
+
 	.add_gid = mlx5_ib_add_gid,
 	.alloc_mr = mlx5_ib_alloc_mr,
 	.alloc_pd = mlx5_ib_alloc_pd,
@@ -6179,6 +6186,7 @@ static const struct ib_device_ops mlx5_ib_dev_ops = {
 	.resize_cq = mlx5_ib_resize_cq,
 
 	INIT_RDMA_OBJ_SIZE(ib_ah, mlx5_ib_ah, ibah),
+	INIT_RDMA_OBJ_SIZE(ib_cq, mlx5_ib_cq, ibcq),
 	INIT_RDMA_OBJ_SIZE(ib_pd, mlx5_ib_pd, ibpd),
 	INIT_RDMA_OBJ_SIZE(ib_srq, mlx5_ib_srq, ibsrq),
 	INIT_RDMA_OBJ_SIZE(ib_ucontext, mlx5_ib_ucontext, ibucontext),
@@ -6221,7 +6229,6 @@ static int mlx5_ib_stage_caps_init(struct mlx5_ib_dev *dev)
 	struct mlx5_core_dev *mdev = dev->mdev;
 	int err;
 
-	dev->ib_dev.uverbs_abi_ver	= MLX5_IB_UVERBS_ABI_VERSION;
 	dev->ib_dev.uverbs_cmd_mask	=
 		(1ull << IB_USER_VERBS_CMD_GET_CONTEXT)		|
 		(1ull << IB_USER_VERBS_CMD_QUERY_DEVICE)	|
@@ -6290,7 +6297,6 @@ static int mlx5_ib_stage_caps_init(struct mlx5_ib_dev *dev)
 	if (mlx5_accel_ipsec_device_caps(dev->mdev) &
 	    MLX5_ACCEL_IPSEC_CAP_DEVICE)
 		ib_set_device_ops(&dev->ib_dev, &mlx5_ib_dev_flow_ipsec_ops);
-	dev->ib_dev.driver_id = RDMA_DRIVER_MLX5;
 	ib_set_device_ops(&dev->ib_dev, &mlx5_ib_dev_ops);
 
 	if (IS_ENABLED(CONFIG_INFINIBAND_USER_ACCESS))
