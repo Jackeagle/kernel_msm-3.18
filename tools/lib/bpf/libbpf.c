@@ -1740,7 +1740,7 @@ bpf_object__create_maps(struct bpf_object *obj)
 		create_attr.key_size = def->key_size;
 		create_attr.value_size = def->value_size;
 		create_attr.max_entries = def->max_entries;
-		create_attr.btf_fd = -1;
+		create_attr.btf_fd = 0;
 		create_attr.btf_key_type_id = 0;
 		create_attr.btf_value_type_id = 0;
 		if (bpf_map_type__is_map_in_map(def->type) &&
@@ -1754,11 +1754,12 @@ bpf_object__create_maps(struct bpf_object *obj)
 		}
 
 		*pfd = bpf_create_map_xattr(&create_attr);
-		if (*pfd < 0 && create_attr.btf_fd >= 0) {
+		if (*pfd < 0 && (create_attr.btf_key_type_id ||
+				 create_attr.btf_value_type_id)) {
 			cp = libbpf_strerror_r(errno, errmsg, sizeof(errmsg));
 			pr_warning("Error in bpf_create_map_xattr(%s):%s(%d). Retrying without BTF.\n",
 				   map->name, cp, errno);
-			create_attr.btf_fd = -1;
+			create_attr.btf_fd = 0;
 			create_attr.btf_key_type_id = 0;
 			create_attr.btf_value_type_id = 0;
 			map->btf_key_type_id = 0;
@@ -2049,7 +2050,7 @@ load_program(struct bpf_program *prog, struct bpf_insn *insns, int insns_cnt,
 	load_attr.license = license;
 	load_attr.kern_version = kern_version;
 	load_attr.prog_ifindex = prog->prog_ifindex;
-	load_attr.prog_btf_fd = prog->btf_fd;
+	load_attr.prog_btf_fd = prog->btf_fd >= 0 ? prog->btf_fd : 0;
 	load_attr.func_info = prog->func_info;
 	load_attr.func_info_rec_size = prog->func_info_rec_size;
 	load_attr.func_info_cnt = prog->func_info_cnt;
@@ -3834,4 +3835,61 @@ void bpf_program__bpil_offs_to_addr(struct bpf_prog_info_linear *info_linear)
 		bpf_prog_info_set_offset_u64(&info_linear->info,
 					     desc->array_offset, addr);
 	}
+}
+
+int libbpf_num_possible_cpus(void)
+{
+	static const char *fcpu = "/sys/devices/system/cpu/possible";
+	int len = 0, n = 0, il = 0, ir = 0;
+	unsigned int start = 0, end = 0;
+	static int cpus;
+	char buf[128];
+	int error = 0;
+	int fd = -1;
+
+	if (cpus > 0)
+		return cpus;
+
+	fd = open(fcpu, O_RDONLY);
+	if (fd < 0) {
+		error = errno;
+		pr_warning("Failed to open file %s: %s\n",
+			   fcpu, strerror(error));
+		return -error;
+	}
+	len = read(fd, buf, sizeof(buf));
+	close(fd);
+	if (len <= 0) {
+		error = len ? errno : EINVAL;
+		pr_warning("Failed to read # of possible cpus from %s: %s\n",
+			   fcpu, strerror(error));
+		return -error;
+	}
+	if (len == sizeof(buf)) {
+		pr_warning("File %s size overflow\n", fcpu);
+		return -EOVERFLOW;
+	}
+	buf[len] = '\0';
+
+	for (ir = 0, cpus = 0; ir <= len; ir++) {
+		/* Each sub string separated by ',' has format \d+-\d+ or \d+ */
+		if (buf[ir] == ',' || buf[ir] == '\0') {
+			buf[ir] = '\0';
+			n = sscanf(&buf[il], "%u-%u", &start, &end);
+			if (n <= 0) {
+				pr_warning("Failed to get # CPUs from %s\n",
+					   &buf[il]);
+				return -EINVAL;
+			} else if (n == 1) {
+				end = start;
+			}
+			cpus += end - start + 1;
+			il = ir + 1;
+		}
+	}
+	if (cpus <= 0) {
+		pr_warning("Invalid #CPUs %d from %s\n", cpus, fcpu);
+		return -EINVAL;
+	}
+	return cpus;
 }
