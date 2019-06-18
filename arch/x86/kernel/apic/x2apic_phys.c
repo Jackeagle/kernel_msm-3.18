@@ -9,6 +9,7 @@
 #include <asm/smp.h>
 #include <asm/ipi.h>
 #include "x2apic.h"
+#include "local.h"
 
 int x2apic_phys;
 
@@ -80,12 +81,18 @@ static void
 
 static void x2apic_send_IPI_allbutself(int vector)
 {
-	__x2apic_send_IPI_mask(cpu_online_mask, vector, APIC_DEST_ALLBUT);
+	if (static_branch_likely(&apic_use_ipi_shorthand))
+		__x2apic_send_IPI_shorthand(vector, APIC_DEST_ALLBUT);
+	else
+		__x2apic_send_IPI_mask(cpu_online_mask, vector, APIC_DEST_ALLBUT);
 }
 
 static void x2apic_send_IPI_all(int vector)
 {
-	__x2apic_send_IPI_mask(cpu_online_mask, vector, APIC_DEST_ALLINC);
+	if (static_branch_likely(&apic_use_ipi_shorthand))
+		__x2apic_send_IPI_shorthand(vector, APIC_DEST_ALLINC);
+	else
+		__x2apic_send_IPI_mask(cpu_online_mask, vector, APIC_DEST_ALLINC);
 }
 
 static void init_x2apic_ldr(void)
@@ -115,6 +122,14 @@ void __x2apic_send_IPI_dest(unsigned int apicid, int vector, unsigned int dest)
 {
 	unsigned long cfg = __prepare_ICR(0, vector, dest);
 	native_x2apic_icr_write(cfg, apicid);
+}
+
+void __x2apic_send_IPI_shorthand(int vector, u32 which)
+{
+	unsigned long cfg = __prepare_ICR(which, vector, 0);
+
+	x2apic_wrmsr_fence();
+	native_x2apic_icr_write(cfg, 0);
 }
 
 unsigned int x2apic_get_apic_id(unsigned long id)
