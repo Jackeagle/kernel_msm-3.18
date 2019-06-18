@@ -56,7 +56,7 @@ static inline void __xapic_wait_icr_idle(void)
 		cpu_relax();
 }
 
-void __default_send_IPI_shortcut(unsigned int shortcut, int vector, unsigned int dest);
+void __default_send_IPI_shortcut(unsigned int shortcut, int vector);
 
 /*
  * This is used to send an IPI with no shorthand notation (the destination is
