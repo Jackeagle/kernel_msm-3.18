@@ -18,6 +18,10 @@
 #include <asm/proto.h>
 #include <asm/ipi.h>
 
+#include "local.h"
+
+DEFINE_STATIC_KEY_FALSE(apic_use_ipi_shorthand);
+
 #ifdef CONFIG_HOTPLUG_CPU
 #define DEFAULT_SEND_IPI	(1)
 #else
@@ -40,6 +44,16 @@ static int __init print_ipi_mode(void)
 	return 0;
 }
 late_initcall(print_ipi_mode);
+
+void apic_smt_update(void)
+{
+	if (!IS_ENABLED(CONFIG_SMP) || num_online_cpus() == 1 ||
+	    !cpumask_equal(cpu_present_mask, &cpus_booted_once_mask)) {
+		static_branch_disable(&apic_use_ipi_shorthand);
+	} else if (!apic_ipi_shorthand_off) {
+		static_branch_enable(&apic_use_ipi_shorthand);
+	}
+}
 
 void __default_send_IPI_shortcut(unsigned int shortcut, int vector)
 {
