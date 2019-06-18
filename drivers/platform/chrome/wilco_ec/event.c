@@ -112,8 +112,11 @@ module_param(queue_size, int, 0644);
 static struct ec_event_queue *event_queue_new(int capacity)
 {
 	size_t entries_size = sizeof(struct ec_event *) * capacity;
-	struct ec_event_queue *q = kzalloc(sizeof(*q) + entries_size,
-					   GFP_KERNEL);
+	struct ec_event_queue *q;
+
+	q = kzalloc(sizeof(*q) + entries_size, GFP_KERNEL);
+	if (!q)
+		return NULL;
 
 	q->capacity = capacity;
 	spin_lock_init(&q->lock);
@@ -474,6 +477,11 @@ static int event_device_add(struct acpi_device *adev)
 	/* Initialize the device data. */
 	adev->driver_data = dev_data;
 	dev_data->events = event_queue_new(queue_size);
+	if (!dev_data->events) {
+		kfree(dev_data);
+		error = -ENOMEM;
+		goto free_minor;
+	}
 	init_waitqueue_head(&dev_data->wq);
 	dev_data->exist = true;
 	atomic_set(&dev_data->available, 1);
