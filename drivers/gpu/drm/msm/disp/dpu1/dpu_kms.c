@@ -231,19 +231,19 @@ void *dpu_debugfs_create_regset32(const char *name, umode_t mode,
 			regset, &dpu_fops_regset32);
 }
 
-static int _dpu_debugfs_init(struct dpu_kms *dpu_kms)
+static int dpu_kms_debugfs_init(struct msm_kms *kms, struct drm_minor *minor)
 {
+	struct dpu_kms *dpu_kms = to_dpu_kms(kms);
 	void *p = dpu_hw_util_get_log_mask_ptr();
 	struct dentry *entry;
 
 	if (!p)
 		return -EINVAL;
 
-	entry = debugfs_create_dir("debug", dpu_kms->dev->primary->debugfs_root);
+	entry = debugfs_create_dir("debug", minor->debugfs_root);
 	if (IS_ERR_OR_NULL(entry))
 		return -ENODEV;
 
-	/* allow root to be NULL */
 	debugfs_create_x32(DPU_DEBUGFS_HWMASKNAME, 0600, entry, p);
 
 	dpu_debugfs_danger_init(dpu_kms, entry);
@@ -577,13 +577,6 @@ fail:
 	_dpu_kms_drm_obj_destroy(dpu_kms);
 	return ret;
 }
-
-#ifdef CONFIG_DEBUG_FS
-static int dpu_kms_debugfs_init(struct msm_kms *kms, struct drm_minor *minor)
-{
-	return _dpu_debugfs_init(to_dpu_kms(kms));
-}
-#endif
 
 static long dpu_kms_round_pixclk(struct msm_kms *kms, unsigned long rate,
 		struct drm_encoder *encoder)
