@@ -1522,6 +1522,7 @@ smb2_copychunk_range(const unsigned int xid,
 	int chunks_copied = 0;
 	bool chunk_sizes_updated = false;
 	ssize_t bytes_written, total_bytes_written = 0;
+	struct inode *inode = d_inode(srcfile->dentry);
 
 	pcchunk = kmalloc(sizeof(struct copychunk_ioctl), GFP_KERNEL);
 
@@ -1546,6 +1547,14 @@ smb2_copychunk_range(const unsigned int xid,
 	tcon = tlink_tcon(trgtfile->tlink);
 
 	while (len > 0) {
+		if (src_off >= inode->i_size) {
+			cifs_dbg(FYI, "nothing to do on copychunk\n");
+			goto cchunk_out; /* nothing to do */
+		} else if (src_off + len > inode->i_size) {
+			/* consider adding check to see if src oplocked */
+			len = inode->i_size - src_off;
+			cifs_dbg(FYI, "adjust copychunk len %lld less\n", len);
+		}
 		pcchunk->SourceOffset = cpu_to_le64(src_off);
 		pcchunk->TargetOffset = cpu_to_le64(dest_off);
 		pcchunk->Length =
