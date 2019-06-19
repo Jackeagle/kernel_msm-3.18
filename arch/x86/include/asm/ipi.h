@@ -71,7 +71,7 @@ extern void default_send_IPI_mask_sequence_phys(const struct cpumask *mask,
 extern void default_send_IPI_mask_allbutself_phys(const struct cpumask *mask,
 							 int vector);
 
-extern int no_broadcast;
+extern int apic_ipi_shorthandt_off;
 
 #ifdef CONFIG_X86_32
 extern void default_send_IPI_mask_sequence_logical(const struct cpumask *mask,
