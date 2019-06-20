@@ -21,13 +21,9 @@ void rtw_os_free_recvframe(union recv_frame *precvframe)
 }
 
 /* alloc os related resource in union recv_frame */
-int rtw_os_recv_resource_alloc(struct adapter *padapter, union recv_frame *precvframe)
+void rtw_os_recv_resource_alloc(struct adapter *padapter, union recv_frame *precvframe)
 {
-	int	res = _SUCCESS;
-
 	precvframe->u.hdr.pkt_newalloc = precvframe->u.hdr.pkt = NULL;
-
-	return res;
 }
 
 /* free os related resource in union recv_frame */
@@ -50,16 +46,12 @@ void rtw_os_recv_resource_free(struct recv_priv *precvpriv)
 }
 
 /* free os related resource in struct recv_buf */
-int rtw_os_recvbuf_resource_free(struct adapter *padapter, struct recv_buf *precvbuf)
+void rtw_os_recvbuf_resource_free(struct adapter *padapter, struct recv_buf *precvbuf)
 {
-	int ret = _SUCCESS;
-
 	if (precvbuf->pskb)
 	{
 		dev_kfree_skb_any(precvbuf->pskb);
 	}
-	return ret;
-
 }
 
 _pkt *rtw_os_alloc_msdu_pkt(union recv_frame *prframe, u16 nSubframe_Length, u8 *pdata)
