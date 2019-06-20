@@ -9,7 +9,6 @@
 #include <linux/f2fs_fs.h>
 #include <linux/buffer_head.h>
 #include <linux/mpage.h>
-#include <linux/writeback.h>
 #include <linux/backing-dev.h>
 #include <linux/pagevec.h>
 #include <linux/blkdev.h>
@@ -2021,7 +2020,7 @@ static int __write_data_page(struct page *page, bool *submitted,
 		.ino = inode->i_ino,
 		.type = DATA,
 		.op = REQ_OP_WRITE,
-		.op_flags = wbc_to_write_flags(wbc),
+		.op_flags = f2fs_wbc_to_write_flags(sbi, wbc),
 		.old_blkaddr = NULL_ADDR,
 		.page = page,
 		.encrypted_page = NULL,

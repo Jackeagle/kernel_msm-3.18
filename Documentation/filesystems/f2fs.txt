@@ -413,6 +413,10 @@ Files in /sys/fs/f2fs/<devname>
                               that would be unusable if checkpoint=disable were
                               to be set.
 
+ wsync_mode                   0 is by default. 1 gives REQ_SYNC for all the data
+                              writes. 2 gives REQ_BACKGROUND for all. This can
+                              used for the performance tuning purpose.
+
 ================================================================================
 USAGE
 ================================================================================

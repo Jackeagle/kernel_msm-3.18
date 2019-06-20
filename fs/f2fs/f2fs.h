@@ -12,6 +12,7 @@
 #include <linux/types.h>
 #include <linux/page-flags.h>
 #include <linux/buffer_head.h>
+#include <linux/writeback.h>
 #include <linux/slab.h>
 #include <linux/crc32.h>
 #include <linux/magic.h>
@@ -1264,6 +1265,7 @@ struct f2fs_sb_info {
 
 	/* writeback control */
 	atomic_t wb_sync_req[META];	/* count # of WB_SYNC threads */
+	int wsync_mode;			/* write mode */
 
 	/* valid inode count */
 	struct percpu_counter total_valid_inode_count;
@@ -3629,6 +3631,16 @@ static inline void set_opt_mode(struct f2fs_sb_info *sbi, unsigned int mt)
 		set_opt(sbi, LFS);
 		break;
 	}
+}
+
+static inline int f2fs_wbc_to_write_flags(struct f2fs_sb_info *sbi,
+				struct writeback_control *wbc)
+{
+	if (sbi->wsync_mode == 1)
+		return REQ_SYNC;
+	if (sbi->wsync_mode == 2)
+		return REQ_BACKGROUND;
+	return wbc_to_write_flags(wbc);
 }
 
 static inline bool f2fs_may_encrypt(struct inode *inode)
