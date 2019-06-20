@@ -37,9 +37,12 @@
 
 #define DRV_NAME "hns_roce"
 
+/* hip08 is a pci device, it includes two version according pci version id */
+#define PCI_REVISION_ID_HIP08_A			0x20
+#define PCI_REVISION_ID_HIP08_B			0x21
+
 #define HNS_ROCE_HW_VER1	('h' << 24 | 'i' << 16 | '0' << 8 | '6')
 
-#define MAC_ADDR_OCTET_NUM			6
 #define HNS_ROCE_MAX_MSG_LEN			0x80000000
 
 #define HNS_ROCE_ALOGN_UP(a, b) ((((a) + (b) - 1) / (b)) * (b))
@@ -48,6 +51,10 @@
 
 #define HNS_ROCE_BA_SIZE			(32 * 4096)
 
+#define BA_BYTE_LEN				8
+
+#define BITS_PER_BYTE				8
+
 /* Hardware specification only for v1 engine */
 #define HNS_ROCE_MIN_CQE_NUM			0x40
 #define HNS_ROCE_MIN_WQE_NUM			0x20
@@ -55,6 +62,7 @@
 /* Hardware specification only for v1 engine */
 #define HNS_ROCE_MAX_INNER_MTPT_NUM		0x7
 #define HNS_ROCE_MAX_MTPT_PBL_NUM		0x100000
+#define HNS_ROCE_MAX_SGE_NUM			2
 
 #define HNS_ROCE_EACH_FREE_CQ_WAIT_MSECS	20
 #define HNS_ROCE_MAX_FREE_CQ_WAIT_CNT	\
@@ -63,6 +71,9 @@
 #define HNS_ROCE_MIN_CQE_CNT			16
 
 #define HNS_ROCE_MAX_IRQ_NUM			128
+
+#define HNS_ROCE_SGE_IN_WQE			2
+#define HNS_ROCE_SGE_SHIFT			4
 
 #define EQ_ENABLE				1
 #define EQ_DISABLE				0
@@ -81,6 +92,7 @@
 #define HNS_ROCE_MAX_PORTS			6
 #define HNS_ROCE_MAX_GID_NUM			16
 #define HNS_ROCE_GID_SIZE			16
+#define HNS_ROCE_SGE_SIZE			16
 
 #define HNS_ROCE_HOP_NUM_0			0xff
 
@@ -110,6 +122,8 @@
 #define PAGES_SHIFT_16				16
 #define PAGES_SHIFT_24				24
 #define PAGES_SHIFT_32				32
+
+#define HNS_ROCE_PCI_BAR_NUM			2
 
 #define HNS_ROCE_IDX_QUE_ENTRY_SZ		4
 #define SRQ_DB_REG				0x230
@@ -212,6 +226,9 @@ enum hns_roce_mtt_type {
 	MTT_TYPE_SRQWQE,
 	MTT_TYPE_IDX
 };
+
+#define HNS_ROCE_DB_TYPE_COUNT			2
+#define HNS_ROCE_DB_UNIT_SIZE			4
 
 enum {
 	HNS_ROCE_DB_PER_PAGE = PAGE_SIZE / 4
@@ -413,8 +430,8 @@ struct hns_roce_buf {
 struct hns_roce_db_pgdir {
 	struct list_head	list;
 	DECLARE_BITMAP(order0, HNS_ROCE_DB_PER_PAGE);
-	DECLARE_BITMAP(order1, HNS_ROCE_DB_PER_PAGE / 2);
-	unsigned long		*bits[2];
+	DECLARE_BITMAP(order1, HNS_ROCE_DB_PER_PAGE / HNS_ROCE_DB_TYPE_COUNT);
+	unsigned long		*bits[HNS_ROCE_DB_TYPE_COUNT];
 	u32			*page;
 	dma_addr_t		db_dma;
 };
@@ -472,7 +489,7 @@ struct hns_roce_idx_que {
 	u32				buf_size;
 	struct ib_umem			*umem;
 	struct hns_roce_mtt		mtt;
-	u64				*bitmap;
+	unsigned long			*bitmap;
 };
 
 struct hns_roce_srq {
@@ -535,7 +552,7 @@ struct hns_roce_av {
 	u8          hop_limit;
 	__le32      sl_tclass_flowlabel;
 	u8          dgid[HNS_ROCE_GID_SIZE];
-	u8          mac[6];
+	u8          mac[ETH_ALEN];
 	__le16      vlan;
 	bool	    vlan_en;
 };
@@ -921,7 +938,7 @@ struct hns_roce_hw {
 	int (*poll_cq)(struct ib_cq *ibcq, int num_entries, struct ib_wc *wc);
 	int (*dereg_mr)(struct hns_roce_dev *hr_dev, struct hns_roce_mr *mr,
 			struct ib_udata *udata);
-	int (*destroy_cq)(struct ib_cq *ibcq, struct ib_udata *udata);
+	void (*destroy_cq)(struct ib_cq *ibcq, struct ib_udata *udata);
 	int (*modify_cq)(struct ib_cq *cq, u16 cq_count, u16 cq_period);
 	int (*init_eq)(struct hns_roce_dev *hr_dev);
 	void (*cleanup_eq)(struct hns_roce_dev *hr_dev);
@@ -938,6 +955,16 @@ struct hns_roce_hw {
 			     const struct ib_recv_wr **bad_wr);
 	const struct ib_device_ops *hns_roce_dev_ops;
 	const struct ib_device_ops *hns_roce_dev_srq_ops;
+};
+
+enum hns_phy_state {
+	HNS_ROCE_PHY_SLEEP		= 1,
+	HNS_ROCE_PHY_POLLING		= 2,
+	HNS_ROCE_PHY_DISABLED		= 3,
+	HNS_ROCE_PHY_TRAINING		= 4,
+	HNS_ROCE_PHY_LINKUP		= 5,
+	HNS_ROCE_PHY_LINKERR		= 6,
+	HNS_ROCE_PHY_TEST		= 7
 };
 
 struct hns_roce_dev {
@@ -962,7 +989,7 @@ struct hns_roce_dev {
 	struct hns_roce_caps	caps;
 	struct xarray		qp_table_xa;
 
-	unsigned char	dev_addr[HNS_ROCE_MAX_PORTS][MAC_ADDR_OCTET_NUM];
+	unsigned char	dev_addr[HNS_ROCE_MAX_PORTS][ETH_ALEN];
 	u64			sys_image_guid;
 	u32                     vendor_id;
 	u32                     vendor_part_id;
@@ -1178,11 +1205,11 @@ void hns_roce_release_range_qp(struct hns_roce_dev *hr_dev, int base_qpn,
 __be32 send_ieth(const struct ib_send_wr *wr);
 int to_hr_qp_type(int qp_type);
 
-struct ib_cq *hns_roce_ib_create_cq(struct ib_device *ib_dev,
-				    const struct ib_cq_init_attr *attr,
-				    struct ib_udata *udata);
+int hns_roce_ib_create_cq(struct ib_cq *ib_cq,
+			  const struct ib_cq_init_attr *attr,
+			  struct ib_udata *udata);
 
-int hns_roce_ib_destroy_cq(struct ib_cq *ib_cq, struct ib_udata *udata);
+void hns_roce_ib_destroy_cq(struct ib_cq *ib_cq, struct ib_udata *udata);
 void hns_roce_free_cq(struct hns_roce_dev *hr_dev, struct hns_roce_cq *hr_cq);
 
 int hns_roce_db_map_user(struct hns_roce_ucontext *context,
