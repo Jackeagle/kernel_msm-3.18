@@ -198,7 +198,8 @@ static inline bool vma_migratable(struct vm_area_struct *vma)
 	if (vma->vm_file &&
 		gfp_zone(mapping_gfp_mask(vma->vm_file->f_mapping))
 								< policy_zone)
-			return false;
+		return false;
+
 	return true;
 }
 
