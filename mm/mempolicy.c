@@ -306,7 +306,7 @@ static void mpol_rebind_nodemask(struct mempolicy *pol, const nodemask_t *nodes)
 	else {
 		nodes_remap(tmp, pol->v.nodes,pol->w.cpuset_mems_allowed,
 								*nodes);
-		pol->w.cpuset_mems_allowed = tmp;
+		pol->w.cpuset_mems_allowed = *nodes;
 	}
 
 	if (nodes_empty(tmp))
@@ -403,7 +403,7 @@ static const struct mempolicy_operations mpol_ops[MPOL_MAX] = {
 	},
 };
 
-static void migrate_page_add(struct page *page, struct list_head *pagelist,
+static int migrate_page_add(struct page *page, struct list_head *pagelist,
 				unsigned long flags);
 
 struct queue_pages {
@@ -467,7 +467,9 @@ static int queue_pages_pmd(pmd_t *pmd, spinlock_t *ptl, unsigned long addr,
 			goto unlock;
 		}
 
-		migrate_page_add(page, qp->pagelist, flags);
+		ret = migrate_page_add(page, qp->pagelist, flags);
+		if (ret)
+			goto unlock;
 	} else
 		ret = -EIO;
 unlock:
@@ -521,7 +523,9 @@ static int queue_pages_pte_range(pmd_t *pmd, unsigned long addr,
 		if (flags & (MPOL_MF_MOVE | MPOL_MF_MOVE_ALL)) {
 			if (!vma_migratable(vma))
 				break;
-			migrate_page_add(page, qp->pagelist, flags);
+			ret = migrate_page_add(page, qp->pagelist, flags);
+			if (ret)
+				break;
 		} else
 			break;
 	}
@@ -940,10 +944,15 @@ static long do_get_mempolicy(int *policy, nodemask_t *nmask,
 /*
  * page migration, thp tail pages can be passed.
  */
-static void migrate_page_add(struct page *page, struct list_head *pagelist,
+static int migrate_page_add(struct page *page, struct list_head *pagelist,
 				unsigned long flags)
 {
 	struct page *head = compound_head(page);
+
+	/* Non-movable page may reach here. */
+	if (!PageLRU(head))
+		return -EIO;
+
 	/*
 	 * Avoid migrating a page that is shared with others.
 	 */
@@ -955,6 +964,8 @@ static void migrate_page_add(struct page *page, struct list_head *pagelist,
 				hpage_nr_pages(head));
 		}
 	}
+
+	return 0;
 }
 
 /* page allocation callback for NUMA node migration */
@@ -1157,9 +1168,10 @@ static struct page *new_page(struct page *page, unsigned long start)
 }
 #else
 
-static void migrate_page_add(struct page *page, struct list_head *pagelist,
+static int migrate_page_add(struct page *page, struct list_head *pagelist,
 				unsigned long flags)
 {
+	return -EIO;
 }
 
 int do_migrate_pages(struct mm_struct *mm, const nodemask_t *from,
