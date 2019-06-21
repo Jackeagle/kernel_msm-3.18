@@ -70,9 +70,19 @@ enum wcd_mbhc_cs_mb_en_flag {
 	WCD_MBHC_EN_NONE,
 };
 
+static int mbhc_jack_status;
+int wcd_mbhc_jack_status(void)
+{
+	return mbhc_jack_status;
+}
+EXPORT_SYMBOL(wcd_mbhc_jack_status);
+
 static void wcd_mbhc_jack_report(struct wcd_mbhc *mbhc,
 				struct snd_soc_jack *jack, int status, int mask)
 {
+	mbhc_jack_status &= ~mask;
+	mbhc_jack_status|= status & mask;
+	//pr_info("%s jack status %x \n",__func__,mbhc_jack_status);
 	snd_soc_jack_report(jack, status, mask);
 }
 

@@ -1303,6 +1303,50 @@ static void msm_quat_mi2s_snd_shutdown(struct snd_pcm_substream *substream)
 	}
 }
 
+int wcd_mbhc_jack_status(void);
+static int msm_fm_snd_startup(struct snd_pcm_substream *substream)
+{
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_card *card = rtd->card;
+	struct msm8916_asoc_mach_data *pdata =
+			snd_soc_card_get_drvdata(card);
+	int ret = 0;
+	pr_info("%s jack status %x \n",__func__,wcd_mbhc_jack_status());
+	if(gpio_is_valid(pdata->fm_elna_gpio) && wcd_mbhc_jack_status() == 0)
+	{
+		gpio_direction_output(pdata->fm_elna_gpio,1);
+	}
+
+	if (pdata->fm_vdd_supply)
+	{
+		if(regulator_enable(pdata->fm_vdd_supply))
+		{
+			printk("FM Regulator vdd enable failed\n");
+		}
+	}
+
+	return ret;
+}
+
+static void msm_fm_snd_shutdown(struct snd_pcm_substream *substream)
+{
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_card *card = rtd->card;
+	struct msm8916_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
+	if(gpio_is_valid(pdata->fm_elna_gpio))
+	{
+		gpio_direction_output(pdata->fm_elna_gpio,0);
+	}
+
+	if (pdata->fm_vdd_supply)
+	{
+		if(regulator_disable(pdata->fm_vdd_supply))
+		{
+			printk("FM Regulator vdd disable failed\n");
+		}
+	}
+}
+
 #if 0
 static int conf_int_codec_mux(struct msm8916_asoc_mach_data *pdata)
 {
@@ -1509,6 +1553,11 @@ static struct snd_soc_ops msm8x16_quat_mi2s_be_ops = {
 static struct snd_soc_ops msm_pri_auxpcm_be_ops = {
 	.startup = msm_prim_auxpcm_startup,
 	.shutdown = msm_prim_auxpcm_shutdown,
+};
+
+static struct snd_soc_ops msm8x16_fm_be_ops = {
+	.startup = msm_fm_snd_startup,
+	.shutdown = msm_fm_snd_shutdown,
 };
 
 #ifdef CONFIG_WCD9335
@@ -2142,6 +2191,7 @@ static struct snd_soc_dai_link msm8x16_dai[] = {
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_INT_FM_TX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.ops = &msm8x16_fm_be_ops,
 		.ignore_suspend = 1,
 	},
 	{
@@ -2897,6 +2947,24 @@ static int msm8x16_asoc_machine_probe(struct platform_device *pdev)
 			ret);
 		goto err;
 	}
+
+	pdata->fm_elna_gpio = of_get_named_gpio(pdev->dev.of_node,
+				"qcom,fm-elna-gpios", 0);
+	if(gpio_is_valid(pdata->fm_elna_gpio) && !gpio_request(pdata->fm_elna_gpio,
+						"fm_elna"))
+	{
+		gpio_direction_output(pdata->fm_elna_gpio,0);
+	}
+
+	if (of_get_property(pdev->dev.of_node, "qcom,fm-vdd-supply", NULL))
+	{
+		pdata->fm_vdd_supply = regulator_get(&pdev->dev, "qcom,fm-vdd");
+		if (!IS_ERR(pdata->fm_vdd_supply))
+		{
+			printk("Get fm-vdd-supply OK!\n");
+		}
+	}
+
 	return 0;
 err:
 	if (pdata->vaddr_gpio_mux_spkr_ctl)

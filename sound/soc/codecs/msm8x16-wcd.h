@@ -214,6 +214,8 @@ struct msm8916_asoc_mach_data {
 	int codec_type;
 	int ext_pa;
 	int us_euro_gpio;
+	int fm_elna_gpio;
+	struct regulator *fm_vdd_supply;
 	int spk_ext_pa_gpio;
 	int mclk_freq;
 	int lb_mode;
