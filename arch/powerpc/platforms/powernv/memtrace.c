@@ -72,7 +72,6 @@ static bool memtrace_offline_pages(u32 nid, u64 start_pfn, u64 nr_pages)
 {
 	const unsigned long start = PFN_PHYS(start_pfn);
 	const unsigned long size = PFN_PHYS(nr_pages);
-	u64 end_pfn = start_pfn + nr_pages - 1;
 
 	if (walk_memory_blocks(start, size, NULL, check_memblock_online))
 		return false;
