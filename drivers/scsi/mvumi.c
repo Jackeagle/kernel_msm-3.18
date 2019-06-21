@@ -201,7 +201,7 @@ static int mvumi_make_sgl(struct mvumi_hba *mhba, struct scsi_cmnd *scmd,
 		dev_err(&mhba->pdev->dev,
 			"sg count[0x%x] is bigger than max sg[0x%x].\n",
 			*sg_count, mhba->max_sge);
-		dma_unmap_sg(&mhba->pdev->dev, sg, sgnum,
+		dma_unmap_sg(&mhba->pdev->dev, scsi_sglist(scmd), sgnum,
 			     scmd->sc_data_direction);
 		return -1;
 	}
