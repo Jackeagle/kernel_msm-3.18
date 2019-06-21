@@ -79,7 +79,7 @@ do {\
 	pcmd->rspsz = 0;\
 } while (0)
 
-u32 r8712_enqueue_cmd(struct cmd_priv *pcmdpriv, struct cmd_obj *obj);
+void r8712_enqueue_cmd(struct cmd_priv *pcmdpriv, struct cmd_obj *obj);
 u32 r8712_enqueue_cmd_ex(struct cmd_priv *pcmdpriv, struct cmd_obj *obj);
 struct cmd_obj *r8712_dequeue_cmd(struct  __queue *queue);
 void r8712_free_cmd_obj(struct cmd_obj *pcmd);
@@ -708,19 +708,19 @@ struct DisconnectCtrlEx_param {
 #define H2C_CMD_OVERFLOW		0x06
 #define H2C_RESERVED			0x07
 
-u8 r8712_setMacAddr_cmd(struct _adapter *padapter, u8 *mac_addr);
+void r8712_setMacAddr_cmd(struct _adapter *padapter, u8 *mac_addr);
 u8 r8712_setassocsta_cmd(struct _adapter *padapter, u8 *mac_addr);
 u8 r8712_sitesurvey_cmd(struct _adapter *padapter,
 			struct ndis_802_11_ssid *pssid);
-u8 r8712_createbss_cmd(struct _adapter *padapter);
-u8 r8712_setstakey_cmd(struct _adapter *padapter, u8 *psta, u8 unicast_key);
-u8 r8712_joinbss_cmd(struct _adapter *padapter,
-		     struct wlan_network *pnetwork);
-u8 r8712_disassoc_cmd(struct _adapter *padapter);
-u8 r8712_setopmode_cmd(struct _adapter *padapter,
+int r8712_createbss_cmd(struct _adapter *padapter);
+void r8712_setstakey_cmd(struct _adapter *padapter, u8 *psta, u8 unicast_key);
+int r8712_joinbss_cmd(struct _adapter *padapter,
+		      struct wlan_network *pnetwork);
+void r8712_disassoc_cmd(struct _adapter *padapter);
+void r8712_setopmode_cmd(struct _adapter *padapter,
 		 enum NDIS_802_11_NETWORK_INFRASTRUCTURE networktype);
-u8 r8712_setdatarate_cmd(struct _adapter *padapter, u8 *rateset);
-u8 r8712_set_chplan_cmd(struct _adapter  *padapter, int chplan);
+int r8712_setdatarate_cmd(struct _adapter *padapter, u8 *rateset);
+void r8712_set_chplan_cmd(struct _adapter  *padapter, int chplan);
 u8 r8712_setbasicrate_cmd(struct _adapter *padapter, u8 *rateset);
 u8 r8712_getrfreg_cmd(struct _adapter *padapter, u8 offset, u8 *pval);
 u8 r8712_setrfintfs_cmd(struct _adapter *padapter, u8 mode);
