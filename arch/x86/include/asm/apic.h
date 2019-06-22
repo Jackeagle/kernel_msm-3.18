@@ -67,9 +67,7 @@ enum apic_intr_mode_id {
 #ifdef CONFIG_SMP
 extern void __inquire_remote_apic(int apicid);
 #else /* CONFIG_SMP */
-static inline void __inquire_remote_apic(int apicid)
-{
-}
+static inline void __inquire_remote_apic(int apicid) { }
 #endif /* CONFIG_SMP */
 
 static inline void default_inquire_remote_apic(int apicid)
@@ -174,6 +172,7 @@ extern void lapic_assign_system_vectors(void);
 extern void lapic_assign_legacy_vector(unsigned int isairq, bool replace);
 extern void lapic_online(void);
 extern void lapic_offline(void);
+extern void apic_smt_update(void);
 
 #else /* !CONFIG_X86_LOCAL_APIC */
 static inline void lapic_shutdown(void) { }
@@ -187,6 +186,7 @@ static inline void init_bsp_APIC(void) { }
 static inline void apic_intr_mode_init(void) { }
 static inline void lapic_assign_system_vectors(void) { }
 static inline void lapic_assign_legacy_vector(unsigned int i, bool r) { }
+static inline void apic_smt_update(void) {}
 #endif /* !CONFIG_X86_LOCAL_APIC */
 
 #ifdef CONFIG_X86_X2APIC

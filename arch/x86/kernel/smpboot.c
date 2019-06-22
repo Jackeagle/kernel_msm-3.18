@@ -81,6 +81,9 @@
 #include <asm/spec-ctrl.h>
 #include <asm/hw_irq.h>
 
+/* Flag for the NMI path telling it to ignore the NMI */
+DEFINE_PER_CPU(bool, cpu_is_dead);
+
 /* representing HT siblings of each logical CPU */
 DEFINE_PER_CPU_READ_MOSTLY(cpumask_var_t, cpu_sibling_map);
 EXPORT_PER_CPU_SYMBOL(cpu_sibling_map);
@@ -257,6 +260,8 @@ static void notrace start_secondary(void *unused)
 	unlock_vector_lock();
 	cpu_set_state_online(smp_processor_id());
 	x86_platform.nmi_init();
+	/* Reenable NMI handling */
+	this_cpu_write(cpu_is_dead, false);
 
 	/* enable local interrupts */
 	local_irq_enable();
@@ -1593,6 +1598,7 @@ void cpu_disable_common(void)
 	unlock_vector_lock();
 	fixup_irqs();
 	lapic_offline();
+	this_cpu_write(cpu_is_dead, true);
 }
 
 int native_cpu_disable(void)
@@ -1603,7 +1609,12 @@ int native_cpu_disable(void)
 	if (ret)
 		return ret;
 
-	clear_local_APIC();
+	/*
+	 * Disable the local APIC completely. Otherwise IPI broadcast will
+	 * reach it. It still responds normally to INIT, NMI, SMI, and SIPI
+	 * messages.
+	 */
+	disable_local_APIC();
 	cpu_disable_common();
 
 	return 0;
