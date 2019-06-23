@@ -1,13 +1,14 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (C) 2015 Phytec Messtechnik GmbH
+ * Copyright (C) 2019 Phytec Messtechnik GmbH
  * Author: Teresa Remmet <t.remmet@phytec.de>
+ *
  */
 
 /dts-v1/;
 
 #include "am335x-phycore-som.dtsi"
-#include "am335x-wega.dtsi"
+#include "am335x-regor.dtsi"
 
 /* SoM */
 &gpmc {
@@ -18,6 +19,6 @@
 	status = "okay";
 };
 
-&i2c_rtc {
+&serial_flash {
 	status = "okay";
 };
