@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-2.0
 /*
  * adt7475 - Thermal sensor driver for the ADT7475 chip and derivatives
  * Copyright (C) 2007-2008, Advanced Micro Devices, Inc.
