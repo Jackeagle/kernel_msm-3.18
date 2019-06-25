@@ -35,6 +35,7 @@
 #include <linux/kfifo.h>
 #include <linux/seq_file.h>
 #include <linux/kref.h>
+#include <linux/sysfs.h>
 #include <kgd_kfd_interface.h>
 
 #include "amd_shared.h"
@@ -348,6 +349,11 @@ enum kfd_queue_format {
 	KFD_QUEUE_FORMAT_AQL
 };
 
+enum KFD_QUEUE_PRIORITY {
+	KFD_QUEUE_PRIORITY_MINIMUM = 0,
+	KFD_QUEUE_PRIORITY_MAXIMUM = 15
+};
+
 /**
  * struct queue_properties
  *
@@ -430,6 +436,11 @@ struct queue_properties {
 	uint32_t *cu_mask;
 };
 
+#define QUEUE_IS_ACTIVE(q) ((q).queue_size > 0 &&	\
+			    (q).queue_address != 0 &&	\
+			    (q).queue_percent > 0 &&	\
+			    !(q).is_evicted)
+
 /**
  * struct queue
  *
@@ -492,6 +503,12 @@ enum KFD_MQD_TYPE {
 	KFD_MQD_TYPE_SDMA,		/* for sdma queues */
 	KFD_MQD_TYPE_DIQ,		/* for diq */
 	KFD_MQD_TYPE_MAX
+};
+
+enum KFD_PIPE_PRIORITY {
+	KFD_PIPE_PRIORITY_CS_LOW = 0,
+	KFD_PIPE_PRIORITY_CS_MEDIUM,
+	KFD_PIPE_PRIORITY_CS_HIGH
 };
 
 struct scheduling_resources {
@@ -702,6 +719,10 @@ struct kfd_process {
 	 * restored after an eviction
 	 */
 	unsigned long last_restore_timestamp;
+
+	/* Kobj for our procfs */
+	struct kobject *kobj;
+	struct attribute attr_pasid;
 };
 
 #define KFD_PROCESS_TABLE_SIZE 5 /* bits: 32 entries */
@@ -803,6 +824,10 @@ int kfd_gtt_sa_allocate(struct kfd_dev *kfd, unsigned int size,
 int kfd_gtt_sa_free(struct kfd_dev *kfd, struct kfd_mem_obj *mem_obj);
 
 extern struct device *kfd_device;
+
+/* KFD's procfs */
+void kfd_procfs_init(void);
+void kfd_procfs_shutdown(void);
 
 /* Topology */
 int kfd_topology_init(void);
