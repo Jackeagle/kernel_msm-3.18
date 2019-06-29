@@ -22,6 +22,7 @@
 #include <linux/clk.h>
 #include <linux/platform_device.h>
 #include <linux/regulator/consumer.h>
+#include <linux/gpio/consumer.h>
 #include <linux/hdmi.h>
 
 #include "msm_drv.h"
@@ -33,10 +34,9 @@ struct hdmi_phy;
 struct hdmi_platform_config;
 
 struct hdmi_gpio_data {
-	int num;
+	struct gpio_desc *gpiod;
 	bool output;
 	int value;
-	const char *label;
 };
 
 struct hdmi_audio {
