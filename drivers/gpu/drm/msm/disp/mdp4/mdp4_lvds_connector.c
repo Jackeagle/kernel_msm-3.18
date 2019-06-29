@@ -16,8 +16,6 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <linux/gpio.h>
-
 #include "mdp4_kms.h"
 
 struct mdp4_lvds_connector {
