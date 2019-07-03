@@ -1986,8 +1986,8 @@ void pipe_handler_eot_poll(struct sps_bam *dev, struct sps_pipe *pipe)
 	user = &pipe->sys.user_ptrs[offset / sizeof(struct sps_iovec)];
 	for (;;) {
 		SPS_DBG(dev,
-			"sps:%s; pipe index:%d; iovec addr:0x%x; size:0x%x; flags:0x%x; enabled:0x%x; *user is %s NULL.\n",
-			__func__, pipe->pipe_index, cache->addr,
+			"sps:%s; pipe index:%d; iovec addr:0x%pK; size:0x%x; flags:0x%x; enabled:0x%x; *user is %s NULL.\n",
+			__func__, pipe->pipe_index, (void *)(long)cache->addr,
 			cache->size, cache->flags, enabled,
 			(*user == NULL) ? "" : "not");
 
