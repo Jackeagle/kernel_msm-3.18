@@ -877,6 +877,7 @@ static int navi10_get_gpu_power(struct smu_context *smu, uint32_t *value)
 }
 
 static int navi10_get_current_activity_percent(struct smu_context *smu,
+					       enum amd_pp_sensors sensor,
 					       uint32_t *value)
 {
 	int ret = 0;
@@ -892,7 +893,17 @@ static int navi10_get_current_activity_percent(struct smu_context *smu,
 	if (ret)
 		return ret;
 
-	*value = metrics.AverageGfxActivity;
+	switch (sensor) {
+	case AMDGPU_PP_SENSOR_GPU_LOAD:
+		*value = metrics.AverageGfxActivity;
+		break;
+	case AMDGPU_PP_SENSOR_MEM_LOAD:
+		*value = metrics.AverageUclkActivity;
+		break;
+	default:
+		pr_err("Invalid sensor for retrieving clock activity\n");
+		return -EINVAL;
+	}
 
 	return 0;
 }
@@ -1268,8 +1279,9 @@ static int navi10_read_sensor(struct smu_context *smu,
 		*(uint32_t *)data = pptable->FanMaximumRpm;
 		*size = 4;
 		break;
+	case AMDGPU_PP_SENSOR_MEM_LOAD:
 	case AMDGPU_PP_SENSOR_GPU_LOAD:
-		ret = navi10_get_current_activity_percent(smu, (uint32_t *)data);
+		ret = navi10_get_current_activity_percent(smu, sensor, (uint32_t *)data);
 		*size = 4;
 		break;
 	case AMDGPU_PP_SENSOR_GPU_POWER:
