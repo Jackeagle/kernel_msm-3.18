@@ -29,6 +29,7 @@ header-test-			+= acpi/platform/acintel.h
 header-test-			+= acpi/platform/aclinux.h
 header-test-			+= acpi/platform/aclinuxex.h
 header-test-			+= acpi/processor.h
+header-test-$(CONFIG_X86)	+= clocksource/hyperv_timer.h
 header-test-			+= clocksource/timer-sp804.h
 header-test-			+= crypto/cast_common.h
 header-test-			+= crypto/internal/cryptouser.h
