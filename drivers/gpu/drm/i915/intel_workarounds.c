@@ -981,7 +981,7 @@ bool intel_gt_verify_workarounds(struct drm_i915_private *i915,
 }
 
 static void
-whitelist_reg(struct i915_wa_list *wal, i915_reg_t reg)
+whitelist_reg_ext(struct i915_wa_list *wal, i915_reg_t reg, u32 flags)
 {
 	struct i915_wa wa = {
 		.reg = reg
@@ -990,7 +990,14 @@ whitelist_reg(struct i915_wa_list *wal, i915_reg_t reg)
 	if (GEM_DEBUG_WARN_ON(wal->count >= RING_MAX_NONPRIV_SLOTS))
 		return;
 
+	wa.reg.reg |= flags;
 	_wa_add(wal, &wa);
+}
+
+static void
+whitelist_reg(struct i915_wa_list *wal, i915_reg_t reg)
+{
+	whitelist_reg_ext(wal, reg, RING_FORCE_TO_NONPRIV_RW);
 }
 
 static void gen9_whitelist_build(struct i915_wa_list *w)
@@ -1037,6 +1044,19 @@ static void glk_whitelist_build(struct i915_wa_list *w)
 static void cfl_whitelist_build(struct i915_wa_list *w)
 {
 	gen9_whitelist_build(w);
+
+	/*
+	 * WaAllowPMDepthAndInvocationCountAccessFromUMD:cfl,whl,cml,aml
+	 *
+	 * This covers 4 register which are next to one another :
+	 *   - PS_INVOCATION_COUNT
+	 *   - PS_INVOCATION_COUNT_UDW
+	 *   - PS_DEPTH_COUNT
+	 *   - PS_DEPTH_COUNT_UDW
+	 */
+	whitelist_reg_ext(w, PS_INVOCATION_COUNT,
+			  RING_FORCE_TO_NONPRIV_RD |
+			  RING_FORCE_TO_NONPRIV_RANGE_4);
 }
 
 static void cnl_whitelist_build(struct i915_wa_list *w)
@@ -1055,6 +1075,19 @@ static void icl_whitelist_build(struct i915_wa_list *w)
 
 	/* WaEnableStateCacheRedirectToCS:icl */
 	whitelist_reg(w, GEN9_SLICE_COMMON_ECO_CHICKEN1);
+
+	/*
+	 * WaAllowPMDepthAndInvocationCountAccessFromUMD:icl
+	 *
+	 * This covers 4 register which are next to one another :
+	 *   - PS_INVOCATION_COUNT
+	 *   - PS_INVOCATION_COUNT_UDW
+	 *   - PS_DEPTH_COUNT
+	 *   - PS_DEPTH_COUNT_UDW
+	 */
+	whitelist_reg_ext(w, PS_INVOCATION_COUNT,
+			  RING_FORCE_TO_NONPRIV_RD |
+			  RING_FORCE_TO_NONPRIV_RANGE_4);
 }
 
 void intel_engine_init_whitelist(struct intel_engine_cs *engine)
@@ -1167,8 +1200,12 @@ rcs_engine_wa_init(struct intel_engine_cs *engine, struct i915_wa_list *wal)
 		if (IS_ICL_REVID(i915, ICL_REVID_A0, ICL_REVID_B0))
 			wa_write_or(wal,
 				    GEN7_SARCHKMD,
-				    GEN7_DISABLE_DEMAND_PREFETCH |
-				    GEN7_DISABLE_SAMPLER_PREFETCH);
+				    GEN7_DISABLE_DEMAND_PREFETCH);
+
+		/* Wa_1606682166:icl */
+		wa_write_or(wal,
+			    GEN7_SARCHKMD,
+			    GEN7_DISABLE_SAMPLER_PREFETCH);
 	}
 
 	if (IS_GEN_RANGE(i915, 9, 11)) {
