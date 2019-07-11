@@ -86,6 +86,7 @@ struct mlx5e_rep_priv {
 	struct mlx5_flow_handle *vport_rx_rule;
 	struct list_head       vport_sqs_list;
 	struct mlx5_rep_uplink_priv uplink_priv; /* valid for uplink rep */
+	struct devlink_port dl_port;
 };
 
 static inline
@@ -150,13 +151,12 @@ struct mlx5e_encap_entry {
 	struct hlist_node encap_hlist;
 	struct list_head flows;
 	u32 encap_id;
-	struct ip_tunnel_info tun_info;
+	const struct ip_tunnel_info *tun_info;
 	unsigned char h_dest[ETH_ALEN];	/* destination eth addr	*/
 
 	struct net_device *out_dev;
 	struct net_device *route_dev;
-	int tunnel_type;
-	int tunnel_hlen;
+	struct mlx5e_tc_tunnel *tunnel;
 	int reformat_type;
 	u8 flags;
 	char *encap_header;

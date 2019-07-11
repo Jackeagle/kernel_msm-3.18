@@ -1954,6 +1954,7 @@ static void siw_drop_listeners(struct iw_cm_id *id)
 int siw_create_listen(struct iw_cm_id *id, int backlog)
 {
 	struct net_device *dev = to_siw_dev(id->device)->netdev;
+	const struct in_ifaddr *ifa;
 	int rv = 0, listeners = 0;
 
 	siw_dbg(id->device, "id 0x%p: backlog %d\n", id, backlog);
@@ -1975,8 +1976,7 @@ int siw_create_listen(struct iw_cm_id *id, int backlog)
 			id, &s_laddr.sin_addr, ntohs(s_laddr.sin_port),
 			&s_raddr->sin_addr, ntohs(s_raddr->sin_port));
 
-		for_ifa(in_dev)
-		{
+		in_dev_for_each_ifa_rcu(ifa, in_dev) {
 			if (ipv4_is_zeronet(s_laddr.sin_addr.s_addr) ||
 			    s_laddr.sin_addr.s_addr == ifa->ifa_address) {
 				s_laddr.sin_addr.s_addr = ifa->ifa_address;
@@ -1988,7 +1988,6 @@ int siw_create_listen(struct iw_cm_id *id, int backlog)
 					listeners++;
 			}
 		}
-		endfor_ifa(in_dev);
 		in_dev_put(in_dev);
 	} else if (id->local_addr.ss_family == AF_INET6) {
 		struct inet6_dev *in6_dev = in6_dev_get(dev);
