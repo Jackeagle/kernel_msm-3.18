@@ -43,6 +43,8 @@ MODULE_FIRMWARE("amdgpu/vega20_asd.bin");
 MODULE_FIRMWARE("amdgpu/vega20_ta.bin");
 MODULE_FIRMWARE("amdgpu/navi10_sos.bin");
 MODULE_FIRMWARE("amdgpu/navi10_asd.bin");
+MODULE_FIRMWARE("amdgpu/navi14_sos.bin");
+MODULE_FIRMWARE("amdgpu/navi14_asd.bin");
 
 /* address block */
 #define smnMP1_FIRMWARE_FLAGS		0x3010024
@@ -71,6 +73,9 @@ static int psp_v11_0_init_microcode(struct psp_context *psp)
 		break;
 	case CHIP_NAVI10:
 		chip_name = "navi10";
+		break;
+	case CHIP_NAVI14:
+		chip_name = "navi14";
 		break;
 	default:
 		BUG();
@@ -155,6 +160,7 @@ static int psp_v11_0_init_microcode(struct psp_context *psp)
 		}
 		break;
 	case CHIP_NAVI10:
+	case CHIP_NAVI14:
 		break;
 	default:
 		BUG();
@@ -208,7 +214,7 @@ static int psp_v11_0_bootloader_load_sysdrv(struct psp_context *psp)
 	/* Provide the sys driver to bootloader */
 	WREG32_SOC15(MP0, 0, mmMP0_SMN_C2PMSG_36,
 	       (uint32_t)(psp->fw_pri_mc_addr >> 20));
-	psp_gfxdrv_command_reg = 1 << 16;
+	psp_gfxdrv_command_reg = PSP_BL__LOAD_SYSDRV;
 	WREG32_SOC15(MP0, 0, mmMP0_SMN_C2PMSG_35,
 	       psp_gfxdrv_command_reg);
 
@@ -249,7 +255,7 @@ static int psp_v11_0_bootloader_load_sos(struct psp_context *psp)
 	/* Provide the PSP secure OS to bootloader */
 	WREG32_SOC15(MP0, 0, mmMP0_SMN_C2PMSG_36,
 	       (uint32_t)(psp->fw_pri_mc_addr >> 20));
-	psp_gfxdrv_command_reg = 2 << 16;
+	psp_gfxdrv_command_reg = PSP_BL__LOAD_SOSDRV;
 	WREG32_SOC15(MP0, 0, mmMP0_SMN_C2PMSG_35,
 	       psp_gfxdrv_command_reg);
 

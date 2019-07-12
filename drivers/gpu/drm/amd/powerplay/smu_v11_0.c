@@ -46,6 +46,7 @@
 
 MODULE_FIRMWARE("amdgpu/vega20_smc.bin");
 MODULE_FIRMWARE("amdgpu/navi10_smc.bin");
+MODULE_FIRMWARE("amdgpu/navi14_smc.bin");
 
 #define SMU11_VOLTAGE_SCALE 4
 
@@ -156,6 +157,9 @@ static int smu_v11_0_init_microcode(struct smu_context *smu)
 		break;
 	case CHIP_NAVI10:
 		chip_name = "navi10";
+		break;
+	case CHIP_NAVI14:
+		chip_name = "navi14";
 		break;
 	default:
 		BUG();
@@ -1349,6 +1353,7 @@ static int smu_v11_0_gfx_off_control(struct smu_context *smu, bool enable)
 	case CHIP_VEGA20:
 		break;
 	case CHIP_NAVI10:
+	case CHIP_NAVI14:
 		if (!(adev->pm.pp_feature & PP_GFXOFF_MASK))
 			return 0;
 		mutex_lock(&smu->mutex);
@@ -1793,6 +1798,7 @@ void smu_v11_0_set_smu_funcs(struct smu_context *smu)
 		vega20_set_ppt_funcs(smu);
 		break;
 	case CHIP_NAVI10:
+	case CHIP_NAVI14:
 		navi10_set_ppt_funcs(smu);
 		break;
 	default:

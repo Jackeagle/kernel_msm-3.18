@@ -42,6 +42,12 @@ struct psp_context;
 struct psp_xgmi_node_info;
 struct psp_xgmi_topology_info;
 
+enum psp_bootloader_cmd {
+	PSP_BL__LOAD_SYSDRV		= 0x10000,
+	PSP_BL__LOAD_SOSDRV		= 0x20000,
+	PSP_BL__LOAD_KEY_DATABASE	= 0x80000,
+};
+
 enum psp_ring_type
 {
 	PSP_RING_TYPE__INVALID = 0,
@@ -201,6 +207,7 @@ struct psp_context
 	uint8_t				*ta_ras_start_addr;
 	struct psp_xgmi_context		xgmi_context;
 	struct psp_ras_context		ras;
+	struct mutex			mutex;
 };
 
 struct amdgpu_psp_funcs {
