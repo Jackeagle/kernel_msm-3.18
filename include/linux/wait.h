@@ -68,8 +68,15 @@ extern void __init_waitqueue_head(struct wait_queue_head *wq_head, const char *n
 	} while (0)
 
 #ifdef CONFIG_LOCKDEP
-# define __WAIT_QUEUE_HEAD_INIT_ONSTACK(name) \
-	({ init_waitqueue_head(&name); name; })
+# define __WAIT_QUEUE_HEAD_INIT_ONSTACK(name) {					\
+	.lock		= __SPIN_LOCK_UNLOCKED(name.lock),			\
+	.head		= ({							\
+		static struct lock_class_key __key;				\
+		lockdep_set_class_and_name(&(name).lock, &__key, # name);	\
+		(struct list_head){ &(name).head, &(name).head };		\
+	}),									\
+}
+
 # define DECLARE_WAIT_QUEUE_HEAD_ONSTACK(name) \
 	struct wait_queue_head name = __WAIT_QUEUE_HEAD_INIT_ONSTACK(name)
 #else
@@ -527,7 +534,7 @@ do {										\
 ({										\
 	int __ret = 0;								\
 	might_sleep();								\
-	if (!(condition))							\
+	if (!(condition) && (timeout))						\
 		__ret = __wait_event_hrtimeout(wq_head, condition, timeout,	\
 					       TASK_UNINTERRUPTIBLE);		\
 	__ret;									\
@@ -553,7 +560,7 @@ do {										\
 ({										\
 	long __ret = 0;								\
 	might_sleep();								\
-	if (!(condition))							\
+	if (!(condition) && (timeout))						\
 		__ret = __wait_event_hrtimeout(wq, condition, timeout,		\
 					       TASK_INTERRUPTIBLE);		\
 	__ret;									\
