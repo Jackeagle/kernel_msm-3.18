@@ -1700,19 +1700,10 @@ static int vmballoon_debug_show(struct seq_file *f, void *offset)
 
 DEFINE_SHOW_ATTRIBUTE(vmballoon_debug);
 
-static int __init vmballoon_debugfs_init(struct vmballoon *b)
+static void __init vmballoon_debugfs_init(struct vmballoon *b)
 {
-	int error;
-
 	b->dbg_entry = debugfs_create_file("vmmemctl", S_IRUGO, NULL, b,
 					   &vmballoon_debug_fops);
-	if (IS_ERR(b->dbg_entry)) {
-		error = PTR_ERR(b->dbg_entry);
-		pr_err("failed to create debugfs entry, error: %d\n", error);
-		return error;
-	}
-
-	return 0;
 }
 
 static void __exit vmballoon_debugfs_exit(struct vmballoon *b)
@@ -1725,9 +1716,8 @@ static void __exit vmballoon_debugfs_exit(struct vmballoon *b)
 
 #else
 
-static inline int vmballoon_debugfs_init(struct vmballoon *b)
+static inline void vmballoon_debugfs_init(struct vmballoon *b)
 {
-	return 0;
 }
 
 static inline void vmballoon_debugfs_exit(struct vmballoon *b)
@@ -1942,9 +1932,7 @@ static int __init vmballoon_init(void)
 	if (error)
 		goto fail;
 
-	error = vmballoon_debugfs_init(&balloon);
-	if (error)
-		goto fail;
+	vmballoon_debugfs_init(&balloon);
 
 	/*
 	 * Initialization of compaction must be done after the call to
