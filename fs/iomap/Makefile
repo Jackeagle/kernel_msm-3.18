@@ -9,6 +9,7 @@ ccflags-y += -I $(srctree)/$(src)/..
 obj-$(CONFIG_FS_IOMAP)		+= iomap.o
 
 iomap-y				+= \
+					apply.o \
 					direct-io.o \
 					fiemap.o \
 					read_write.o \
