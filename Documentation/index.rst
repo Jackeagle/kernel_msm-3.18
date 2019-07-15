@@ -101,6 +101,7 @@ needed).
    filesystems/index
    vm/index
    bpf/index
+   PCI/index
    usb/index
    misc-devices/index
 
