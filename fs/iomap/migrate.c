@@ -9,8 +9,6 @@
 #include <linux/iomap.h>
 #include <linux/migrate.h>
 
-#include "internal.h"
-
 int
 iomap_migrate_page(struct address_space *mapping, struct page *newpage,
 		struct page *page, enum migrate_mode mode)
