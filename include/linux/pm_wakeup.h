@@ -35,6 +35,7 @@ struct wake_irq;
  * @relax_count: Number of times the wakeup source was deactivated.
  * @expire_count: Number of times the wakeup source's timeout has expired.
  * @wakeup_count: Number of times the wakeup source might abort suspend.
+ * @dev: Struct device for sysfs statistics about the wakeup source.
  * @active: Status of the wakeup source.
  * @autosleep_enabled: Autosleep is active, so update @prevent_sleep_time.
  */
@@ -55,6 +56,7 @@ struct wakeup_source {
 	unsigned long		relax_count;
 	unsigned long		expire_count;
 	unsigned long		wakeup_count;
+	struct device		*dev;
 	bool			active:1;
 	bool			autosleep_enabled:1;
 };
@@ -180,6 +182,23 @@ static inline void pm_wakeup_dev_event(struct device *dev, unsigned int msec,
 				       bool hard) {}
 
 #endif /* !CONFIG_PM_SLEEP */
+
+#ifdef CONFIG_PM_SLEEP_STATS
+
+/* drivers/base/power/wakeup_stats.c */
+int wakeup_source_sysfs_add(struct wakeup_source *ws);
+void wakeup_source_sysfs_remove(struct wakeup_source *ws);
+
+#else /* !CONFIG_PM_SLEEP_STATS */
+
+static inline int wakeup_source_sysfs_add(struct wakeup_source *ws)
+{
+	return 0;
+}
+static inline void wakeup_source_sysfs_remove(struct wakeup_source *ws)
+{ }
+
+#endif /* !CONFIG_PM_SLEEP_STATS */
 
 static inline void wakeup_source_init(struct wakeup_source *ws,
 				      const char *name)
