@@ -528,7 +528,11 @@ smb2_set_file_info(struct inode *inode, const char *full_path,
 {
 	struct cifs_sb_info *cifs_sb = CIFS_SB(inode->i_sb);
 	struct tcon_link *tlink;
+	struct cifs_tcon *tcon;
+	struct TCP_Server_Info *server;
 	int rc;
+	struct cifsInodeInfo *cifsi;
+	struct cifsFileInfo *wrcfile;
 
 	if ((buf->CreationTime == 0) && (buf->LastAccessTime == 0) &&
 	    (buf->LastWriteTime == 0) && (buf->ChangeTime == 0) &&
@@ -539,7 +543,19 @@ smb2_set_file_info(struct inode *inode, const char *full_path,
 	if (IS_ERR(tlink))
 		return PTR_ERR(tlink);
 
-	rc = smb2_compound_op(xid, tlink_tcon(tlink), cifs_sb, full_path,
+	tcon = tlink_tcon(tlink);
+	server = tcon->ses->server;
+
+	if (buf->LastWriteTime) {
+		cifsi = CIFS_I(inode);
+		wrcfile = find_writable_file(cifsi, false);
+		if (wrcfile) {
+			filemap_write_and_wait(inode->i_mapping);
+			server->ops->flush(xid, tcon, &wrcfile->fid);
+			cifsFileInfo_put(wrcfile);
+		}
+	}
+	rc = smb2_compound_op(xid, tcon, cifs_sb, full_path,
 			      FILE_WRITE_ATTRIBUTES, FILE_OPEN, 0, buf,
 			      SMB2_OP_SET_INFO);
 	cifs_put_tlink(tlink);
