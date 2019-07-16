@@ -106,6 +106,7 @@ needed).
    hid/index
    iio/index
    leds/index
+   infiniband/index
    media/index
    netlabel/index
    networking/index
