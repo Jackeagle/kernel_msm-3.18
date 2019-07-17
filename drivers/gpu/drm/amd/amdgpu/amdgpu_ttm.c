@@ -391,6 +391,7 @@ int amdgpu_ttm_copy_mem_to_mem(struct amdgpu_device *adev,
 			src_node_start = amdgpu_mm_node_addr(src->bo, ++src_mm,
 							     src->mem);
 			src_node_size = (src_mm->size << PAGE_SHIFT);
+			src_page_offset = 0;
 		} else {
 			src_node_start += cur_size;
 			src_page_offset = src_node_start & (PAGE_SIZE - 1);
@@ -400,6 +401,7 @@ int amdgpu_ttm_copy_mem_to_mem(struct amdgpu_device *adev,
 			dst_node_start = amdgpu_mm_node_addr(dst->bo, ++dst_mm,
 							     dst->mem);
 			dst_node_size = (dst_mm->size << PAGE_SHIFT);
+			dst_page_offset = 0;
 		} else {
 			dst_node_start += cur_size;
 			dst_page_offset = dst_node_start & (PAGE_SIZE - 1);
@@ -2059,9 +2061,9 @@ int amdgpu_fill_buffer(struct amdgpu_bo *bo,
 	mm_node = bo->tbo.mem.mm_node;
 	num_loops = 0;
 	while (num_pages) {
-		uint32_t byte_count = mm_node->size << PAGE_SHIFT;
+		uint64_t byte_count = mm_node->size << PAGE_SHIFT;
 
-		num_loops += DIV_ROUND_UP(byte_count, max_bytes);
+		num_loops += DIV_ROUND_UP_ULL(byte_count, max_bytes);
 		num_pages -= mm_node->size;
 		++mm_node;
 	}
@@ -2087,12 +2089,13 @@ int amdgpu_fill_buffer(struct amdgpu_bo *bo,
 	mm_node = bo->tbo.mem.mm_node;
 
 	while (num_pages) {
-		uint32_t byte_count = mm_node->size << PAGE_SHIFT;
+		uint64_t byte_count = mm_node->size << PAGE_SHIFT;
 		uint64_t dst_addr;
 
 		dst_addr = amdgpu_mm_node_addr(&bo->tbo, mm_node, &bo->tbo.mem);
 		while (byte_count) {
-			uint32_t cur_size_in_bytes = min(byte_count, max_bytes);
+			uint32_t cur_size_in_bytes = min_t(uint64_t, byte_count,
+							   max_bytes);
 
 			amdgpu_emit_fill_buffer(adev, &job->ibs[0], src_data,
 						dst_addr, cur_size_in_bytes);

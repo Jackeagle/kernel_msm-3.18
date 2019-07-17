@@ -331,7 +331,10 @@ navi10_get_allowed_feature_mask(struct smu_context *smu,
 				| FEATURE_MASK(FEATURE_DS_DCEFCLK_BIT)
 				| FEATURE_MASK(FEATURE_FW_DSTATE_BIT)
 				| FEATURE_MASK(FEATURE_BACO_BIT)
-				| FEATURE_MASK(FEATURE_ACDC_BIT);
+				| FEATURE_MASK(FEATURE_ACDC_BIT)
+				| FEATURE_MASK(FEATURE_GFX_SS_BIT)
+				| FEATURE_MASK(FEATURE_APCC_DFLL_BIT)
+				| FEATURE_MASK(FEATURE_FW_CTF_BIT);
 
 	if (adev->pm.pp_feature & PP_MCLK_DPM_MASK)
 		*(uint64_t *)feature_mask |= FEATURE_MASK(FEATURE_DPM_UCLK_BIT)
@@ -339,8 +342,7 @@ navi10_get_allowed_feature_mask(struct smu_context *smu,
 				| FEATURE_MASK(FEATURE_MEM_MVDD_SCALING_BIT);
 
 	if (adev->pm.pp_feature & PP_GFXOFF_MASK) {
-		*(uint64_t *)feature_mask |= FEATURE_MASK(FEATURE_GFX_SS_BIT)
-				| FEATURE_MASK(FEATURE_GFXOFF_BIT);
+		*(uint64_t *)feature_mask |= FEATURE_MASK(FEATURE_GFXOFF_BIT);
 		/* TODO: remove it once fw fix the bug */
 		*(uint64_t *)feature_mask &= ~FEATURE_MASK(FEATURE_FW_DSTATE_BIT);
 	}
@@ -465,9 +467,6 @@ static int navi10_append_powerplay_table(struct smu_context *smu)
 	smc_pptable->MvddRatio = smc_dpm_table->MvddRatio;
 
 	if (adev->pm.pp_feature & PP_GFXOFF_MASK) {
-		*(uint64_t *)smc_pptable->FeaturesToRun |= FEATURE_MASK(FEATURE_GFX_SS_BIT)
-					| FEATURE_MASK(FEATURE_GFXOFF_BIT);
-
 		/* TODO: remove it once SMU fw fix it */
 		smc_pptable->DebugOverrides |= DPM_OVERRIDE_DISABLE_DFLL_PLL_SHUTDOWN;
 	}
@@ -709,13 +708,19 @@ static int navi10_force_clk_levels(struct smu_context *smu,
 static int navi10_populate_umd_state_clk(struct smu_context *smu)
 {
 	int ret = 0;
-	uint32_t min_sclk_freq = 0;
+	uint32_t min_sclk_freq = 0, min_mclk_freq = 0;
 
 	ret = smu_get_dpm_freq_range(smu, SMU_SCLK, &min_sclk_freq, NULL);
 	if (ret)
 		return ret;
 
 	smu->pstate_sclk = min_sclk_freq * 100;
+
+	ret = smu_get_dpm_freq_range(smu, SMU_MCLK, &min_mclk_freq, NULL);
+	if (ret)
+		return ret;
+
+	smu->pstate_mclk = min_mclk_freq * 100;
 
 	return ret;
 }
@@ -827,27 +832,20 @@ static int navi10_force_dpm_limit_value(struct smu_context *smu, bool highest)
 	return ret;
 }
 
-static int navi10_unforce_dpm_levels(struct smu_context *smu) {
-
+static int navi10_unforce_dpm_levels(struct smu_context *smu)
+{
 	int ret = 0, i = 0;
 	uint32_t min_freq, max_freq;
 	enum smu_clk_type clk_type;
 
-	struct clk_feature_map {
-		enum smu_clk_type clk_type;
-		uint32_t	feature;
-	} clk_feature_map[] = {
-		{SMU_GFXCLK, SMU_FEATURE_DPM_GFXCLK_BIT},
-		{SMU_MCLK,   SMU_FEATURE_DPM_UCLK_BIT},
-		{SMU_SOCCLK, SMU_FEATURE_DPM_SOCCLK_BIT},
+	enum smu_clk_type clks[] = {
+		SMU_GFXCLK,
+		SMU_MCLK,
+		SMU_SOCCLK,
 	};
 
-	for (i = 0; i < ARRAY_SIZE(clk_feature_map); i++) {
-		if (!smu_feature_is_enabled(smu, clk_feature_map[i].feature))
-			continue;
-
-		clk_type = clk_feature_map[i].clk_type;
-
+	for (i = 0; i < ARRAY_SIZE(clks); i++) {
+		clk_type = clks[i];
 		ret = smu_get_dpm_freq_range(smu, clk_type, &min_freq, &max_freq);
 		if (ret)
 			return ret;
@@ -1157,14 +1155,14 @@ static int navi10_get_profiling_clk_mask(struct smu_context *smu,
 			ret = smu_get_dpm_level_count(smu, SMU_MCLK, &level_count);
 			if (ret)
 				return ret;
-			*sclk_mask = level_count - 1;
+			*mclk_mask = level_count - 1;
 		}
 
 		if(soc_mask) {
 			ret = smu_get_dpm_level_count(smu, SMU_SOCCLK, &level_count);
 			if (ret)
 				return ret;
-			*sclk_mask = level_count - 1;
+			*soc_mask = level_count - 1;
 		}
 	}
 
