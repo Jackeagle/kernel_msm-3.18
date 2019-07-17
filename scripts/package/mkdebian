@@ -94,8 +94,9 @@ else
 	packageversion=$version-$revision
 fi
 sourcename=$KDEB_SOURCENAME
-packagename=linux-image-$version
-kernel_headers_packagename=linux-headers-$version
+packagename=linux-image-mtr$LOCALVERSION
+kernel_headers_packagename=linux-headers-mtr$LOCALVERSION
+libc_headers_packagename=linux-libc-dev-mtr$LOCALVERSION
 dbg_packagename=$packagename-dbg
 debarch=
 set_debarch
@@ -143,8 +144,10 @@ extra_build_depends="$extra_build_depends, $(if_enabled_echo CONFIG_SYSTEM_TRUST
 cat <<EOF > debian/changelog
 $sourcename ($packageversion) $distribution; urgency=low
 
-  * Custom built Linux kernel.
-
+  * Custom built Linux kernel with these patches:
+EOF
+(cd source/ ; stg ser | sed -e '/^-/d' -e 's/^. /  * /g') >> debian/changelog
+cat <<EOF >> debian/changelog
  -- $maintainer  $(date -R)
 EOF
 
@@ -179,6 +182,7 @@ Homepage: http://www.kernel.org/
 
 Package: $packagename
 Architecture: $debarch
+Depends: djwong-kernel-support
 Description: Linux kernel, version $version
  This package contains the Linux kernel, modules and corresponding other
  files, version: $version.
@@ -190,7 +194,7 @@ Description: Linux kernel headers for $version on $debarch
  .
  This is useful for people who need to build external modules
 
-Package: linux-libc-dev
+Package: $libc_headers_packagename
 Section: devel
 Provides: linux-kernel-headers
 Architecture: $debarch
