@@ -86,7 +86,8 @@ enum vhost_uaddr_type {
 struct vhost_map {
 	int npages;
 	void *addr;
-	struct page **pages;
+	struct rcu_head head;
+	struct page *pages[];
 };
 
 struct vhost_uaddr {
