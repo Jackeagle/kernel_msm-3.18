@@ -37,7 +37,6 @@ module_param(debug, bool, 0644);
 	v4l2_dbg(1, debug, &dev->v4l2_dev, "%s: " fmt, __func__, ## arg)
 
 struct deinterlace_fmt {
-	char	*name;
 	u32	fourcc;
 	/* Types the format can be used for */
 	u32	types;
@@ -45,12 +44,10 @@ struct deinterlace_fmt {
 
 static struct deinterlace_fmt formats[] = {
 	{
-		.name	= "YUV 4:2:0 Planar",
 		.fourcc	= V4L2_PIX_FMT_YUV420,
 		.types	= MEM2MEM_CAPTURE | MEM2MEM_OUTPUT,
 	},
 	{
-		.name	= "YUYV 4:2:2",
 		.fourcc	= V4L2_PIX_FMT_YUYV,
 		.types	= MEM2MEM_CAPTURE | MEM2MEM_OUTPUT,
 	},
@@ -437,15 +434,6 @@ static int vidioc_querycap(struct file *file, void *priv,
 	strscpy(cap->driver, MEM2MEM_NAME, sizeof(cap->driver));
 	strscpy(cap->card, MEM2MEM_NAME, sizeof(cap->card));
 	strscpy(cap->bus_info, MEM2MEM_NAME, sizeof(cap->card));
-	/*
-	 * This is only a mem-to-mem video device. The capture and output
-	 * device capability flags are left only for backward compatibility
-	 * and are scheduled for removal.
-	 */
-	cap->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_VIDEO_OUTPUT |
-			   V4L2_CAP_VIDEO_M2M | V4L2_CAP_STREAMING;
-	cap->capabilities = cap->device_caps | V4L2_CAP_DEVICE_CAPS;
-
 	return 0;
 }
 
@@ -470,7 +458,6 @@ static int enum_fmt(struct v4l2_fmtdesc *f, u32 type)
 	if (i < NUM_FORMATS) {
 		/* Format found */
 		fmt = &formats[i];
-		strscpy(f->description, fmt->name, sizeof(f->description));
 		f->pixelformat = fmt->fourcc;
 		return 0;
 	}
@@ -972,6 +959,7 @@ static const struct video_device deinterlace_videodev = {
 	.minor		= -1,
 	.release	= video_device_release_empty,
 	.vfl_dir	= VFL_DIR_M2M,
+	.device_caps	= V4L2_CAP_VIDEO_M2M | V4L2_CAP_STREAMING,
 };
 
 static const struct v4l2_m2m_ops m2m_ops = {

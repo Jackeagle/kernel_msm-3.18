@@ -145,7 +145,6 @@ module_param(debug, bool, 0644);
 #define PRP_INTR_ST_CH2OVF	(1 << 8)
 
 struct emmaprp_fmt {
-	char	*name;
 	u32	fourcc;
 	/* Types the format can be used for */
 	u32	types;
@@ -153,12 +152,10 @@ struct emmaprp_fmt {
 
 static struct emmaprp_fmt formats[] = {
 	{
-		.name	= "YUV 4:2:0 Planar",
 		.fourcc	= V4L2_PIX_FMT_YUV420,
 		.types	= MEM2MEM_CAPTURE,
 	},
 	{
-		.name	= "4:2:2, packed, YUYV",
 		.fourcc	= V4L2_PIX_FMT_YUYV,
 		.types	= MEM2MEM_OUTPUT,
 	},
@@ -383,8 +380,6 @@ static int vidioc_querycap(struct file *file, void *priv,
 {
 	strscpy(cap->driver, MEM2MEM_NAME, sizeof(cap->driver));
 	strscpy(cap->card, MEM2MEM_NAME, sizeof(cap->card));
-	cap->device_caps = V4L2_CAP_VIDEO_M2M | V4L2_CAP_STREAMING;
-	cap->capabilities = cap->device_caps | V4L2_CAP_DEVICE_CAPS;
 	return 0;
 }
 
@@ -409,7 +404,6 @@ static int enum_fmt(struct v4l2_fmtdesc *f, u32 type)
 	if (i < NUM_FORMATS) {
 		/* Format found */
 		fmt = &formats[i];
-		strscpy(f->description, fmt->name, sizeof(f->description) - 1);
 		f->pixelformat = fmt->fourcc;
 		return 0;
 	}
@@ -866,6 +860,7 @@ static const struct video_device emmaprp_videodev = {
 	.minor		= -1,
 	.release	= video_device_release,
 	.vfl_dir	= VFL_DIR_M2M,
+	.device_caps	= V4L2_CAP_VIDEO_M2M | V4L2_CAP_STREAMING,
 };
 
 static const struct v4l2_m2m_ops m2m_ops = {
