@@ -284,6 +284,12 @@ static struct hantro_ctrl controls[] = {
 		.cfg = {
 			.elem_size = sizeof(struct v4l2_ctrl_mpeg2_quantization),
 		},
+	}, {
+		.id = V4L2_CID_MPEG_VIDEO_VP8_FRAME_HEADER,
+		.codec = HANTRO_VP8_DECODER,
+		.cfg = {
+			.elem_size = sizeof(struct v4l2_ctrl_vp8_frame_header),
+		},
 	},
 };
 
@@ -419,6 +425,7 @@ static const struct v4l2_file_operations hantro_fops = {
 static const struct of_device_id of_hantro_match[] = {
 #ifdef CONFIG_VIDEO_HANTRO_ROCKCHIP
 	{ .compatible = "rockchip,rk3399-vpu", .data = &rk3399_vpu_variant, },
+	{ .compatible = "rockchip,rk3328-vpu", .data = &rk3328_vpu_variant, },
 	{ .compatible = "rockchip,rk3288-vpu", .data = &rk3288_vpu_variant, },
 #endif
 	{ /* sentinel */ }
