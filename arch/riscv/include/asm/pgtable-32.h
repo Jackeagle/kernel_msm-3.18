@@ -6,6 +6,10 @@
 #ifndef _ASM_RISCV_PGTABLE_32_H
 #define _ASM_RISCV_PGTABLE_32_H
 
+#if !defined(CONFIG_RISCV_VM_SV32)
+#error Only Sv32 supported
+#endif
+
 #include <asm-generic/pgtable-nopmd.h>
 #include <linux/const.h>
 
