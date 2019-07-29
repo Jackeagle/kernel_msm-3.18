@@ -195,6 +195,16 @@ config PM_SLEEP_DEBUG
 	def_bool y
 	depends on PM_DEBUG && PM_SLEEP
 
+config PM_SLEEP_STATS
+	bool "Wakeup sources statistics"
+	depends on PM_SLEEP
+	help
+	  Expose wakeup sources statistics to user space via sysfs. Collected
+	  statistics are located under /sys/power/wakeup_sources. For more
+	  information, read <file:Documentation/ABI/testing/sysfs-class-wakeup>.
+
+	  If in doubt, say N.
+
 config DPM_WATCHDOG
 	bool "Device suspend/resume watchdog"
 	depends on PM_DEBUG && PSTORE && EXPERT

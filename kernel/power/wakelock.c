@@ -122,6 +122,7 @@ static void __wakelocks_gc(struct work_struct *work)
 
 		if (!active) {
 			wakeup_source_remove(&wl->ws);
+			wakeup_source_sysfs_remove(&wl->ws);
 			rb_erase(&wl->node, &wakelocks_tree);
 			list_del(&wl->lru);
 			kfree(wl->name);
@@ -153,6 +154,7 @@ static struct wakelock *wakelock_lookup_add(const char *name, size_t len,
 	struct rb_node **node = &wakelocks_tree.rb_node;
 	struct rb_node *parent = *node;
 	struct wakelock *wl;
+	int ret;
 
 	while (*node) {
 		int diff;
@@ -189,6 +191,14 @@ static struct wakelock *wakelock_lookup_add(const char *name, size_t len,
 	}
 	wl->ws.name = wl->name;
 	wl->ws.last_time = ktime_get();
+
+	ret = wakeup_source_sysfs_add(&wl->ws);
+	if (ret) {
+		kfree(wl->name);
+		kfree(wl);
+		return ERR_PTR(ret);
+	}
+
 	wakeup_source_add(&wl->ws);
 	rb_link_node(&wl->node, parent, node);
 	rb_insert_color(&wl->node, &wakelocks_tree);
