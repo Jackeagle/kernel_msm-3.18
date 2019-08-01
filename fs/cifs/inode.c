@@ -2548,12 +2548,14 @@ cifs_setattr_nounix(struct dentry *direntry, struct iattr *attrs)
 		/* BB: check for rc = -EOPNOTSUPP and switch to legacy mode */
 
 		/* Even if error on time set, no sense failing the call if
-		the server would set the time to a reasonable value anyway,
-		and this check ensures that we are not being called from
-		sys_utimes in which case we ought to fail the call back to
-		the user when the server rejects the call */
-		if ((rc) && (attrs->ia_valid &
-				(ATTR_MODE | ATTR_GID | ATTR_UID | ATTR_SIZE)))
+		 * the server would set the time to a reasonable value anyway.
+		 * TODO check if check to ensure that are not being called from
+		 * sys_utimes (in which case we ought to fail the call when the
+		 * server rejects the call) is correct. We do want
+	         * to return an rc if error setting mode or owner or size
+		 */
+		if (rc && ((attrs->ia_valid &
+		      (ATTR_MODE | ATTR_GID | ATTR_UID | ATTR_SIZE)) == 0))
 			rc = 0;
 	}
 
