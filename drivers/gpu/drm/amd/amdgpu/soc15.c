@@ -63,6 +63,7 @@
 #include "uvd_v7_0.h"
 #include "vce_v4_0.h"
 #include "vcn_v1_0.h"
+#include "vcn_v2_5.h"
 #include "dce_virtual.h"
 #include "mxgpu_ai.h"
 #include "amdgpu_smu.h"
@@ -464,12 +465,14 @@ static int soc15_asic_baco_reset(struct amdgpu_device *adev)
 	return 0;
 }
 
-static int soc15_asic_reset(struct amdgpu_device *adev)
+static enum amd_reset_method
+soc15_asic_reset_method(struct amdgpu_device *adev)
 {
-	int ret;
 	bool baco_reset;
 
 	switch (adev->asic_type) {
+	case CHIP_RAVEN:
+		return AMD_RESET_METHOD_MODE2;
 	case CHIP_VEGA10:
 	case CHIP_VEGA12:
 		soc15_asic_get_baco_capability(adev, &baco_reset);
@@ -493,6 +496,16 @@ static int soc15_asic_reset(struct amdgpu_device *adev)
 	}
 
 	if (baco_reset)
+		return AMD_RESET_METHOD_BACO;
+	else
+		return AMD_RESET_METHOD_MODE1;
+}
+
+static int soc15_asic_reset(struct amdgpu_device *adev)
+{
+	int ret;
+
+	if (soc15_asic_reset_method(adev) == AMD_RESET_METHOD_BACO)
 		ret = soc15_asic_baco_reset(adev);
 	else
 		ret = soc15_asic_mode1_reset(adev);
@@ -586,21 +599,25 @@ int soc15_set_ip_blocks(struct amdgpu_device *adev)
 	case CHIP_VEGA20:
 		vega20_reg_base_init(adev);
 		break;
+	case CHIP_ARCTURUS:
+		arct_reg_base_init(adev);
+		break;
 	default:
 		return -EINVAL;
 	}
 
-	if (adev->asic_type == CHIP_VEGA20)
+	if (adev->asic_type == CHIP_VEGA20 || adev->asic_type == CHIP_ARCTURUS)
 		adev->gmc.xgmi.supported = true;
 
 	if (adev->flags & AMD_IS_APU)
 		adev->nbio_funcs = &nbio_v7_0_funcs;
-	else if (adev->asic_type == CHIP_VEGA20)
+	else if (adev->asic_type == CHIP_VEGA20 ||
+		adev->asic_type == CHIP_ARCTURUS)
 		adev->nbio_funcs = &nbio_v7_4_funcs;
 	else
 		adev->nbio_funcs = &nbio_v6_1_funcs;
 
-	if (adev->asic_type == CHIP_VEGA20)
+	if (adev->asic_type == CHIP_VEGA20 || adev->asic_type == CHIP_ARCTURUS)
 		adev->df_funcs = &df_v3_6_funcs;
 	else
 		adev->df_funcs = &df_v1_7_funcs;
@@ -672,6 +689,17 @@ int soc15_set_ip_blocks(struct amdgpu_device *adev)
 #endif
 		amdgpu_device_ip_block_add(adev, &vcn_v1_0_ip_block);
 		break;
+	case CHIP_ARCTURUS:
+		amdgpu_device_ip_block_add(adev, &vega10_common_ip_block);
+		amdgpu_device_ip_block_add(adev, &gmc_v9_0_ip_block);
+		amdgpu_device_ip_block_add(adev, &vega10_ih_ip_block);
+		if (adev->enable_virtual_display || amdgpu_sriov_vf(adev))
+			amdgpu_device_ip_block_add(adev, &dce_virtual_ip_block);
+		amdgpu_device_ip_block_add(adev, &gfx_v9_0_ip_block);
+		amdgpu_device_ip_block_add(adev, &sdma_v4_0_ip_block);
+		amdgpu_device_ip_block_add(adev, &smu_v11_0_ip_block);
+		amdgpu_device_ip_block_add(adev, &vcn_v2_5_ip_block);
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -688,7 +716,7 @@ static void soc15_invalidate_hdp(struct amdgpu_device *adev,
 				 struct amdgpu_ring *ring)
 {
 	if (!ring || !ring->funcs->emit_wreg)
-		WREG32_SOC15_NO_KIQ(NBIO, 0, mmHDP_READ_CACHE_INVALIDATE, 1);
+		WREG32_SOC15_NO_KIQ(HDP, 0, mmHDP_READ_CACHE_INVALIDATE, 1);
 	else
 		amdgpu_ring_emit_wreg(ring, SOC15_REG_OFFSET(
 			HDP, 0, mmHDP_READ_CACHE_INVALIDATE), 1);
@@ -792,6 +820,7 @@ static const struct amdgpu_asic_funcs soc15_asic_funcs =
 	.read_bios_from_rom = &soc15_read_bios_from_rom,
 	.read_register = &soc15_read_register,
 	.reset = &soc15_asic_reset,
+	.reset_method = &soc15_asic_reset_method,
 	.set_vga_state = &soc15_vga_set_state,
 	.get_xclk = &soc15_get_xclk,
 	.set_uvd_clocks = &soc15_set_uvd_clocks,
@@ -997,6 +1026,12 @@ static int soc15_common_early_init(void *handle)
 			adev->pg_flags |= AMD_PG_SUPPORT_GFX_PG |
 				AMD_PG_SUPPORT_CP |
 				AMD_PG_SUPPORT_RLC_SMU_HS;
+		break;
+	case CHIP_ARCTURUS:
+		adev->asic_funcs = &vega20_asic_funcs;
+		adev->cg_flags = 0;
+		adev->pg_flags = 0;
+		adev->external_rev_id = adev->rev_id + 0x32;
 		break;
 	default:
 		/* FIXME: not supported yet */
