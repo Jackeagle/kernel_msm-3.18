@@ -470,7 +470,14 @@ static int gfs2_walk_metadata(struct inode *inode, sector_t lblock,
 		if (step >= len)
 			break;
 		len -= step;
+
+		if (mp != &clone) {
+			clone_metapath(&clone, mp);
+			mp = &clone;
+		}
+
 		if (ptr != WALK_NEXT) {
+			BUG_ON(mp->mp_aheight == mp->mp_fheight);
 			BUG_ON(!*ptr);
 			mp->mp_list[hgt] += ptr - start;
 			goto fill_up_metapath;
@@ -478,10 +485,6 @@ static int gfs2_walk_metadata(struct inode *inode, sector_t lblock,
 
 lower_metapath:
 		/* Decrease height of metapath. */
-		if (mp != &clone) {
-			clone_metapath(&clone, mp);
-			mp = &clone;
-		}
 		brelse(mp->mp_bh[hgt]);
 		mp->mp_bh[hgt] = NULL;
 		mp->mp_list[hgt] = 0;
@@ -502,10 +505,6 @@ lower_metapath:
 
 fill_up_metapath:
 		/* Increase height of metapath. */
-		if (mp != &clone) {
-			clone_metapath(&clone, mp);
-			mp = &clone;
-		}
 		ret = fillup_metapath(ip, mp, ip->i_height - 1);
 		if (ret < 0)
 			break;
