@@ -156,6 +156,49 @@ config MODULE_SECTIONS
 	select HAVE_MOD_ARCH_SPECIFIC
 
 choice
+	prompt "Virtual Memory System"
+	default RISCV_VM_SV32 if 32BIT
+	default RISCV_VM_SV39 if 64BIT
+	help
+	  The RISC-V Instruction Set Manual Volume II: Privileged
+	  Architecture defines several different "virtual memory
+	  systems" which specify virtual and physical address formats
+	  and the structure of page table entries.  This determines
+	  the amount of virtual address space present and how it is
+	  translated into physical addresses.
+
+	config RISCV_VM_SV32
+	        depends on 32BIT
+		bool "RISC-V Sv32"
+		help
+		  The Sv32 virtual memory system is a page-based
+		  address and page table format for RV32 systems.
+		  It specifies a translation between 32-bit virtual
+		  addresses and 33-bit physical addresses, via a
+		  two-stage page table layout.
+	config RISCV_VM_SV39
+		depends on 64BIT
+		bool "RISC-V Sv39"
+		help
+		  The Sv39 virtual memory system is a page-based
+		  address and page table format for RV64 systems.
+		  It specifies a translation between 39-bit virtual
+		  addresses and 56-bit physical addresses, via a
+		  three-stage page table layout.
+	config RISCV_VM_SV48
+		depends on 64BIT
+		bool "RISC-V Sv48"
+		help
+		  The Sv48 virtual memory system is a page-based
+		  address and page table format for RV64 systems.
+		  It specifies a translation between 48-bit virtual
+		  addresses and 56-bit physical addresses, via a
+		  four-stage page table layout.
+
+endchoice
+
+
+choice
 	prompt "Maximum Physical Memory"
 	default MAXPHYSMEM_2GB if 32BIT
 	default MAXPHYSMEM_2GB if 64BIT && CMODEL_MEDLOW
