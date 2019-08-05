@@ -484,6 +484,7 @@ lower_metapath:
 		}
 		brelse(mp->mp_bh[hgt]);
 		mp->mp_bh[hgt] = NULL;
+		mp->mp_list[hgt] = 0;
 		if (!hgt)
 			break;
 		hgt--;
@@ -494,7 +495,6 @@ lower_metapath:
 		start = metapointer(hgt, mp);
 		end = metaend(hgt, mp);
 		if (start >= end) {
-			mp->mp_list[hgt] = 0;
 			if (!hgt)
 				break;
 			goto lower_metapath;
