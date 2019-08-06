@@ -380,9 +380,9 @@ static const char consumer_descriptor[] = {
 	0x75, 0x10,		/* REPORT_SIZE (16)                    */
 	0x95, 0x02,		/* REPORT_COUNT (2)                    */
 	0x15, 0x01,		/* LOGICAL_MIN (1)                     */
-	0x26, 0x8C, 0x02,	/* LOGICAL_MAX (652)                   */
+	0x26, 0xFF, 0x02,	/* LOGICAL_MAX (767)                   */
 	0x19, 0x01,		/* USAGE_MIN (1)                       */
-	0x2A, 0x8C, 0x02,	/* USAGE_MAX (652)                     */
+	0x2A, 0xFF, 0x02,	/* USAGE_MAX (767)                     */
 	0x81, 0x00,		/* INPUT (Data Ary Abs)                */
 	0xC0,			/* END_COLLECTION                      */
 };				/*                                     */
@@ -1125,7 +1125,7 @@ static int logi_dj_recv_query_hidpp_devices(struct dj_receiver_dev *djrcv_dev)
 				    HID_REQ_SET_REPORT);
 
 	kfree(hidpp_report);
-	return retval;
+	return (retval < 0) ? retval : 0;
 }
 
 static int logi_dj_recv_query_paired_devices(struct dj_receiver_dev *djrcv_dev)
@@ -1832,13 +1832,17 @@ static const struct hid_device_id logi_dj_receivers[] = {
 	  HID_USB_DEVICE(USB_VENDOR_ID_LOGITECH,
 			 USB_DEVICE_ID_LOGITECH_NANO_RECEIVER_2),
 	 .driver_data = recvr_type_hidpp},
-	{ /* Logitech gaming receiver (0xc539) */
+	{ /* Logitech lightspeed receiver (0xc539) */
 	  HID_USB_DEVICE(USB_VENDOR_ID_LOGITECH,
-		USB_DEVICE_ID_LOGITECH_NANO_RECEIVER_GAMING),
+		USB_DEVICE_ID_LOGITECH_NANO_RECEIVER_LIGHTSPEED),
 	 .driver_data = recvr_type_gaming_hidpp},
 	{ /* Logitech 27 MHz HID++ 1.0 receiver (0xc513) */
 	  HID_USB_DEVICE(USB_VENDOR_ID_LOGITECH, USB_DEVICE_ID_MX3000_RECEIVER),
 	 .driver_data = recvr_type_27mhz},
+	{ /* Logitech powerplay receiver (0xc53a) */
+	  HID_USB_DEVICE(USB_VENDOR_ID_LOGITECH,
+		USB_DEVICE_ID_LOGITECH_NANO_RECEIVER_POWERPLAY),
+	 .driver_data = recvr_type_gaming_hidpp},
 	{ /* Logitech 27 MHz HID++ 1.0 receiver (0xc517) */
 	  HID_USB_DEVICE(USB_VENDOR_ID_LOGITECH,
 		USB_DEVICE_ID_S510_RECEIVER_2),
