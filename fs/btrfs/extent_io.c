@@ -13,6 +13,7 @@
 #include <linux/pagevec.h>
 #include <linux/prefetch.h>
 #include <linux/cleancache.h>
+#include <linux/psi.h>
 #include "extent_io.h"
 #include "extent_map.h"
 #include "ctree.h"
@@ -4270,6 +4271,9 @@ int extent_readpages(struct address_space *mapping, struct list_head *pages,
 	struct extent_io_tree *tree = &BTRFS_I(mapping->host)->io_tree;
 	int nr = 0;
 	u64 prev_em_start = (u64)-1;
+	int ret = 0;
+	bool refault = false;
+	unsigned long pflags;
 
 	while (!list_empty(pages)) {
 		u64 contig_end = 0;
@@ -4283,6 +4287,10 @@ int extent_readpages(struct address_space *mapping, struct list_head *pages,
 						readahead_gfp_mask(mapping))) {
 				put_page(page);
 				break;
+			}
+			if (PageWorkingset(page) && !refault) {
+				psi_memstall_enter(&pflags);
+				refault = true;
 			}
 
 			pagepool[nr++] = page;
@@ -4304,8 +4312,10 @@ int extent_readpages(struct address_space *mapping, struct list_head *pages,
 		free_extent_map(em_cached);
 
 	if (bio)
-		return submit_one_bio(bio, 0, bio_flags);
-	return 0;
+		ret = submit_one_bio(bio, 0, bio_flags);
+	if (refault)
+		psi_memstall_leave(&pflags);
+	return ret;
 }
 
 /*

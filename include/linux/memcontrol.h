@@ -335,6 +335,19 @@ static inline bool mem_cgroup_disabled(void)
 	return !cgroup_subsys_enabled(memory_cgrp_subsys);
 }
 
+static inline unsigned long mem_cgroup_protection(struct mem_cgroup *memcg,
+						  bool in_low_reclaim)
+{
+	if (mem_cgroup_disabled())
+		return 0;
+
+	if (in_low_reclaim)
+		return READ_ONCE(memcg->memory.emin);
+
+	return max(READ_ONCE(memcg->memory.emin),
+		   READ_ONCE(memcg->memory.elow));
+}
+
 enum mem_cgroup_protection mem_cgroup_protected(struct mem_cgroup *root,
 						struct mem_cgroup *memcg);
 
@@ -516,6 +529,8 @@ void mem_cgroup_handle_over_high(void);
 
 unsigned long mem_cgroup_get_max(struct mem_cgroup *memcg);
 
+unsigned long mem_cgroup_size(struct mem_cgroup *memcg);
+
 void mem_cgroup_print_oom_context(struct mem_cgroup *memcg,
 				struct task_struct *p);
 
@@ -668,6 +683,7 @@ static inline unsigned long lruvec_page_state_local(struct lruvec *lruvec,
 
 void __mod_lruvec_state(struct lruvec *lruvec, enum node_stat_item idx,
 			int val);
+void __mod_lruvec_slab_state(void *p, enum node_stat_item idx, int val);
 
 static inline void mod_lruvec_state(struct lruvec *lruvec,
 				    enum node_stat_item idx, int val)
@@ -805,6 +821,12 @@ static inline void memcg_memory_event(struct mem_cgroup *memcg,
 static inline void memcg_memory_event_mm(struct mm_struct *mm,
 					 enum memcg_memory_event event)
 {
+}
+
+static inline unsigned long mem_cgroup_protection(struct mem_cgroup *memcg,
+						  bool in_low_reclaim)
+{
+	return 0;
 }
 
 static inline enum mem_cgroup_protection mem_cgroup_protected(
@@ -946,6 +968,11 @@ static inline unsigned long mem_cgroup_get_max(struct mem_cgroup *memcg)
 	return 0;
 }
 
+static inline unsigned long mem_cgroup_size(struct mem_cgroup *memcg)
+{
+	return 0;
+}
+
 static inline void
 mem_cgroup_print_oom_context(struct mem_cgroup *memcg, struct task_struct *p)
 {
@@ -1072,6 +1099,14 @@ static inline void mod_lruvec_page_state(struct page *page,
 	mod_node_page_state(page_pgdat(page), idx, val);
 }
 
+static inline void __mod_lruvec_slab_state(void *p, enum node_stat_item idx,
+					   int val)
+{
+	struct page *page = virt_to_head_page(p);
+
+	__mod_node_page_state(page_pgdat(page), idx, val);
+}
+
 static inline
 unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 					    gfp_t gfp_mask,
@@ -1157,6 +1192,16 @@ static inline void __dec_lruvec_page_state(struct page *page,
 					   enum node_stat_item idx)
 {
 	__mod_lruvec_page_state(page, idx, -1);
+}
+
+static inline void __inc_lruvec_slab_state(void *p, enum node_stat_item idx)
+{
+	__mod_lruvec_slab_state(p, idx, 1);
+}
+
+static inline void __dec_lruvec_slab_state(void *p, enum node_stat_item idx)
+{
+	__mod_lruvec_slab_state(p, idx, -1);
 }
 
 /* idx can be of type enum memcg_stat_item or node_stat_item */
