@@ -1156,7 +1156,7 @@ static void invalidate_reclaim_iterators(struct mem_cgroup *dead_memcg)
 	do {
 		__invalidate_reclaim_iterators(memcg, dead_memcg);
 		last = memcg;
-	} while (memcg = parent_mem_cgroup(memcg));
+	} while ((memcg = parent_mem_cgroup(memcg)));
 
 	/*
 	 * When cgruop1 non-hierarchy mode is used,
