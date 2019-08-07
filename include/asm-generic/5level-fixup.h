@@ -19,7 +19,7 @@
 
 #define p4d_alloc(mm, pgd, address)	(pgd)
 #define p4d_offset(pgd, start)		(pgd)
-#define p4d_none(p4d)			0
+#define p4d_none(p4d)			((void)p4d, 0)
 #define p4d_bad(p4d)			0
 #define p4d_present(p4d)		1
 #define p4d_ERROR(p4d)			do { } while (0)
