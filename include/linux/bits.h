@@ -18,12 +18,30 @@
  * position @high. For example
  * GENMASK_ULL(39, 21) gives us the 64bit vector 0x000000ffffe00000.
  */
-#define GENMASK(high, low) \
+#ifndef __ASSEMBLY__
+#include <linux/build_bug.h>
+#define GENMASK_INPUT_CHECK(high, low) \
+	((unsigned long)BUILD_BUG_ON_ZERO(__builtin_choose_expr( \
+		__is_constexpr(high) && __is_constexpr(low), \
+		(low) > (high), UL(0))))
+#else
+/*
+ * BUILD_BUG_ON_ZERO and __is_constexpr() are not available in h files
+ * included from asm files, disable the input check if that is the case.
+ */
+#define GENMASK_INPUT_CHECK(high, low) UL(0)
+#endif
+
+#define __GENMASK(high, low) \
 	(((~UL(0)) - (UL(1) << (low)) + 1) & \
 	 (~UL(0) >> (BITS_PER_LONG - 1 - (high))))
+#define GENMASK(high, low) \
+	(GENMASK_INPUT_CHECK(high, low) + __GENMASK(high, low))
 
-#define GENMASK_ULL(high, low) \
+#define __GENMASK_ULL(high, low) \
 	(((~ULL(0)) - (ULL(1) << (low)) + 1) & \
 	 (~ULL(0) >> (BITS_PER_LONG_LONG - 1 - (high))))
+#define GENMASK_ULL(high, low) \
+	(GENMASK_INPUT_CHECK(high, low) + __GENMASK_ULL(high, low))
 
 #endif	/* __LINUX_BITS_H */
