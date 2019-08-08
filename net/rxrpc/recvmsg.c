@@ -200,7 +200,8 @@ static void rxrpc_rotate_rx_window(struct rxrpc_call *call)
 	/* Barrier against rxrpc_input_data(). */
 	smp_store_release(&call->rx_hard_ack, hard_ack);
 
-	rxrpc_free_skb(skb, rxrpc_skb_freed);
+	if (atomic_dec_and_test(&sp->nr_ring_pins))
+		rxrpc_free_skb(skb, rxrpc_skb_freed);
 
 	_debug("%u,%u,%02x", hard_ack, top, flags);
 	trace_rxrpc_receive(call, rxrpc_receive_rotate, serial, hard_ack);
@@ -301,7 +302,7 @@ static int rxrpc_recvmsg_data(struct socket *sock, struct rxrpc_call *call,
 			      size_t len, int flags, size_t *_offset)
 {
 	struct rxrpc_skb_priv *sp;
-	struct sk_buff *skb;
+	struct sk_buff *skb, *trailer;
 	rxrpc_seq_t hard_ack, top, seq;
 	size_t remain;
 	bool last;
@@ -337,6 +338,15 @@ static int rxrpc_recvmsg_data(struct socket *sock, struct rxrpc_call *call,
 		smp_rmb();
 		rxrpc_see_skb(skb, rxrpc_skb_seen);
 		sp = rxrpc_skb(skb);
+
+		if (sp->rx_flags & RXRPC_SKB_NEEDS_COW) {
+			ret2 = skb_cow_data(skb, 0, &trailer);
+			if (ret2 < 0) {
+				ret = ret2;
+				goto out;
+			}
+			sp->rx_flags &= ~RXRPC_SKB_NEEDS_COW;
+		}
 
 		if (!(flags & MSG_PEEK))
 			trace_rxrpc_receive(call, rxrpc_receive_front,

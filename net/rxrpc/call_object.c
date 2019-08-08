@@ -431,7 +431,10 @@ static void rxrpc_cleanup_ring(struct rxrpc_call *call)
 	for (i = 0; i < RXRPC_RXTX_BUFF_SIZE; i++) {
 		struct sk_buff *skb = call->rxtx_buffer[i];
 		if (skb) {
-			rxrpc_free_skb(skb, rxrpc_skb_cleaned);
+			struct rxrpc_skb_priv *sp = rxrpc_skb(skb);
+
+			if (atomic_dec_and_test(&sp->nr_ring_pins))
+				rxrpc_free_skb(skb, rxrpc_skb_cleaned);
 			call->rxtx_buffer[i] = NULL;
 		}
 	}
