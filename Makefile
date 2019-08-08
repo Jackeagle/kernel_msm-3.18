@@ -1002,6 +1002,8 @@ endif
 
 PHONY += prepare0
 
+export MODORDER := $(if $(KBUILD_EXTMOD),$(KBUILD_EXTMOD)/)modules.order
+
 ifeq ($(KBUILD_EXTMOD),)
 core-y		+= kernel/ certs/ mm/ fs/ ipc/ security/ crypto/ block/
 
@@ -1771,13 +1773,17 @@ build-dir = $(patsubst %/,%,$(dir $(build-target)))
 	$(Q)$(MAKE) $(build)=$(build-dir) $(build-target)
 %.symtypes: prepare FORCE
 	$(Q)$(MAKE) $(build)=$(build-dir) $(build-target)
+%.ko: prepare FORCE
+	$(Q)$(MAKE) $(build)=$(build-dir) $(build-target:.ko=.mod)
+	$(Q)echo $(build-target) > $(MODORDER)
+	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.modpost || { rm -f $(MODORDER); false; }
 
 # Modules
 PHONY += /
 /: ./
 
 %/: prepare FORCE
-	$(Q)$(MAKE) KBUILD_MODULES=1 $(build)=$(build-dir)
+	$(Q)$(MAKE) KBUILD_MODULES=1 $(build)=$(build-dir) need-modorder=1
 
 # FIXME Should go into a make.lib or something
 # ===========================================================================
