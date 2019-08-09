@@ -623,6 +623,41 @@ static void ahci_pci_save_initial_config(struct pci_dev *pdev,
 	ahci_save_initial_config(&pdev->dev, hpriv);
 }
 
+/*
+ * Intel moved the PCS register on the Denverton AHCI controller, see which
+ * offset this controller is using
+ */
+static int ahci_pcs_offset(struct ata_host *host)
+{
+	struct pci_dev *pdev = to_pci_dev(host->dev);
+
+	switch (pdev->device) {
+	case 0x19b0:
+	case 0x19b1:
+	case 0x19b2:
+	case 0x19b3:
+	case 0x19b4:
+	case 0x19b5:
+	case 0x19b6:
+	case 0x19b7:
+	case 0x19be:
+	case 0x19bf:
+	case 0x19c0:
+	case 0x19c1:
+	case 0x19c2:
+	case 0x19c3:
+	case 0x19c4:
+	case 0x19c5:
+	case 0x19c6:
+	case 0x19c7:
+	case 0x19ce:
+	case 0x19cf:
+		return 0x94;
+	}
+
+	return 0x92;
+}
+
 static int ahci_pci_reset_controller(struct ata_host *host)
 {
 	struct pci_dev *pdev = to_pci_dev(host->dev);
@@ -634,13 +669,14 @@ static int ahci_pci_reset_controller(struct ata_host *host)
 
 	if (pdev->vendor == PCI_VENDOR_ID_INTEL) {
 		struct ahci_host_priv *hpriv = host->private_data;
+		int pcs = ahci_pcs_offset(host);
 		u16 tmp16;
 
 		/* configure PCS */
-		pci_read_config_word(pdev, 0x92, &tmp16);
+		pci_read_config_word(pdev, pcs, &tmp16);
 		if ((tmp16 & hpriv->port_map) != hpriv->port_map) {
-			tmp16 |= hpriv->port_map;
-			pci_write_config_word(pdev, 0x92, tmp16);
+			tmp16 |= hpriv->port_map & 0xff;
+			pci_write_config_word(pdev, pcs, tmp16);
 		}
 	}
 
