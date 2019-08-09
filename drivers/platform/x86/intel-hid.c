@@ -262,32 +262,40 @@ static int intel_hid_pm_prepare(struct device *device)
 	return 0;
 }
 
+static void intel_hid_pm_complete(struct device *device)
+{
+	struct intel_hid_priv *priv = dev_get_drvdata(device);
+
+	if (priv->wakeup_mode) {
+		acpi_ec_set_gpe_wake_mask(ACPI_GPE_DISABLE);
+		priv->wakeup_mode = false;
+	}
+}
+
 static int intel_hid_pl_suspend_handler(struct device *device)
 {
-	if (pm_suspend_via_firmware()) {
+	intel_button_array_enable(device, false);
+
+	if (!pm_suspend_no_platform())
 		intel_hid_set_enable(device, false);
-		intel_button_array_enable(device, false);
-	}
+
 	return 0;
 }
 
 static int intel_hid_pl_resume_handler(struct device *device)
 {
-	if (device_may_wakeup(device)) {
-		struct intel_hid_priv *priv = dev_get_drvdata(device);
+	intel_hid_pm_complete(device);
 
-		acpi_ec_set_gpe_wake_mask(ACPI_GPE_DISABLE);
-		priv->wakeup_mode = false;
-	}
-	if (pm_resume_via_firmware()) {
+	if (!pm_suspend_no_platform())
 		intel_hid_set_enable(device, true);
-		intel_button_array_enable(device, true);
-	}
+
+	intel_button_array_enable(device, true);
 	return 0;
 }
 
 static const struct dev_pm_ops intel_hid_pl_pm_ops = {
 	.prepare = intel_hid_pm_prepare,
+	.complete = intel_hid_pm_complete,
 	.freeze  = intel_hid_pl_suspend_handler,
 	.thaw  = intel_hid_pl_resume_handler,
 	.restore  = intel_hid_pl_resume_handler,
