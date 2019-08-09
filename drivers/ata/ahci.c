@@ -272,8 +272,8 @@ static const struct pci_device_id ahci_pci_tbl[] = {
 	{ PCI_VDEVICE(INTEL, 0x19b5), board_ahci }, /* DNV AHCI */
 	{ PCI_VDEVICE(INTEL, 0x19b6), board_ahci }, /* DNV AHCI */
 	{ PCI_VDEVICE(INTEL, 0x19b7), board_ahci }, /* DNV AHCI */
-	{ PCI_VDEVICE(INTEL, 0x19bE), board_ahci }, /* DNV AHCI */
-	{ PCI_VDEVICE(INTEL, 0x19bF), board_ahci }, /* DNV AHCI */
+	{ PCI_VDEVICE(INTEL, 0x19be), board_ahci }, /* DNV AHCI */
+	{ PCI_VDEVICE(INTEL, 0x19bf), board_ahci }, /* DNV AHCI */
 	{ PCI_VDEVICE(INTEL, 0x19c0), board_ahci }, /* DNV AHCI */
 	{ PCI_VDEVICE(INTEL, 0x19c1), board_ahci }, /* DNV AHCI */
 	{ PCI_VDEVICE(INTEL, 0x19c2), board_ahci }, /* DNV AHCI */
@@ -282,8 +282,8 @@ static const struct pci_device_id ahci_pci_tbl[] = {
 	{ PCI_VDEVICE(INTEL, 0x19c5), board_ahci }, /* DNV AHCI */
 	{ PCI_VDEVICE(INTEL, 0x19c6), board_ahci }, /* DNV AHCI */
 	{ PCI_VDEVICE(INTEL, 0x19c7), board_ahci }, /* DNV AHCI */
-	{ PCI_VDEVICE(INTEL, 0x19cE), board_ahci }, /* DNV AHCI */
-	{ PCI_VDEVICE(INTEL, 0x19cF), board_ahci }, /* DNV AHCI */
+	{ PCI_VDEVICE(INTEL, 0x19ce), board_ahci }, /* DNV AHCI */
+	{ PCI_VDEVICE(INTEL, 0x19cf), board_ahci }, /* DNV AHCI */
 	{ PCI_VDEVICE(INTEL, 0x1c02), board_ahci }, /* CPT AHCI */
 	{ PCI_VDEVICE(INTEL, 0x1c03), board_ahci_mobile }, /* CPT M AHCI */
 	{ PCI_VDEVICE(INTEL, 0x1c04), board_ahci }, /* CPT RAID */
@@ -506,7 +506,7 @@ static const struct pci_device_id ahci_pci_tbl[] = {
 	{ PCI_VDEVICE(SI, 0x0186), board_ahci },		/* SiS 968 */
 
 	/* ST Microelectronics */
-	{ PCI_VDEVICE(STMICRO, 0xCC06), board_ahci },		/* ST ConneXt */
+	{ PCI_VDEVICE(STMICRO, 0xcc06), board_ahci },		/* ST ConneXt */
 
 	/* Marvell */
 	{ PCI_VDEVICE(MARVELL, 0x6145), board_ahci_mv },	/* 6145 */
@@ -1192,7 +1192,7 @@ static bool ahci_broken_system_poweroff(struct pci_dev *pdev)
 				DMI_MATCH(DMI_PRODUCT_NAME, "HP Compaq nx6310"),
 			},
 			/* PCI slot number of the controller */
-			.driver_data = (void *)0x1FUL,
+			.driver_data = (void *)0x1fUL,
 		},
 		{
 			.ident = "HP Compaq 6720s",
@@ -1201,7 +1201,7 @@ static bool ahci_broken_system_poweroff(struct pci_dev *pdev)
 				DMI_MATCH(DMI_PRODUCT_NAME, "HP Compaq 6720s"),
 			},
 			/* PCI slot number of the controller */
-			.driver_data = (void *)0x1FUL,
+			.driver_data = (void *)0x1fUL,
 		},
 
 		{ }	/* terminate list */
@@ -1490,9 +1490,9 @@ static void acer_sa5_271_workaround(struct ahci_host_priv *hpriv,
 
 	if (dmi_check_system(sysids)) {
 		dev_info(&pdev->dev, "enabling Acer Switch Alpha 12 workaround\n");
-		if ((hpriv->saved_cap & 0xC734FF00) == 0xC734FF00) {
+		if ((hpriv->saved_cap & 0xc734ff00) == 0xC734FF00) {
 			hpriv->port_map = 0x7;
-			hpriv->cap = 0xC734FF02;
+			hpriv->cap = 0xc734ff02;
 		}
 	}
 }
@@ -1691,7 +1691,7 @@ static int ahci_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 			 "PDC42819 can only drive SATA devices with this driver\n");
 
 	/* Some devices use non-standard BARs */
-	if (pdev->vendor == PCI_VENDOR_ID_STMICRO && pdev->device == 0xCC06)
+	if (pdev->vendor == PCI_VENDOR_ID_STMICRO && pdev->device == 0xcc06)
 		ahci_pci_bar = AHCI_PCI_BAR_STA2X11;
 	else if (pdev->vendor == 0x1c44 && pdev->device == 0x8000)
 		ahci_pci_bar = AHCI_PCI_BAR_ENMOTUS;
