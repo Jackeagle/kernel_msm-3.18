@@ -117,6 +117,8 @@ enum flow_action_id {
 	FLOW_ACTION_GOTO,
 	FLOW_ACTION_REDIRECT,
 	FLOW_ACTION_MIRRED,
+	FLOW_ACTION_REDIRECT_INGRESS,
+	FLOW_ACTION_MIRRED_INGRESS,
 	FLOW_ACTION_VLAN_PUSH,
 	FLOW_ACTION_VLAN_POP,
 	FLOW_ACTION_VLAN_MANGLE,
@@ -126,11 +128,15 @@ enum flow_action_id {
 	FLOW_ACTION_ADD,
 	FLOW_ACTION_CSUM,
 	FLOW_ACTION_MARK,
+	FLOW_ACTION_PTYPE,
 	FLOW_ACTION_WAKE,
 	FLOW_ACTION_QUEUE,
 	FLOW_ACTION_SAMPLE,
 	FLOW_ACTION_POLICE,
 	FLOW_ACTION_CT,
+	FLOW_ACTION_MPLS_PUSH,
+	FLOW_ACTION_MPLS_POP,
+	FLOW_ACTION_MPLS_MANGLE,
 };
 
 /* This is mirroring enum pedit_header_type definition for easy mapping between
@@ -165,6 +171,7 @@ struct flow_action_entry {
 		const struct ip_tunnel_info *tunnel;	/* FLOW_ACTION_TUNNEL_ENCAP */
 		u32			csum_flags;	/* FLOW_ACTION_CSUM */
 		u32			mark;		/* FLOW_ACTION_MARK */
+		u16                     ptype;          /* FLOW_ACTION_PTYPE */
 		struct {				/* FLOW_ACTION_QUEUE */
 			u32		ctx;
 			u32		index;
@@ -184,6 +191,22 @@ struct flow_action_entry {
 			int action;
 			u16 zone;
 		} ct;
+		struct {				/* FLOW_ACTION_MPLS_PUSH */
+			u32		label;
+			__be16		proto;
+			u8		tc;
+			u8		bos;
+			u8		ttl;
+		} mpls_push;
+		struct {				/* FLOW_ACTION_MPLS_POP */
+			__be16		proto;
+		} mpls_pop;
+		struct {				/* FLOW_ACTION_MPLS_MANGLE */
+			u32		label;
+			u8		tc;
+			u8		bos;
+			u8		ttl;
+		} mpls_mangle;
 	};
 };
 
