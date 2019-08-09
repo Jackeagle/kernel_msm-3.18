@@ -11,7 +11,7 @@
 
 struct addr_location;
 struct branch_stack;
-struct perf_evsel;
+struct evsel;
 struct perf_sample;
 struct symbol;
 struct thread;
@@ -175,7 +175,7 @@ struct callchain_cursor;
 
 int thread__resolve_callchain(struct thread *thread,
 			      struct callchain_cursor *cursor,
-			      struct perf_evsel *evsel,
+			      struct evsel *evsel,
 			      struct perf_sample *sample,
 			      struct symbol **parent,
 			      struct addr_location *root_al,
@@ -222,7 +222,7 @@ struct symbol *machine__find_kernel_symbol_by_name(struct machine *machine,
 
 struct map *machine__findnew_module_map(struct machine *machine, u64 start,
 					const char *filename);
-int arch__fix_module_text_start(u64 *start, const char *name);
+int arch__fix_module_text_start(u64 *start, u64 *size, const char *name);
 
 int machine__load_kallsyms(struct machine *machine, const char *filename);
 
@@ -251,12 +251,12 @@ int machines__for_each_thread(struct machines *machines,
 			      void *priv);
 
 int __machine__synthesize_threads(struct machine *machine, struct perf_tool *tool,
-				  struct target *target, struct thread_map *threads,
+				  struct target *target, struct perf_thread_map *threads,
 				  perf_event__handler_t process, bool data_mmap,
 				  unsigned int nr_threads_synthesize);
 static inline
 int machine__synthesize_threads(struct machine *machine, struct target *target,
-				struct thread_map *threads, bool data_mmap,
+				struct perf_thread_map *threads, bool data_mmap,
 				unsigned int nr_threads_synthesize)
 {
 	return __machine__synthesize_threads(machine, NULL, target, threads,

@@ -1378,6 +1378,7 @@ static int machine__set_modules_path(struct machine *machine)
 	return map_groups__set_modules_path_dir(&machine->kmaps, modules_path, 0);
 }
 int __weak arch__fix_module_text_start(u64 *start __maybe_unused,
+				u64 *size __maybe_unused,
 				const char *name __maybe_unused)
 {
 	return 0;
@@ -1389,7 +1390,7 @@ static int machine__create_module(void *arg, const char *name, u64 start,
 	struct machine *machine = arg;
 	struct map *map;
 
-	if (arch__fix_module_text_start(&start, name) < 0)
+	if (arch__fix_module_text_start(&start, &size, name) < 0)
 		return -1;
 
 	map = machine__findnew_module_map(machine, start, name);
@@ -2287,7 +2288,7 @@ static int find_prev_cpumode(struct ip_callchain *chain, struct thread *thread,
 
 static int thread__resolve_callchain_sample(struct thread *thread,
 					    struct callchain_cursor *cursor,
-					    struct perf_evsel *evsel,
+					    struct evsel *evsel,
 					    struct perf_sample *sample,
 					    struct symbol **parent,
 					    struct addr_location *root_al,
@@ -2493,13 +2494,13 @@ static int unwind_entry(struct unwind_entry *entry, void *arg)
 
 static int thread__resolve_callchain_unwind(struct thread *thread,
 					    struct callchain_cursor *cursor,
-					    struct perf_evsel *evsel,
+					    struct evsel *evsel,
 					    struct perf_sample *sample,
 					    int max_stack)
 {
 	/* Can we do dwarf post unwind? */
-	if (!((evsel->attr.sample_type & PERF_SAMPLE_REGS_USER) &&
-	      (evsel->attr.sample_type & PERF_SAMPLE_STACK_USER)))
+	if (!((evsel->core.attr.sample_type & PERF_SAMPLE_REGS_USER) &&
+	      (evsel->core.attr.sample_type & PERF_SAMPLE_STACK_USER)))
 		return 0;
 
 	/* Bail out if nothing was captured. */
@@ -2513,7 +2514,7 @@ static int thread__resolve_callchain_unwind(struct thread *thread,
 
 int thread__resolve_callchain(struct thread *thread,
 			      struct callchain_cursor *cursor,
-			      struct perf_evsel *evsel,
+			      struct evsel *evsel,
 			      struct perf_sample *sample,
 			      struct symbol **parent,
 			      struct addr_location *root_al,
@@ -2599,7 +2600,7 @@ int machines__for_each_thread(struct machines *machines,
 }
 
 int __machine__synthesize_threads(struct machine *machine, struct perf_tool *tool,
-				  struct target *target, struct thread_map *threads,
+				  struct target *target, struct perf_thread_map *threads,
 				  perf_event__handler_t process, bool data_mmap,
 				  unsigned int nr_threads_synthesize)
 {
