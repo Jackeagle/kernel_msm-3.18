@@ -35,11 +35,10 @@ static u8 rfc1042_header[] = {0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00};
 
 static void recv_tasklet(void *priv);
 
-int r8712_init_recv_priv(struct recv_priv *precvpriv, struct _adapter *padapter)
+void r8712_init_recv_priv(struct recv_priv *precvpriv, struct _adapter *padapter)
 {
 	int i;
 	struct recv_buf *precvbuf;
-	int res = _SUCCESS;
 	addr_t tmpaddr = 0;
 	int alignment = 0;
 	struct sk_buff *pskb = NULL;
@@ -49,15 +48,14 @@ int r8712_init_recv_priv(struct recv_priv *precvpriv, struct _adapter *padapter)
 	precvpriv->pallocated_recv_buf =
 		kzalloc(NR_RECVBUFF * sizeof(struct recv_buf) + 4, GFP_ATOMIC);
 	if (!precvpriv->pallocated_recv_buf)
-		return _FAIL;
+		return;
 	precvpriv->precv_buf = precvpriv->pallocated_recv_buf + 4 -
 			      ((addr_t)(precvpriv->pallocated_recv_buf) & 3);
 	precvbuf = (struct recv_buf *)precvpriv->precv_buf;
 	for (i = 0; i < NR_RECVBUFF; i++) {
 		INIT_LIST_HEAD(&precvbuf->list);
 		spin_lock_init(&precvbuf->recvbuf_lock);
-		res = r8712_os_recvbuf_resource_alloc(padapter, precvbuf);
-		if (res == _FAIL)
+		if (r8712_os_recvbuf_resource_alloc(padapter, precvbuf))
 			break;
 		precvbuf->ref_cnt = 0;
 		precvbuf->adapter = padapter;
@@ -83,7 +81,6 @@ int r8712_init_recv_priv(struct recv_priv *precvpriv, struct _adapter *padapter)
 		}
 		pskb = NULL;
 	}
-	return res;
 }
 
 void r8712_free_recv_priv(struct recv_priv *precvpriv)
@@ -107,7 +104,7 @@ void r8712_free_recv_priv(struct recv_priv *precvpriv)
 			    skb_queue_len(&precvpriv->free_recv_skb_queue));
 }
 
-int r8712_init_recvbuf(struct _adapter *padapter, struct recv_buf *precvbuf)
+void r8712_init_recvbuf(struct _adapter *padapter, struct recv_buf *precvbuf)
 {
 	precvbuf->transfer_len = 0;
 	precvbuf->len = 0;
@@ -118,10 +115,9 @@ int r8712_init_recvbuf(struct _adapter *padapter, struct recv_buf *precvbuf)
 		precvbuf->ptail = precvbuf->pbuf;
 		precvbuf->pend = precvbuf->pdata + MAX_RECVBUF_SZ;
 	}
-	return _SUCCESS;
 }
 
-int r8712_free_recvframe(union recv_frame *precvframe,
+void r8712_free_recvframe(union recv_frame *precvframe,
 		   struct  __queue *pfree_recv_queue)
 {
 	unsigned long irqL;
@@ -140,7 +136,6 @@ int r8712_free_recvframe(union recv_frame *precvframe,
 			precvpriv->free_recvframe_cnt++;
 	}
 	spin_unlock_irqrestore(&pfree_recv_queue->lock, irqL);
-	return _SUCCESS;
 }
 
 static void update_recvframe_attrib_from_recvstat(struct rx_pkt_attrib *pattrib,
