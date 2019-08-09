@@ -1602,6 +1602,76 @@ out_no_multi_part:
 #define GLOBAL_ENABLES_MASK (IPMI_BMC_EVT_MSG_BUFF | IPMI_BMC_RCV_MSG_INTR | \
 			     IPMI_BMC_EVT_MSG_INTR)
 
+static void ssif_remove_dup(struct i2c_client *client)
+{
+	struct ssif_info *ssif_info = i2c_get_clientdata(client);
+
+	if (!ssif_info)
+		return;
+	ipmi_unregister_smi(ssif_info->intf);
+	kfree(ssif_info);
+}
+
+static int ssif_client_match(struct ssif_addr_info *info,
+			      struct i2c_client *client)
+{
+	if (!info->client)
+		return false;
+
+	if (!strcmp(info->adapter_name, client->adapter->name) &&
+		   (info->binfo.addr == client->addr))
+		return true;
+
+	return false;
+}
+
+static int ssif_update_infos(struct ssif_addr_info *info,
+			     struct i2c_client *client)
+{
+	info = kzalloc(sizeof(*info), GFP_KERNEL);
+	if (!info)
+		return -ENOMEM;
+	info->addr_src = SI_ACPI;
+	info->client = client;
+	info->adapter_name = kstrdup(client->adapter->name, GFP_KERNEL);
+	info->binfo.addr = client->addr;
+	list_add_tail(&info->link, &ssif_infos);
+	return 0;
+}
+
+/*
+ * Prefer ACPI over SMBIOS, if both are available.
+ * So if we get an ACPI interface and have already registered a SMBIOS
+ * interface at the same address, remove the SMBIOS and add the ACPI one.
+ */
+static int ssif_check_and_remove(struct i2c_client *client,
+			      struct ssif_info *ssif_info)
+{
+	struct ssif_addr_info *info;
+
+	list_for_each_entry(info, &ssif_infos, link) {
+		if (ssif_client_match(info, client)) {
+			if (info->addr_src == SI_SMBIOS &&
+			    ssif_info->addr_source == SI_SMBIOS)
+				return 0;
+			if (info->addr_src == SI_ACPI)
+				return -EEXIST;
+
+			if (ssif_info->addr_source == SI_ACPI &&
+			    info->addr_src == SI_SMBIOS) {
+				dev_info(&client->dev,
+					 "Removing %s-specified SSIF interface in favor of ACPI\n",
+					 ipmi_addr_src_to_str(info->addr_src));
+				ssif_remove_dup(info->client);
+				goto update_list;
+			}
+		} else
+			continue;
+	}
+ update_list:
+	return ssif_update_infos(info, client);
+}
+
 static int ssif_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	unsigned char     msg[3];
@@ -1613,6 +1683,7 @@ static int ssif_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	u8		  slave_addr = 0;
 	struct ssif_addr_info *addr_info = NULL;
 
+	mutex_lock(&ssif_infos_mutex);
 	resp = kmalloc(IPMI_MAX_MSG_LENGTH, GFP_KERNEL);
 	if (!resp)
 		return -ENOMEM;
@@ -1638,6 +1709,12 @@ static int ssif_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		}
 	}
 
+	if (ssif_check_and_remove(client, ssif_info)) {
+		kfree(resp);
+		kfree(ssif_info);
+		mutex_unlock(&ssif_infos_mutex);
+		return 0;
+	}
 	slave_addr = find_slave_address(client, slave_addr);
 
 	dev_info(&client->dev,
@@ -1850,6 +1927,7 @@ static int ssif_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		kfree(ssif_info);
 	}
 	kfree(resp);
+	mutex_unlock(&ssif_infos_mutex);
 	return rv;
 
 out_remove_attr:
