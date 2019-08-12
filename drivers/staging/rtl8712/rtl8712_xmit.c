@@ -739,7 +739,7 @@ static void dump_xframe(struct _adapter *padapter,
 
 int r8712_xmit_direct(struct _adapter *padapter, struct xmit_frame *pxmitframe)
 {
-	int res = _SUCCESS;
+	int res;
 
 	res = r8712_xmitframe_coalesce(padapter, pxmitframe->pkt, pxmitframe);
 	pxmitframe->pkt = NULL;
@@ -750,7 +750,7 @@ int r8712_xmit_direct(struct _adapter *padapter, struct xmit_frame *pxmitframe)
 
 int r8712_xmit_enqueue(struct _adapter *padapter, struct xmit_frame *pxmitframe)
 {
-	if (r8712_xmit_classifier(padapter, pxmitframe) == _FAIL) {
+	if (r8712_xmit_classifier(padapter, pxmitframe)) {
 		pxmitframe->pkt = NULL;
 		return _FAIL;
 	}
