@@ -6,7 +6,7 @@
 
 /dts-v1/;
 
-#include "meson-g12b.dtsi"
+#include "meson-g12b-s922x.dtsi"
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/gpio/meson-g12a-gpio.h>
 #include <dt-bindings/sound/meson-g12a-tohdmitx.h>
@@ -53,6 +53,7 @@
 
 		gpio = <&gpio_ao GPIOAO_8 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
+		regulator-always-on;
 	};
 
 	tf_io: gpio-regulator-tf_io {
