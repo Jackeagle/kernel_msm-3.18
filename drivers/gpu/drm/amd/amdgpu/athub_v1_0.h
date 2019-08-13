@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Advanced Micro Devices, Inc.
+ * Copyright 2016 Advanced Micro Devices, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -18,43 +18,13 @@
  * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
  * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
  * OTHER DEALINGS IN THE SOFTWARE.
+ *
  */
+#ifndef __ATHUB_V1_0_H__
+#define __ATHUB_V1_0_H__
 
-#ifndef __AMD_ASIC_TYPE_H__
-#define __AMD_ASIC_TYPE_H__
-/*
- * Supported ASIC types
- */
-enum amd_asic_type {
-	CHIP_TAHITI = 0,
-	CHIP_PITCAIRN,
-	CHIP_VERDE,
-	CHIP_OLAND,
-	CHIP_HAINAN,
-	CHIP_BONAIRE,
-	CHIP_KAVERI,
-	CHIP_KABINI,
-	CHIP_HAWAII,
-	CHIP_MULLINS,
-	CHIP_TOPAZ,
-	CHIP_TONGA,
-	CHIP_FIJI,
-	CHIP_CARRIZO,
-	CHIP_STONEY,
-	CHIP_POLARIS10,
-	CHIP_POLARIS11,
-	CHIP_POLARIS12,
-	CHIP_VEGAM,
-	CHIP_VEGA10,
-	CHIP_VEGA12,
-	CHIP_VEGA20,
-	CHIP_RAVEN,
-	CHIP_ARCTURUS,
-	CHIP_RENOIR,
-	CHIP_NAVI10,
-	CHIP_NAVI14,
-	CHIP_NAVI12,
-	CHIP_LAST,
-};
+int athub_v1_0_set_clockgating(struct amdgpu_device *adev,
+			       enum amd_clockgating_state state);
+void athub_v1_0_get_clockgating(struct amdgpu_device *adev, u32 *flags);
 
-#endif /*__AMD_ASIC_TYPE_H__ */
+#endif
