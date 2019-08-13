@@ -5,9 +5,13 @@
 
 #include <linux/clk.h>
 #include <linux/component.h>
+#include <linux/delay.h>
 #include <linux/dma-fence.h>
-#include <linux/moduleparam.h>
+#include <linux/dma-mapping.h>
+#include <linux/module.h>
 #include <linux/of_device.h>
+#include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
 #include <linux/thermal.h>
 
@@ -1714,7 +1718,6 @@ static int etnaviv_gpu_platform_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct etnaviv_gpu *gpu;
-	struct resource *res;
 	int err;
 
 	gpu = devm_kzalloc(dev, sizeof(*gpu), GFP_KERNEL);
@@ -1726,8 +1729,7 @@ static int etnaviv_gpu_platform_probe(struct platform_device *pdev)
 	mutex_init(&gpu->fence_lock);
 
 	/* Map registers: */
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	gpu->mmio = devm_ioremap_resource(&pdev->dev, res);
+	gpu->mmio = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(gpu->mmio))
 		return PTR_ERR(gpu->mmio);
 
