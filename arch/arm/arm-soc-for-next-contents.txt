@@ -1,0 +1,34 @@
+arm/soc
+	patch
+		ARM: mach-nspire: Kill off CLCD auxdata
+		ARM: remove ks8695 platform
+		ARM: remove w90x900 platform
+
+arm/dt
+	patch
+		ARM: dts: nomadik: Set up the CS GPIO right
+		ARM: dts: Update the NSPIRE DTS files for DRM
+	ux500/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/linusw/linux-stericsson tags/ux500-dts-v5.4-1
+	renesas/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-dt-bindings-for-v5.4-tag1
+	stm32/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/atorgue/stm32 tags/stm32-dt-for-v5.4-1
+	gemini/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/linusw/linux-nomadik tags/gemini-dts-v5.4-1
+
+arm/drivers
+	fsl/soc-5.3-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/leo/linux tags/soc-fsl-next-v5.3-2
+	drivers/reset
+		git://git.pengutronix.de/git/pza/linux tags/reset-for-v5.4
+
+arm/defconfig
+
+arm/newsoc
+
+arm/late
+
+arm/fixes
+	<no branch> (a5580eb394c8a48afc3e64aaad68db0d44662cc6)
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-fixes-5.3-2
