@@ -3,10 +3,11 @@
  * Copyright (C) 2015-2018 Etnaviv Project
  */
 
-#include <linux/spinlock.h>
+#include <drm/drm_prime.h>
+#include <linux/dma-mapping.h>
 #include <linux/shmem_fs.h>
-#include <linux/sched/mm.h>
-#include <linux/sched/task.h>
+#include <linux/spinlock.h>
+#include <linux/vmalloc.h>
 
 #include "etnaviv_drv.h"
 #include "etnaviv_gem.h"
@@ -232,18 +233,6 @@ etnaviv_gem_get_vram_mapping(struct etnaviv_gem_object *obj,
 	}
 
 	return NULL;
-}
-
-void etnaviv_gem_mapping_reference(struct etnaviv_vram_mapping *mapping)
-{
-	struct etnaviv_gem_object *etnaviv_obj = mapping->object;
-
-	drm_gem_object_get(&etnaviv_obj->base);
-
-	mutex_lock(&etnaviv_obj->lock);
-	WARN_ON(mapping->use == 0);
-	mapping->use += 1;
-	mutex_unlock(&etnaviv_obj->lock);
 }
 
 void etnaviv_gem_mapping_unreference(struct etnaviv_vram_mapping *mapping)
