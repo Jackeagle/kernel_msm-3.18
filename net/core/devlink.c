@@ -342,7 +342,6 @@ struct devlink_snapshot {
 	struct list_head list;
 	struct devlink_region *region;
 	devlink_snapshot_data_dest_t *data_destructor;
-	u64 data_len;
 	u8 *data;
 	u32 id;
 };
@@ -369,14 +368,6 @@ devlink_region_snapshot_get_by_id(struct devlink_region *region, u32 id)
 			return snapshot;
 
 	return NULL;
-}
-
-static void devlink_region_snapshot_del(struct devlink_snapshot *snapshot)
-{
-	snapshot->region->cur_snapshots--;
-	list_del(&snapshot->list);
-	(*snapshot->data_destructor)(snapshot->data);
-	kfree(snapshot);
 }
 
 #define DEVLINK_NL_FLAG_NEED_DEVLINK	BIT(0)
@@ -3596,6 +3587,16 @@ out_free_msg:
 	nlmsg_free(msg);
 }
 
+static void devlink_region_snapshot_del(struct devlink_region *region,
+					struct devlink_snapshot *snapshot)
+{
+	devlink_nl_region_notify(region, snapshot, DEVLINK_CMD_REGION_DEL);
+	region->cur_snapshots--;
+	list_del(&snapshot->list);
+	(*snapshot->data_destructor)(snapshot->data);
+	kfree(snapshot);
+}
+
 static int devlink_nl_cmd_region_get_doit(struct sk_buff *skb,
 					  struct genl_info *info)
 {
@@ -3691,8 +3692,7 @@ static int devlink_nl_cmd_region_del(struct sk_buff *skb,
 	if (!snapshot)
 		return -EINVAL;
 
-	devlink_nl_region_notify(region, snapshot, DEVLINK_CMD_REGION_DEL);
-	devlink_region_snapshot_del(snapshot);
+	devlink_region_snapshot_del(region, snapshot);
 	return 0;
 }
 
@@ -3748,8 +3748,8 @@ static int devlink_nl_region_read_snapshot_fill(struct sk_buff *skb,
 	if (!snapshot)
 		return -EINVAL;
 
-	if (end_offset > snapshot->data_len || dump)
-		end_offset = snapshot->data_len;
+	if (end_offset > region->size || dump)
+		end_offset = region->size;
 
 	while (curr_offset < end_offset) {
 		u32 data_size;
@@ -6744,7 +6744,7 @@ void devlink_region_destroy(struct devlink_region *region)
 
 	/* Free all snapshots of region */
 	list_for_each_entry_safe(snapshot, ts, &region->snapshot_list, list)
-		devlink_region_snapshot_del(snapshot);
+		devlink_region_snapshot_del(region, snapshot);
 
 	list_del(&region->list);
 
@@ -6784,12 +6784,11 @@ EXPORT_SYMBOL_GPL(devlink_region_shapshot_id_get);
  *	The @snapshot_id should be obtained using the getter function.
  *
  *	@region: devlink region of the snapshot
- *	@data_len: size of snapshot data
  *	@data: snapshot data
  *	@snapshot_id: snapshot id to be created
  *	@data_destructor: pointer to destructor function to free data
  */
-int devlink_region_snapshot_create(struct devlink_region *region, u64 data_len,
+int devlink_region_snapshot_create(struct devlink_region *region,
 				   u8 *data, u32 snapshot_id,
 				   devlink_snapshot_data_dest_t *data_destructor)
 {
@@ -6819,7 +6818,6 @@ int devlink_region_snapshot_create(struct devlink_region *region, u64 data_len,
 	snapshot->id = snapshot_id;
 	snapshot->region = region;
 	snapshot->data = data;
-	snapshot->data_len = data_len;
 	snapshot->data_destructor = data_destructor;
 
 	list_add_tail(&snapshot->list, &region->snapshot_list);
@@ -6941,11 +6939,10 @@ int devlink_compat_switch_id_get(struct net_device *dev,
 {
 	struct devlink_port *devlink_port;
 
-	/* RTNL mutex is held here which ensures that devlink_port
-	 * instance cannot disappear in the middle. No need to take
+	/* Caller must hold RTNL mutex or reference to dev, which ensures that
+	 * devlink_port instance cannot disappear in the middle. No need to take
 	 * any devlink lock as only permanent values are accessed.
 	 */
-	ASSERT_RTNL();
 	devlink_port = netdev_to_devlink_port(dev);
 	if (!devlink_port || !devlink_port->attrs.switch_port)
 		return -EOPNOTSUPP;
