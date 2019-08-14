@@ -43,7 +43,7 @@ static int default_open_file(struct inode *inode, struct file *filp)
 		return ret;
 
 	real_fops = dentry->d_fsdata;
-	return real_fops->open(inode, filp);
+	return real_fops->open ? real_fops->open(inode, filp) : 0;
 }
 
 static ssize_t default_read_file(struct file *file, char __user *buf,
