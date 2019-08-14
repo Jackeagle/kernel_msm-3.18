@@ -834,7 +834,7 @@
 					};
 
 					target: trip-point@1 {
-						temperature = <85000>;
+						temperature = <80000>;
 						hysteresis = <2000>;
 						type = "passive";
 					};
@@ -867,16 +867,16 @@
 						trip = <&target>;
 						cooling-device = <&cpu4
 							THERMAL_NO_LIMIT
-							THERMAL_NO_LIMIT>,
+							14>,
 								 <&cpu5
 							THERMAL_NO_LIMIT
-							THERMAL_NO_LIMIT>,
+							14>,
 								 <&cpu6
 							THERMAL_NO_LIMIT
-							THERMAL_NO_LIMIT>,
+							14>,
 								 <&cpu7
 							THERMAL_NO_LIMIT
-							THERMAL_NO_LIMIT>;
+							14>;
 						contribution = <1024>;
 					};
 				};
