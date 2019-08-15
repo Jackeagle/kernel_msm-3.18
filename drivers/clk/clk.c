@@ -593,6 +593,8 @@ static void clk_core_get_boundaries(struct clk_core *core,
 {
 	struct clk *clk_user;
 
+	lockdep_assert_held(&prepare_lock);
+
 	*min_rate = core->min_rate;
 	*max_rate = core->max_rate;
 
@@ -2902,8 +2904,12 @@ DEFINE_SHOW_ATTRIBUTE(clk_summary);
 
 static void clk_dump_one(struct seq_file *s, struct clk_core *c, int level)
 {
+	unsigned long min_rate, max_rate;
+
 	if (!c)
 		return;
+
+	clk_core_get_boundaries(c, &min_rate, &max_rate);
 
 	/* This should be JSON format, i.e. elements separated with a comma */
 	seq_printf(s, "\"%s\": { ", c->name);
@@ -2911,6 +2917,8 @@ static void clk_dump_one(struct seq_file *s, struct clk_core *c, int level)
 	seq_printf(s, "\"prepare_count\": %d,", c->prepare_count);
 	seq_printf(s, "\"protect_count\": %d,", c->protect_count);
 	seq_printf(s, "\"rate\": %lu,", clk_core_get_rate(c));
+	seq_printf(s, "\"min_rate\": %lu,", min_rate);
+	seq_printf(s, "\"max_rate\": %lu,", max_rate);
 	seq_printf(s, "\"accuracy\": %lu,", clk_core_get_accuracy(c));
 	seq_printf(s, "\"phase\": %d,", clk_core_get_phase(c));
 	seq_printf(s, "\"duty_cycle\": %u",
@@ -3019,15 +3027,15 @@ static void possible_parent_show(struct seq_file *s, struct clk_core *core,
 	 */
 	parent = clk_core_get_parent_by_index(core, i);
 	if (parent)
-		seq_printf(s, "%s", parent->name);
+		seq_puts(s, parent->name);
 	else if (core->parents[i].name)
-		seq_printf(s, "%s", core->parents[i].name);
+		seq_puts(s, core->parents[i].name);
 	else if (core->parents[i].fw_name)
 		seq_printf(s, "<%s>(fw)", core->parents[i].fw_name);
 	else if (core->parents[i].index >= 0)
-		seq_printf(s, "%s",
-			   of_clk_get_parent_name(core->of_node,
-						  core->parents[i].index));
+		seq_puts(s,
+			 of_clk_get_parent_name(core->of_node,
+						core->parents[i].index));
 	else
 		seq_puts(s, "(missing)");
 
@@ -3070,6 +3078,34 @@ static int clk_duty_cycle_show(struct seq_file *s, void *data)
 }
 DEFINE_SHOW_ATTRIBUTE(clk_duty_cycle);
 
+static int clk_min_rate_show(struct seq_file *s, void *data)
+{
+	struct clk_core *core = s->private;
+	unsigned long min_rate, max_rate;
+
+	clk_prepare_lock();
+	clk_core_get_boundaries(core, &min_rate, &max_rate);
+	clk_prepare_unlock();
+	seq_printf(s, "%lu\n", min_rate);
+
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(clk_min_rate);
+
+static int clk_max_rate_show(struct seq_file *s, void *data)
+{
+	struct clk_core *core = s->private;
+	unsigned long min_rate, max_rate;
+
+	clk_prepare_lock();
+	clk_core_get_boundaries(core, &min_rate, &max_rate);
+	clk_prepare_unlock();
+	seq_printf(s, "%lu\n", max_rate);
+
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(clk_max_rate);
+
 static void clk_debug_create_one(struct clk_core *core, struct dentry *pdentry)
 {
 	struct dentry *root;
@@ -3081,6 +3117,8 @@ static void clk_debug_create_one(struct clk_core *core, struct dentry *pdentry)
 	core->dentry = root;
 
 	debugfs_create_ulong("clk_rate", 0444, root, &core->rate);
+	debugfs_create_file("clk_min_rate", 0444, root, core, &clk_min_rate_fops);
+	debugfs_create_file("clk_max_rate", 0444, root, core, &clk_max_rate_fops);
 	debugfs_create_ulong("clk_accuracy", 0444, root, &core->accuracy);
 	debugfs_create_u32("clk_phase", 0444, root, &core->phase);
 	debugfs_create_file("clk_flags", 0444, root, core, &clk_flags_fops);
@@ -3490,9 +3528,9 @@ static int clk_cpy_name(const char **dst_p, const char *src, bool must_exist)
 	return 0;
 }
 
-static int clk_core_populate_parent_map(struct clk_core *core)
+static int clk_core_populate_parent_map(struct clk_core *core,
+					const struct clk_init_data *init)
 {
-	const struct clk_init_data *init = core->hw->init;
 	u8 num_parents = init->num_parents;
 	const char * const *parent_names = init->parent_names;
 	const struct clk_hw **parent_hws = init->parent_hws;
@@ -3572,6 +3610,14 @@ __clk_register(struct device *dev, struct device_node *np, struct clk_hw *hw)
 {
 	int ret;
 	struct clk_core *core;
+	const struct clk_init_data *init = hw->init;
+
+	/*
+	 * The init data is not supposed to be used outside of registration path.
+	 * Set it to NULL so that provider drivers can't use it either and so that
+	 * we catch use of hw->init early on in the core.
+	 */
+	hw->init = NULL;
 
 	core = kzalloc(sizeof(*core), GFP_KERNEL);
 	if (!core) {
@@ -3579,17 +3625,17 @@ __clk_register(struct device *dev, struct device_node *np, struct clk_hw *hw)
 		goto fail_out;
 	}
 
-	core->name = kstrdup_const(hw->init->name, GFP_KERNEL);
+	core->name = kstrdup_const(init->name, GFP_KERNEL);
 	if (!core->name) {
 		ret = -ENOMEM;
 		goto fail_name;
 	}
 
-	if (WARN_ON(!hw->init->ops)) {
+	if (WARN_ON(!init->ops)) {
 		ret = -EINVAL;
 		goto fail_ops;
 	}
-	core->ops = hw->init->ops;
+	core->ops = init->ops;
 
 	if (dev && pm_runtime_enabled(dev))
 		core->rpm_enabled = true;
@@ -3598,13 +3644,13 @@ __clk_register(struct device *dev, struct device_node *np, struct clk_hw *hw)
 	if (dev && dev->driver)
 		core->owner = dev->driver->owner;
 	core->hw = hw;
-	core->flags = hw->init->flags;
-	core->num_parents = hw->init->num_parents;
+	core->flags = init->flags;
+	core->num_parents = init->num_parents;
 	core->min_rate = 0;
 	core->max_rate = ULONG_MAX;
 	hw->core = core;
 
-	ret = clk_core_populate_parent_map(core);
+	ret = clk_core_populate_parent_map(core, init);
 	if (ret)
 		goto fail_parents;
 
