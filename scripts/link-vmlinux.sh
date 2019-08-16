@@ -60,7 +60,7 @@ modpost_link()
 # ${@:2} - optional extra .o files
 vmlinux_link()
 {
-	info LD ${2}
+	info LD ${1}
 	local lds="${objtree}/${KBUILD_LDS}"
 	local objects
 
