@@ -3096,7 +3096,7 @@ static int f2fs_get_volume_name(struct file *filp, unsigned long arg)
 
 	down_read(&sbi->sb_lock);
 	count = utf16s_to_utf8s(sbi->raw_super->volume_name,
-			sizeof(sbi->raw_super->volume_name),
+			ARRAY_SIZE(sbi->raw_super->volume_name),
 			UTF16_LITTLE_ENDIAN, vbuf, MAX_VOLUME_NAME);
 	up_read(&sbi->sb_lock);
 
@@ -3141,7 +3141,7 @@ static int f2fs_set_volume_name(struct file *filp, unsigned long arg)
 			sizeof(sbi->raw_super->volume_name));
 	utf8s_to_utf16s(vbuf, MAX_VOLUME_NAME, UTF16_LITTLE_ENDIAN,
 			sbi->raw_super->volume_name,
-			sizeof(sbi->raw_super->volume_name));
+			ARRAY_SIZE(sbi->raw_super->volume_name));
 
 	err = f2fs_commit_super(sbi, false);
 
