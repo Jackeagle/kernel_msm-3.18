@@ -3115,6 +3115,9 @@ static int f2fs_set_volume_name(struct file *filp, unsigned long arg)
 	char *vbuf;
 	int err = 0;
 
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
 	vbuf = strndup_user((const char __user *)arg, FSLABEL_MAX);
 	if (IS_ERR(vbuf))
 		return PTR_ERR(vbuf);
