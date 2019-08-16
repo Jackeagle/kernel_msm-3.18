@@ -3113,23 +3113,11 @@ static int f2fs_set_volume_name(struct file *filp, unsigned long arg)
 	struct inode *inode = file_inode(filp);
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	char *vbuf;
-	int len;
 	int err = 0;
 
-	vbuf = f2fs_kzalloc(sbi, MAX_VOLUME_NAME, GFP_KERNEL);
-	if (!vbuf)
-		return -ENOMEM;
-
-	if (copy_from_user(vbuf, (char __user *)arg, FSLABEL_MAX)) {
-		err = -EFAULT;
-		goto out;
-	}
-
-	len = strnlen(vbuf, FSLABEL_MAX);
-	if (len > FSLABEL_MAX - 1) {
-		err = -EINVAL;
-		goto out;
-	}
+	vbuf = strndup_user((const char __user *)arg, FSLABEL_MAX);
+	if (IS_ERR(vbuf))
+		return PTR_ERR(vbuf);
 
 	err = mnt_want_write_file(filp);
 	if (err)
@@ -3139,7 +3127,7 @@ static int f2fs_set_volume_name(struct file *filp, unsigned long arg)
 
 	memset(sbi->raw_super->volume_name, 0,
 			sizeof(sbi->raw_super->volume_name));
-	utf8s_to_utf16s(vbuf, MAX_VOLUME_NAME, UTF16_LITTLE_ENDIAN,
+	utf8s_to_utf16s(vbuf, strlen(vbuf), UTF16_LITTLE_ENDIAN,
 			sbi->raw_super->volume_name,
 			ARRAY_SIZE(sbi->raw_super->volume_name));
 
@@ -3149,7 +3137,7 @@ static int f2fs_set_volume_name(struct file *filp, unsigned long arg)
 
 	mnt_drop_write_file(filp);
 out:
-	kvfree(vbuf);
+	kfree(vbuf);
 	return err;
 }
 
