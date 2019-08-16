@@ -158,6 +158,9 @@ struct nsim_dev {
 	struct list_head port_list;
 	struct mutex port_list_lock; /* protects port list */
 	bool fw_update_status;
+	u32 max_macs;
+	bool test1;
+	struct devlink_region *dummy_region;
 };
 
 int nsim_dev_init(void);
