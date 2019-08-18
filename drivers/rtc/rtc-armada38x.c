@@ -561,11 +561,7 @@ static __init int armada38x_rtc_probe(struct platform_device *pdev)
 
 	rtc->rtc_dev->range_max = U32_MAX;
 
-	ret = rtc_register_device(rtc->rtc_dev);
-	if (ret)
-		dev_err(&pdev->dev, "Failed to register RTC device: %d\n", ret);
-
-	return ret;
+	return rtc_register_device(rtc->rtc_dev);
 }
 
 #ifdef CONFIG_PM_SLEEP
