@@ -376,8 +376,6 @@ void btrfs_put_tree_mod_seq(struct btrfs_fs_info *fs_info,
  * The 'start address' is the logical address of the *new* root node
  * for root replace operations, or the logical address of the affected
  * block for all other operations.
- *
- * Note: must be called with write lock for fs_info::tree_mod_log_lock.
  */
 static noinline int
 __tree_mod_log_insert(struct btrfs_fs_info *fs_info, struct tree_mod_elem *tm)
@@ -386,6 +384,8 @@ __tree_mod_log_insert(struct btrfs_fs_info *fs_info, struct tree_mod_elem *tm)
 	struct rb_node **new;
 	struct rb_node *parent = NULL;
 	struct tree_mod_elem *cur;
+
+	lockdep_assert_held_write(&fs_info->tree_mod_log_lock);
 
 	tm->seq = btrfs_inc_tree_mod_seq(fs_info);
 
@@ -1343,6 +1343,7 @@ get_old_root(struct btrfs_root *root, u64 time_seq)
 	struct tree_mod_elem *tm;
 	struct extent_buffer *eb = NULL;
 	struct extent_buffer *eb_root;
+	u64 eb_root_owner = 0;
 	struct extent_buffer *old;
 	struct tree_mod_root *old_root = NULL;
 	u64 old_generation = 0;
@@ -1380,6 +1381,7 @@ get_old_root(struct btrfs_root *root, u64 time_seq)
 			free_extent_buffer(old);
 		}
 	} else if (old_root) {
+		eb_root_owner = btrfs_header_owner(eb_root);
 		btrfs_tree_read_unlock(eb_root);
 		free_extent_buffer(eb_root);
 		eb = alloc_dummy_extent_buffer(fs_info, logical);
@@ -1396,7 +1398,7 @@ get_old_root(struct btrfs_root *root, u64 time_seq)
 	if (old_root) {
 		btrfs_set_header_bytenr(eb, eb->start);
 		btrfs_set_header_backref_rev(eb, BTRFS_MIXED_BACKREF_REV);
-		btrfs_set_header_owner(eb, btrfs_header_owner(eb_root));
+		btrfs_set_header_owner(eb, eb_root_owner);
 		btrfs_set_header_level(eb, old_root->level);
 		btrfs_set_header_generation(eb, old_generation);
 	}
@@ -5623,7 +5625,7 @@ int btrfs_find_next_key(struct btrfs_root *root, struct btrfs_path *path,
 	int slot;
 	struct extent_buffer *c;
 
-	WARN_ON(!path->keep_locks);
+	WARN_ON(!path->keep_locks && !path->skip_locking);
 	while (level < BTRFS_MAX_LEVEL) {
 		if (!path->nodes[level])
 			return 1;
@@ -5639,7 +5641,7 @@ next:
 			    !path->nodes[level + 1])
 				return 1;
 
-			if (path->locks[level + 1]) {
+			if (path->locks[level + 1] || path->skip_locking) {
 				level++;
 				continue;
 			}
