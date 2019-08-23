@@ -537,8 +537,8 @@ int btrfs_dirty_pages(struct inode *inode, struct page **pages,
 	 * we can set things up properly
 	 */
 	clear_extent_bit(&BTRFS_I(inode)->io_tree, start_pos, end_of_last_block,
-			 EXTENT_DIRTY | EXTENT_DELALLOC |
-			 EXTENT_DO_ACCOUNTING | EXTENT_DEFRAG, 0, 0, cached);
+			 EXTENT_DELALLOC | EXTENT_DO_ACCOUNTING | EXTENT_DEFRAG,
+			 0, 0, cached);
 
 	if (!btrfs_is_free_space_inode(BTRFS_I(inode))) {
 		if (start_pos >= isize &&
@@ -1882,10 +1882,10 @@ static ssize_t btrfs_file_write_iter(struct kiocb *iocb,
 	u64 start_pos;
 	u64 end_pos;
 	ssize_t num_written = 0;
-	bool sync = (file->f_flags & O_DSYNC) || IS_SYNC(file->f_mapping->host);
+	bool sync = iocb->ki_flags & IOCB_DSYNC;
 	ssize_t err;
 	loff_t pos;
-	size_t count = iov_iter_count(from);
+	size_t count;
 	loff_t oldsize;
 	int clean_page = 0;
 
@@ -1906,6 +1906,7 @@ static ssize_t btrfs_file_write_iter(struct kiocb *iocb,
 	}
 
 	pos = iocb->ki_pos;
+	count = iov_iter_count(from);
 	if (iocb->ki_flags & IOCB_NOWAIT) {
 		/*
 		 * We will allocate space in case nodatacow is not set,
