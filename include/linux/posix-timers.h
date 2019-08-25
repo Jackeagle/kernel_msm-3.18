@@ -4,11 +4,10 @@
 
 #include <linux/spinlock.h>
 #include <linux/list.h>
-#include <linux/sched.h>
-#include <linux/timex.h>
 #include <linux/alarmtimer.h>
 
-struct siginfo;
+struct kernel_siginfo;
+struct task_struct;
 
 struct cpu_timer_list {
 	struct list_head entry;
@@ -85,7 +84,8 @@ static inline int clockid_to_fd(const clockid_t clk)
  * @it_process:		The task to wakeup on clock_nanosleep (CPU timers)
  * @sigq:		Pointer to preallocated sigqueue
  * @it:			Union representing the various posix timer type
- *			internals. Also used for rcu freeing the timer.
+ *			internals.
+ * @rcu:		RCU head for freeing the timer.
  */
 struct k_itimer {
 	struct list_head	list;
@@ -114,11 +114,11 @@ struct k_itimer {
 		struct {
 			struct alarm	alarmtimer;
 		} alarm;
-		struct rcu_head		rcu;
 	} it;
+	struct rcu_head		rcu;
 };
 
-void run_posix_cpu_timers(struct task_struct *task);
+void run_posix_cpu_timers(void);
 void posix_cpu_timers_exit(struct task_struct *task);
 void posix_cpu_timers_exit_group(struct task_struct *task);
 void set_process_cpu_timer(struct task_struct *task, unsigned int clock_idx,

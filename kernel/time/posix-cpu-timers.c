@@ -375,7 +375,8 @@ static int posix_cpu_timer_del(struct k_itimer *timer)
 	struct sighand_struct *sighand;
 	struct task_struct *p = timer->it.cpu.task;
 
-	WARN_ON_ONCE(p == NULL);
+	if (WARN_ON_ONCE(!p))
+		return -EINVAL;
 
 	/*
 	 * Protect against sighand release/switch in exit/exec and process/
@@ -412,9 +413,10 @@ static void cleanup_timers_list(struct list_head *head)
 }
 
 /*
- * Clean out CPU timers still ticking when a thread exited.  The task
- * pointer is cleared, and the expiry time is replaced with the residual
- * time for later timer_gettime calls to return.
+ * Clean out CPU timers which are still armed when a thread exits. The
+ * timers are only removed from the list. No other updates are done. The
+ * corresponding posix timers are still accessible, but cannot be rearmed.
+ *
  * This must be called with the siglock held.
  */
 static void cleanup_timers(struct list_head *head)
@@ -580,7 +582,8 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
 	u64 old_expires, new_expires, old_incr, val;
 	int ret;
 
-	WARN_ON_ONCE(p == NULL);
+	if (WARN_ON_ONCE(!p))
+		return -EINVAL;
 
 	/*
 	 * Use the to_ktime conversion because that clamps the maximum
@@ -715,10 +718,11 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
 
 static void posix_cpu_timer_get(struct k_itimer *timer, struct itimerspec64 *itp)
 {
-	u64 now;
 	struct task_struct *p = timer->it.cpu.task;
+	u64 now;
 
-	WARN_ON_ONCE(p == NULL);
+	if (WARN_ON_ONCE(!p))
+		return;
 
 	/*
 	 * Easy part: convert the reload time.
@@ -1000,12 +1004,13 @@ static void check_process_timers(struct task_struct *tsk,
  */
 static void posix_cpu_timer_rearm(struct k_itimer *timer)
 {
+	struct task_struct *p = timer->it.cpu.task;
 	struct sighand_struct *sighand;
 	unsigned long flags;
-	struct task_struct *p = timer->it.cpu.task;
 	u64 now;
 
-	WARN_ON_ONCE(p == NULL);
+	if (WARN_ON_ONCE(!p))
+		return;
 
 	/*
 	 * Fetch the current sample and update the timer's expiry time.
@@ -1132,11 +1137,12 @@ static inline int fastpath_timer_check(struct task_struct *tsk)
  * already updated our counts.  We need to check if any timers fire now.
  * Interrupts are disabled.
  */
-void run_posix_cpu_timers(struct task_struct *tsk)
+void run_posix_cpu_timers(void)
 {
-	LIST_HEAD(firing);
+	struct task_struct *tsk = current;
 	struct k_itimer *timer, *next;
 	unsigned long flags;
+	LIST_HEAD(firing);
 
 	lockdep_assert_irqs_disabled();
 
@@ -1202,7 +1208,9 @@ void set_process_cpu_timer(struct task_struct *tsk, unsigned int clock_idx,
 	u64 now;
 	int ret;
 
-	WARN_ON_ONCE(clock_idx == CPUCLOCK_SCHED);
+	if (WARN_ON_ONCE(clock_idx >= CPUCLOCK_SCHED))
+		return;
+
 	ret = cpu_timer_sample_group(clock_idx, tsk, &now);
 
 	if (oldval && ret != -EINVAL) {
