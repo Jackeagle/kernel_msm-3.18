@@ -72,6 +72,7 @@ struct fuse_mount_data {
 	unsigned int group_id_present:1;
 	unsigned int default_permissions:1;
 	unsigned int allow_other:1;
+	unsigned int destroy:1;
 	unsigned int max_read;
 	unsigned int blksize;
 
@@ -1073,6 +1074,13 @@ int fuse_fill_super_common(struct super_block *sb,
 			   struct fuse_mount_data *mount_data);
 
 /**
+ * Disassociate fuse connection from superblock and kill the superblock
+ *
+ * Calls kill_anon_super(), do not use with bdev mounts.
+ */
+void fuse_kill_sb_anon(struct super_block *sb);
+
+/**
  * Add connection to control filesystem
  */
 int fuse_ctl_add_conn(struct fuse_conn *fc);
@@ -1184,5 +1192,6 @@ unsigned int fuse_len_args(unsigned int numargs, struct fuse_arg *args);
  * Get the next unique ID for a request
  */
 u64 fuse_get_unique(struct fuse_iqueue *fiq);
+void fuse_free_conn(struct fuse_conn *fc);
 
 #endif /* _FS_FUSE_I_H */
