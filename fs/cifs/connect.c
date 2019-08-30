@@ -298,6 +298,7 @@ enum {
 	Opt_cache_loose,
 	Opt_cache_strict,
 	Opt_cache_none,
+	Opt_cache_ro,
 	Opt_cache_err
 };
 
@@ -305,6 +306,7 @@ static const match_table_t cifs_cacheflavor_tokens = {
 	{ Opt_cache_loose, "loose" },
 	{ Opt_cache_strict, "strict" },
 	{ Opt_cache_none, "none" },
+	{ Opt_cache_ro, "ro" },
 	{ Opt_cache_err, NULL }
 };
 
@@ -712,7 +714,7 @@ server_unresponsive(struct TCP_Server_Info *server)
 	 * We need to wait 3 echo intervals to make sure we handle such
 	 * situations right:
 	 * 1s  client sends a normal SMB request
-	 * 3s  client gets a response
+	 * 2s  client gets a response
 	 * 30s echo workqueue job pops, and decides we got a response recently
 	 *     and don't need to send another
 	 * ...
@@ -1418,14 +1420,22 @@ cifs_parse_cache_flavor(char *value, struct smb_vol *vol)
 	case Opt_cache_loose:
 		vol->direct_io = false;
 		vol->strict_io = false;
+		vol->cache_ro = false;
 		break;
 	case Opt_cache_strict:
 		vol->direct_io = false;
 		vol->strict_io = true;
+		vol->cache_ro = false;
 		break;
 	case Opt_cache_none:
 		vol->direct_io = true;
 		vol->strict_io = false;
+		vol->cache_ro = false;
+		break;
+	case Opt_cache_ro:
+		vol->direct_io = false;
+		vol->strict_io = false;
+		vol->cache_ro = true;
 		break;
 	default:
 		cifs_dbg(VFS, "bad cache= option: %s\n", value);
@@ -2981,6 +2991,7 @@ static int
 cifs_set_cifscreds(struct smb_vol *vol, struct cifs_ses *ses)
 {
 	int rc = 0;
+	int is_domain = 0;
 	const char *delim, *payload;
 	char *desc;
 	ssize_t len;
@@ -3028,6 +3039,7 @@ cifs_set_cifscreds(struct smb_vol *vol, struct cifs_ses *ses)
 			rc = PTR_ERR(key);
 			goto out_err;
 		}
+		is_domain = 1;
 	}
 
 	down_read(&key->sem);
@@ -3083,6 +3095,26 @@ cifs_set_cifscreds(struct smb_vol *vol, struct cifs_ses *ses)
 		kfree(vol->username);
 		vol->username = NULL;
 		goto out_key_put;
+	}
+
+	/*
+	 * If we have a domain key then we must set the domainName in the
+	 * for the request.
+	 */
+	if (is_domain && ses->domainName) {
+		vol->domainname = kstrndup(ses->domainName,
+					   strlen(ses->domainName),
+					   GFP_KERNEL);
+		if (!vol->domainname) {
+			cifs_dbg(FYI, "Unable to allocate %zd bytes for "
+				 "domain\n", len);
+			rc = -ENOMEM;
+			kfree(vol->username);
+			vol->username = NULL;
+			kzfree(vol->password);
+			vol->password = NULL;
+			goto out_key_put;
+		}
 	}
 
 out_key_put:
@@ -4018,6 +4050,10 @@ int cifs_setup_cifs_sb(struct smb_vol *pvolume_info,
 		cifs_dbg(FYI, "mounting share using direct i/o\n");
 		cifs_sb->mnt_cifs_flags |= CIFS_MOUNT_DIRECT_IO;
 	}
+	if (pvolume_info->cache_ro) {
+		cifs_dbg(VFS, "mounting share with read only caching. Ensure that the share will not be modified while in use.\n");
+		cifs_sb->mnt_cifs_flags |= CIFS_MOUNT_RO_CACHE;
+	}
 	if (pvolume_info->mfsymlinks) {
 		if (pvolume_info->sfu_emul) {
 			/*
@@ -4209,16 +4245,19 @@ build_unc_path_to_root(const struct smb_vol *vol,
 		strlen(vol->prepath) + 1 : 0;
 	unsigned int unc_len = strnlen(vol->UNC, MAX_TREE_SIZE + 1);
 
+	if (unc_len > MAX_TREE_SIZE)
+		return ERR_PTR(-EINVAL);
+
 	full_path = kmalloc(unc_len + pplen + 1, GFP_KERNEL);
 	if (full_path == NULL)
 		return ERR_PTR(-ENOMEM);
 
-	strncpy(full_path, vol->UNC, unc_len);
+	memcpy(full_path, vol->UNC, unc_len);
 	pos = full_path + unc_len;
 
 	if (pplen) {
 		*pos = CIFS_DIR_SEP(cifs_sb);
-		strncpy(pos + 1, vol->prepath, pplen);
+		memcpy(pos + 1, vol->prepath, pplen);
 		pos += pplen;
 	}
 
