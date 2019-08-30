@@ -142,11 +142,10 @@ static int cuse_open(struct inode *inode, struct file *file)
 
 static int cuse_release(struct inode *inode, struct file *file)
 {
-	struct fuse_inode *fi = get_fuse_inode(inode);
 	struct fuse_file *ff = file->private_data;
 	struct fuse_conn *fc = ff->fc;
 
-	fuse_sync_release(fi, ff, file->f_flags);
+	fuse_sync_release(NULL, ff, file->f_flags);
 	fuse_conn_put(fc);
 
 	return 0;
@@ -504,9 +503,9 @@ static int cuse_channel_open(struct inode *inode, struct file *file)
 	 * Limit the cuse channel to requests that can
 	 * be represented in file->f_cred->user_ns.
 	 */
-	fuse_conn_init(&cc->fc, file->f_cred->user_ns);
+	fuse_conn_init(&cc->fc, file->f_cred->user_ns, &fuse_dev_fiq_ops, NULL);
 
-	fud = fuse_dev_alloc(&cc->fc);
+	fud = fuse_dev_alloc_install(&cc->fc);
 	if (!fud) {
 		kfree(cc);
 		return -ENOMEM;
