@@ -38,6 +38,27 @@
 	char __##name##_desc[size] CRYPTO_MINALIGN_ATTR; \
 	struct type##_request *name = (void *)__##name##_desc
 
+/* Xilinx dev board base offsets */
+#define EIP197_XLX_GPIO_BASE		0x200000
+#define EIP197_XLX_IRQ_BLOCK_ID_ADDR	0x2000
+#define EIP197_XLX_IRQ_BLOCK_ID_VALUE	0x1fc2
+#define EIP197_XLX_USER_INT_ENB_MSK	0x2004
+#define EIP197_XLX_USER_INT_ENB_SET	0x2008
+#define EIP197_XLX_USER_INT_ENB_CLEAR	0x200c
+#define EIP197_XLX_USER_INT_BLOCK	0x2040
+#define EIP197_XLX_USER_INT_PEND	0x2048
+#define EIP197_XLX_USER_VECT_LUT0_ADDR	0x2080
+#define EIP197_XLX_USER_VECT_LUT0_IDENT	0x03020100
+#define EIP197_XLX_USER_VECT_LUT1_ADDR	0x2084
+#define EIP197_XLX_USER_VECT_LUT1_IDENT	0x07060504
+#define EIP197_XLX_USER_VECT_LUT2_ADDR	0x2088
+#define EIP197_XLX_USER_VECT_LUT2_IDENT	0x0b0a0908
+#define EIP197_XLX_USER_VECT_LUT3_ADDR	0x208c
+#define EIP197_XLX_USER_VECT_LUT3_IDENT	0x0f0e0d0c
+
+/* Helper defines for probe function */
+#define EIP197_IRQ_NUMBER(i, is_pci)	(i + is_pci)
+
 /* Register base offsets */
 #define EIP197_HIA_AIC(priv)		((priv)->base + (priv)->offsets.hia_aic)
 #define EIP197_HIA_AIC_G(priv)		((priv)->base + (priv)->offsets.hia_aic_g)
@@ -115,8 +136,10 @@
 #define EIP197_PE_IN_TBUF_THRES(n)		(0x0100 + (0x2000 * (n)))
 #define EIP197_PE_ICE_SCRATCH_RAM(n)		(0x0800 + (0x2000 * (n)))
 #define EIP197_PE_ICE_PUE_CTRL(n)		(0x0c80 + (0x2000 * (n)))
+#define EIP197_PE_ICE_PUTF_CTRL(n)		(0x0d00 + (0x2000 * (n)))
 #define EIP197_PE_ICE_SCRATCH_CTRL(n)		(0x0d04 + (0x2000 * (n)))
 #define EIP197_PE_ICE_FPP_CTRL(n)		(0x0d80 + (0x2000 * (n)))
+#define EIP197_PE_ICE_PPTF_CTRL(n)		(0x0e00 + (0x2000 * (n)))
 #define EIP197_PE_ICE_RAM_CTRL(n)		(0x0ff0 + (0x2000 * (n)))
 #define EIP197_PE_EIP96_TOKEN_CTRL(n)		(0x1000 + (0x2000 * (n)))
 #define EIP197_PE_EIP96_FUNCTION_EN(n)		(0x1004 + (0x2000 * (n)))
@@ -207,6 +230,11 @@
 #define EIP197_DxE_THR_CTRL_EN			BIT(30)
 #define EIP197_DxE_THR_CTRL_RESET_PE		BIT(31)
 
+/* EIP197_PE_ICE_PUE/FPP_CTRL */
+#define EIP197_PE_ICE_UENG_START_OFFSET(n)	((n) << 16)
+#define EIP197_PE_ICE_UENG_INIT_ALIGN_MASK	0x7ff0
+#define EIP197_PE_ICE_UENG_DEBUG_RESET		BIT(3)
+
 /* EIP197_HIA_AIC_G_ENABLED_STAT */
 #define EIP197_G_IRQ_DFE(n)			BIT((n) << 1)
 #define EIP197_G_IRQ_DSE(n)			BIT(((n) << 1) + 1)
@@ -256,35 +284,7 @@
 #define EIP197_PE_EIP96_TOKEN_CTRL_POST_REUSE_CTX	BIT(20)
 
 /* EIP197_PE_EIP96_FUNCTION_EN */
-#define EIP197_FUNCTION_RSVD			(BIT(6) | BIT(15) | BIT(20) | BIT(23))
-#define EIP197_PROTOCOL_HASH_ONLY		BIT(0)
-#define EIP197_PROTOCOL_ENCRYPT_ONLY		BIT(1)
-#define EIP197_PROTOCOL_HASH_ENCRYPT		BIT(2)
-#define EIP197_PROTOCOL_HASH_DECRYPT		BIT(3)
-#define EIP197_PROTOCOL_ENCRYPT_HASH		BIT(4)
-#define EIP197_PROTOCOL_DECRYPT_HASH		BIT(5)
-#define EIP197_ALG_ARC4				BIT(7)
-#define EIP197_ALG_AES_ECB			BIT(8)
-#define EIP197_ALG_AES_CBC			BIT(9)
-#define EIP197_ALG_AES_CTR_ICM			BIT(10)
-#define EIP197_ALG_AES_OFB			BIT(11)
-#define EIP197_ALG_AES_CFB			BIT(12)
-#define EIP197_ALG_DES_ECB			BIT(13)
-#define EIP197_ALG_DES_CBC			BIT(14)
-#define EIP197_ALG_DES_OFB			BIT(16)
-#define EIP197_ALG_DES_CFB			BIT(17)
-#define EIP197_ALG_3DES_ECB			BIT(18)
-#define EIP197_ALG_3DES_CBC			BIT(19)
-#define EIP197_ALG_3DES_OFB			BIT(21)
-#define EIP197_ALG_3DES_CFB			BIT(22)
-#define EIP197_ALG_MD5				BIT(24)
-#define EIP197_ALG_HMAC_MD5			BIT(25)
-#define EIP197_ALG_SHA1				BIT(26)
-#define EIP197_ALG_HMAC_SHA1			BIT(27)
-#define EIP197_ALG_SHA2				BIT(28)
-#define EIP197_ALG_HMAC_SHA2			BIT(29)
-#define EIP197_ALG_AES_XCBC_MAC			BIT(30)
-#define EIP197_ALG_GCM_HASH			BIT(31)
+#define EIP197_FUNCTION_ALL			0xffffffff
 
 /* EIP197_PE_EIP96_CONTEXT_CTRL */
 #define EIP197_CONTEXT_SIZE(n)			(n)
@@ -333,6 +333,7 @@ struct safexcel_context_record {
 /* control1 */
 #define CONTEXT_CONTROL_CRYPTO_MODE_ECB		(0 << 0)
 #define CONTEXT_CONTROL_CRYPTO_MODE_CBC		(1 << 0)
+#define CONTEXT_CONTROL_CRYPTO_MODE_CTR_LOAD	(6 << 0)
 #define CONTEXT_CONTROL_IV0			BIT(5)
 #define CONTEXT_CONTROL_IV1			BIT(6)
 #define CONTEXT_CONTROL_IV2			BIT(7)
@@ -458,7 +459,7 @@ static inline void eip197_noop_token(struct safexcel_token *token)
 #define EIP197_TOKEN_INS_ORIGIN_LEN(x)		((x) << 5)
 #define EIP197_TOKEN_INS_TYPE_OUTPUT		BIT(5)
 #define EIP197_TOKEN_INS_TYPE_HASH		BIT(6)
-#define EIP197_TOKEN_INS_TYPE_CRYTO		BIT(7)
+#define EIP197_TOKEN_INS_TYPE_CRYPTO		BIT(7)
 #define EIP197_TOKEN_INS_LAST			BIT(8)
 
 /* Processing Engine Control Data  */
@@ -508,6 +509,11 @@ struct safexcel_command_desc {
 /*
  * Internal structures & functions
  */
+
+#define EIP197_FW_TERMINAL_NOPS		2
+#define EIP197_FW_START_POLLCNT		16
+#define EIP197_FW_PUE_READY		0x14
+#define EIP197_FW_FPP_READY		0x18
 
 enum eip197_fw {
 	FW_IFPP = 0,
@@ -581,10 +587,13 @@ struct safexcel_ring {
 	struct crypto_async_request *backlog;
 };
 
+/* EIP integration context flags */
 enum safexcel_eip_version {
-	EIP97IES = BIT(0),
-	EIP197B  = BIT(1),
-	EIP197D  = BIT(2),
+	/* Platform (EIP integration context) specifier */
+	EIP97IES_MRVL,
+	EIP197B_MRVL,
+	EIP197D_MRVL,
+	EIP197_DEVBRD
 };
 
 struct safexcel_register_offsets {
@@ -637,14 +646,16 @@ struct safexcel_context {
 	bool exit_inv;
 };
 
+#define HASH_CACHE_SIZE			SHA512_BLOCK_SIZE
+
 struct safexcel_ahash_export_state {
-	u64 len[2];
-	u64 processed[2];
+	u64 len;
+	u64 processed;
 
 	u32 digest;
 
 	u32 state[SHA512_DIGEST_SIZE / sizeof(u32)];
-	u8 cache[SHA512_BLOCK_SIZE << 1];
+	u8 cache[HASH_CACHE_SIZE];
 };
 
 /*
@@ -655,7 +666,6 @@ struct safexcel_ahash_export_state {
 struct safexcel_alg_template {
 	struct safexcel_crypto_priv *priv;
 	enum safexcel_alg_type type;
-	u32 engines;
 	union {
 		struct skcipher_alg skcipher;
 		struct aead_alg aead;
@@ -716,6 +726,7 @@ extern struct safexcel_alg_template safexcel_alg_ecb_des3_ede;
 extern struct safexcel_alg_template safexcel_alg_cbc_des3_ede;
 extern struct safexcel_alg_template safexcel_alg_ecb_aes;
 extern struct safexcel_alg_template safexcel_alg_cbc_aes;
+extern struct safexcel_alg_template safexcel_alg_ctr_aes;
 extern struct safexcel_alg_template safexcel_alg_md5;
 extern struct safexcel_alg_template safexcel_alg_sha1;
 extern struct safexcel_alg_template safexcel_alg_sha224;
@@ -733,5 +744,11 @@ extern struct safexcel_alg_template safexcel_alg_authenc_hmac_sha224_cbc_aes;
 extern struct safexcel_alg_template safexcel_alg_authenc_hmac_sha256_cbc_aes;
 extern struct safexcel_alg_template safexcel_alg_authenc_hmac_sha384_cbc_aes;
 extern struct safexcel_alg_template safexcel_alg_authenc_hmac_sha512_cbc_aes;
+extern struct safexcel_alg_template safexcel_alg_authenc_hmac_sha1_cbc_des3_ede;
+extern struct safexcel_alg_template safexcel_alg_authenc_hmac_sha1_ctr_aes;
+extern struct safexcel_alg_template safexcel_alg_authenc_hmac_sha224_ctr_aes;
+extern struct safexcel_alg_template safexcel_alg_authenc_hmac_sha256_ctr_aes;
+extern struct safexcel_alg_template safexcel_alg_authenc_hmac_sha384_ctr_aes;
+extern struct safexcel_alg_template safexcel_alg_authenc_hmac_sha512_ctr_aes;
 
 #endif
