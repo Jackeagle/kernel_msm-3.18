@@ -18,6 +18,7 @@
 #include "util/bpf-loader.h"
 #include "util/debug.h"
 #include "util/event.h"
+#include "util/util.h"
 #include <api/fs/fs.h>
 #include <api/fs/tracing_path.h>
 #include <errno.h>
@@ -440,6 +441,9 @@ int main(int argc, const char **argv)
 		cmd = "perf-help";
 
 	srandom(time(NULL));
+
+	/* Setting $PERF_CONFIG makes perf read _only_ the given config file. */
+	config_exclusive_filename = getenv("PERF_CONFIG");
 
 	err = perf_config(perf_default_config, NULL);
 	if (err)
