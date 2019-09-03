@@ -800,7 +800,6 @@ static int ufs_qcom_pwr_change_notify(struct ufs_hba *hba,
 				struct ufs_pa_layer_attr *dev_max_params,
 				struct ufs_pa_layer_attr *dev_req_params)
 {
-	u32 val;
 	struct ufs_qcom_host *host = ufshcd_get_variant(hba);
 	struct ufs_dev_params ufs_qcom_cap;
 	int ret = 0;
@@ -868,8 +867,6 @@ static int ufs_qcom_pwr_change_notify(struct ufs_hba *hba,
 			 */
 			ret = -EINVAL;
 		}
-
-		val = ~(MAX_U32 << dev_req_params->lane_tx);
 
 		/* cache the power mode parameters to use internally */
 		memcpy(&host->dev_req_params,
@@ -1551,7 +1548,7 @@ static void ufs_qcom_dump_dbg_regs(struct ufs_hba *hba)
  * The variant operations configure the necessary controller and PHY
  * handshake during initialization.
  */
-static struct ufs_hba_variant_ops ufs_hba_qcom_vops = {
+static const struct ufs_hba_variant_ops ufs_hba_qcom_vops = {
 	.name                   = "qcom",
 	.init                   = ufs_qcom_init,
 	.exit                   = ufs_qcom_exit,
