@@ -7,10 +7,12 @@
 
 #define pr_fmt(fmt)	"[drm:%s:%d] " fmt, __func__, __LINE__
 
-#include <drm/drm_crtc.h>
 #include <linux/debugfs.h>
-#include <linux/of_irq.h>
 #include <linux/dma-buf.h>
+#include <linux/of_irq.h>
+
+#include <drm/drm_crtc.h>
+#include <drm/drm_file.h>
 
 #include "msm_drv.h"
 #include "msm_mmu.h"
@@ -799,6 +801,8 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 		DPU_ERROR("invalid private data\n");
 		return rc;
 	}
+
+	atomic_set(&dpu_kms->bandwidth_ref, 0);
 
 	dpu_kms->mmio = msm_ioremap(dpu_kms->pdev, "mdp", "mdp");
 	if (IS_ERR(dpu_kms->mmio)) {
