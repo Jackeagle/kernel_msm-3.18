@@ -98,8 +98,6 @@ source "drivers/usb/core/Kconfig"
 
 source "drivers/usb/mon/Kconfig"
 
-source "drivers/usb/wusbcore/Kconfig"
-
 source "drivers/usb/host/Kconfig"
 
 source "drivers/usb/renesas_usbhs/Kconfig"
@@ -113,6 +111,8 @@ source "drivers/usb/image/Kconfig"
 source "drivers/usb/usbip/Kconfig"
 
 endif
+
+source "drivers/usb/cdns3/Kconfig"
 
 source "drivers/usb/mtu3/Kconfig"
 
