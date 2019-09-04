@@ -89,7 +89,8 @@ struct fs_context {
 	struct file_system_type	*fs_type;
 	void			*fs_private;	/* The filesystem's context */
 	union {
-		struct block_device *bdev;	/* The backing blockdev (if applicable) */
+		struct block_device	*bdev;	/* The backing blockdev (if applicable) */
+		struct mtd_info		*mtd;	/* The backing mtd (if applicable) */
 	};
 	struct dentry		*root;		/* The root and superblock */
 	struct user_namespace	*user_ns;	/* The user namespace for this mount */
@@ -144,6 +145,7 @@ extern void put_fs_context(struct fs_context *fc);
  */
 enum vfs_get_super_keying {
 	vfs_get_single_super,	/* Only one such superblock may exist */
+	vfs_get_single_reconf_super, /* As above, but reconfigure if it exists */
 	vfs_get_keyed_super,	/* Superblocks with different s_fs_info keys may exist */
 	vfs_get_independent_super, /* Multiple independent superblocks may exist */
 };
@@ -157,6 +159,13 @@ extern int get_tree_nodev(struct fs_context *fc,
 extern int get_tree_single(struct fs_context *fc,
 			 int (*fill_super)(struct super_block *sb,
 					   struct fs_context *fc));
+extern int get_tree_single_reconf(struct fs_context *fc,
+			 int (*fill_super)(struct super_block *sb,
+					   struct fs_context *fc));
+
+extern int vfs_get_block_super(struct fs_context *fc,
+			       int (*fill_super)(struct super_block *sb,
+						 struct fs_context *fc));
 
 extern int vfs_get_block_super(struct fs_context *fc,
 			       int (*fill_super)(struct super_block *sb,
