@@ -209,9 +209,8 @@ static int dw_mci_rk3288_execute_tuning(struct dw_mci_slot *slot, u32 opcode)
 	}
 
 	if (ranges[0].start == 0 && ranges[0].end == priv->num_phases - 1) {
-		clk_set_phase(priv->sample_clk, priv->default_sample_phase);
-		dev_info(host->dev, "All phases work, using default phase %d.",
-			 priv->default_sample_phase);
+		clk_set_phase(priv->sample_clk, 180);
+		dev_info(host->dev, "All phases work, using phase 180.");
 		goto free;
 	}
 
