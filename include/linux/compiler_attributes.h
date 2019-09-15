@@ -225,6 +225,16 @@
 #define __pure                          __attribute__((__pure__))
 
 /*
+ * Note: Since this macro makes use of the "stringification operator" `#`,
+ * a quoted string literal should not be passed to it. eg. prefer:
+ *     __section(.foo)
+ * to:
+ *     __section(".foo")
+ * unless the section name is dynamically built up, in which case the
+ * verbose __attribute__((__section__(".foo" x))) should be preferred.
+ *
+ * See also: https://bugs.llvm.org/show_bug.cgi?id=42950
+ *
  *   gcc: https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-section-function-attribute
  *   gcc: https://gcc.gnu.org/onlinedocs/gcc/Common-Variable-Attributes.html#index-section-variable-attribute
  * clang: https://clang.llvm.org/docs/AttributeReference.html#section-declspec-allocate
