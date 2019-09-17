@@ -12,6 +12,7 @@
 #include <linux/tracehook.h>
 #include <linux/linkage.h>
 
+#include <asm/entry.h>
 #include <asm/ucontext.h>
 #include <asm/vdso.h>
 #include <asm/switch_to.h>

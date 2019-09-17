@@ -62,6 +62,9 @@
 #define PAGE_TABLE		__pgprot(_PAGE_TABLE)
 
 extern pgd_t swapper_pg_dir[];
+extern pgd_t trampoline_pg_dir[];
+extern pgd_t early_pg_dir[];
+extern pgd_t swapper_pg_dir[];
 
 /* MAP_PRIVATE permissions: xwr (copy-on-write) */
 #define __P000	PAGE_NONE

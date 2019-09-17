@@ -6,7 +6,7 @@
 
 #include <linux/clocksource.h>
 #include <linux/delay.h>
-#include <asm/sbi.h>
+#include <asm/processor.h>
 
 unsigned long riscv_timebase;
 

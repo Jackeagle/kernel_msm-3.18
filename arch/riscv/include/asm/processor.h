@@ -9,6 +9,7 @@
 #include <linux/const.h>
 
 #include <asm/ptrace.h>
+#include <asm/processor.h>
 
 /*
  * This decides where the kernel will search for a free chunk of vm
@@ -77,6 +78,10 @@ struct device_node;
 int riscv_of_processor_hartid(struct device_node *node);
 
 extern void riscv_fill_hwcap(void);
+
+extern const struct seq_operations cpuinfo_op;
+
+void time_init(void);
 
 #endif /* __ASSEMBLY__ */
 
