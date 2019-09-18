@@ -21,7 +21,7 @@
 #define AP806_SAR_REG			0x400
 #define AP806_SAR_CLKFREQ_MODE_MASK	0x1f
 
-#define AP806_CLK_NUM			5
+#define AP806_CLK_NUM			6
 
 static struct clk *ap806_clks[AP806_CLK_NUM];
 
@@ -30,10 +30,106 @@ static struct clk_onecell_data ap806_clk_data = {
 	.clk_num = AP806_CLK_NUM,
 };
 
+static int ap806_get_sar_clocks(unsigned int freq_mode,
+				unsigned int *cpuclk_freq,
+				unsigned int *dclk_freq)
+{
+	switch (freq_mode) {
+	case 0x0:
+		*cpuclk_freq = 2000;
+		*dclk_freq = 600;
+		break;
+	case 0x1:
+		*cpuclk_freq = 2000;
+		*dclk_freq = 525;
+		break;
+	case 0x6:
+		*cpuclk_freq = 1800;
+		*dclk_freq = 600;
+		break;
+	case 0x7:
+		*cpuclk_freq = 1800;
+		*dclk_freq = 525;
+		break;
+	case 0x4:
+		*cpuclk_freq = 1600;
+		*dclk_freq = 400;
+		break;
+	case 0xB:
+		*cpuclk_freq = 1600;
+		*dclk_freq = 450;
+		break;
+	case 0xD:
+		*cpuclk_freq = 1600;
+		*dclk_freq = 525;
+		break;
+	case 0x1a:
+		*cpuclk_freq = 1400;
+		*dclk_freq = 400;
+		break;
+	case 0x14:
+		*cpuclk_freq = 1300;
+		*dclk_freq = 400;
+		break;
+	case 0x17:
+		*cpuclk_freq = 1300;
+		*dclk_freq = 325;
+		break;
+	case 0x19:
+		*cpuclk_freq = 1200;
+		*dclk_freq = 400;
+		break;
+	case 0x13:
+		*cpuclk_freq = 1000;
+		*dclk_freq = 325;
+		break;
+	case 0x1d:
+		*cpuclk_freq = 1000;
+		*dclk_freq = 400;
+		break;
+	case 0x1c:
+		*cpuclk_freq = 800;
+		*dclk_freq = 400;
+		break;
+	case 0x1b:
+		*cpuclk_freq = 600;
+		*dclk_freq = 400;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int ap807_get_sar_clocks(unsigned int freq_mode,
+				unsigned int *cpuclk_freq,
+				unsigned int *dclk_freq)
+{
+	switch (freq_mode) {
+	case 0x0:
+		*cpuclk_freq = 2000;
+		*dclk_freq = 1200;
+		break;
+	case 0x6:
+		*cpuclk_freq = 2200;
+		*dclk_freq = 1200;
+		break;
+	case 0xD:
+		*cpuclk_freq = 1600;
+		*dclk_freq = 1200;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int ap806_syscon_common_probe(struct platform_device *pdev,
 				     struct device_node *syscon_node)
 {
-	unsigned int freq_mode, cpuclk_freq;
+	unsigned int freq_mode, cpuclk_freq, dclk_freq;
 	const char *name, *fixedclk_name;
 	struct device *dev = &pdev->dev;
 	struct device_node *np = dev->of_node;
@@ -54,47 +150,26 @@ static int ap806_syscon_common_probe(struct platform_device *pdev,
 	}
 
 	freq_mode = reg & AP806_SAR_CLKFREQ_MODE_MASK;
-	switch (freq_mode) {
-	case 0x0:
-	case 0x1:
-		cpuclk_freq = 2000;
-		break;
-	case 0x6:
-	case 0x7:
-		cpuclk_freq = 1800;
-		break;
-	case 0x4:
-	case 0xB:
-	case 0xD:
-		cpuclk_freq = 1600;
-		break;
-	case 0x1a:
-		cpuclk_freq = 1400;
-		break;
-	case 0x14:
-	case 0x17:
-		cpuclk_freq = 1300;
-		break;
-	case 0x19:
-		cpuclk_freq = 1200;
-		break;
-	case 0x13:
-	case 0x1d:
-		cpuclk_freq = 1000;
-		break;
-	case 0x1c:
-		cpuclk_freq = 800;
-		break;
-	case 0x1b:
-		cpuclk_freq = 600;
-		break;
-	default:
-		dev_err(dev, "invalid SAR value\n");
+
+	if (of_device_is_compatible(pdev->dev.of_node,
+				    "marvell,ap806-clock")) {
+		ret = ap806_get_sar_clocks(freq_mode, &cpuclk_freq, &dclk_freq);
+	} else if (of_device_is_compatible(pdev->dev.of_node,
+					   "marvell,ap807-clock")) {
+		ret = ap807_get_sar_clocks(freq_mode, &cpuclk_freq, &dclk_freq);
+	} else {
+		dev_err(dev, "compatible not supported\n");
 		return -EINVAL;
+	}
+
+	if (ret) {
+		dev_err(dev, "invalid Sample at Reset value\n");
+		return ret;
 	}
 
 	/* Convert to hertz */
 	cpuclk_freq *= 1000 * 1000;
+	dclk_freq *= 1000 * 1000;
 
 	/* CPU clocks depend on the Sample At Reset configuration */
 	name = ap_cp_unique_name(dev, syscon_node, "pll-cluster-0");
@@ -141,6 +216,14 @@ static int ap806_syscon_common_probe(struct platform_device *pdev,
 		goto fail4;
 	}
 
+	/* AP-DCLK(HCLK) Clock is DDR clock divided by 2 */
+	name = ap_cp_unique_name(dev, syscon_node, "ap-dclk");
+	ap806_clks[5] = clk_register_fixed_rate(dev, name, NULL, 0, dclk_freq);
+	if (IS_ERR(ap806_clks[5])) {
+		ret = PTR_ERR(ap806_clks[5]);
+		goto fail5;
+	}
+
 	ret = of_clk_add_provider(np, of_clk_src_onecell_get, &ap806_clk_data);
 	if (ret)
 		goto fail_clk_add;
@@ -148,6 +231,8 @@ static int ap806_syscon_common_probe(struct platform_device *pdev,
 	return 0;
 
 fail_clk_add:
+	clk_unregister_fixed_factor(ap806_clks[5]);
+fail5:
 	clk_unregister_fixed_factor(ap806_clks[4]);
 fail4:
 	clk_unregister_fixed_factor(ap806_clks[3]);
@@ -194,6 +279,7 @@ builtin_platform_driver(ap806_syscon_legacy_driver);
 
 static const struct of_device_id ap806_clock_of_match[] = {
 	{ .compatible = "marvell,ap806-clock", },
+	{ .compatible = "marvell,ap807-clock", },
 	{ }
 };
 
