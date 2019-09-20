@@ -446,16 +446,15 @@ static void __io_commit_cqring(struct io_ring_ctx *ctx)
 static inline void io_queue_async_work(struct io_ring_ctx *ctx,
 				       struct io_kiocb *req)
 {
-	int rw;
+	int rw = 0;
 
-	switch (req->submit.sqe->opcode) {
-	case IORING_OP_WRITEV:
-	case IORING_OP_WRITE_FIXED:
-		rw = !(req->rw.ki_flags & IOCB_DIRECT);
-		break;
-	default:
-		rw = 0;
-		break;
+	if (req->submit.sqe) {
+		switch (req->submit.sqe->opcode) {
+		case IORING_OP_WRITEV:
+		case IORING_OP_WRITE_FIXED:
+			rw = !(req->rw.ki_flags & IOCB_DIRECT);
+			break;
+		}
 	}
 
 	queue_work(ctx->sqo_wq[rw], &req->work);
@@ -1714,6 +1713,7 @@ static int io_poll_add(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	if (!poll->file)
 		return -EBADF;
 
+	req->submit.sqe = NULL;
 	INIT_WORK(&req->work, io_poll_complete_work);
 	events = READ_ONCE(sqe->poll_events);
 	poll->events = demangle_poll(events) | EPOLLERR | EPOLLHUP;
@@ -2098,13 +2098,11 @@ static int __io_queue_sqe(struct io_ring_ctx *ctx, struct io_kiocb *req,
 	if (ret == -EAGAIN && !(req->flags & REQ_F_NOWAIT)) {
 		struct io_uring_sqe *sqe_copy;
 
-		sqe_copy = kmalloc(sizeof(*sqe_copy), GFP_KERNEL);
+		sqe_copy = kmemdup(s->sqe, sizeof(*sqe_copy), GFP_KERNEL);
 		if (sqe_copy) {
 			struct async_list *list;
 
-			memcpy(sqe_copy, s->sqe, sizeof(*sqe_copy));
 			s->sqe = sqe_copy;
-
 			memcpy(&req->submit, s, sizeof(*s));
 			list = io_async_list_from_sqe(ctx, s->sqe);
 			if (!io_add_to_prev_work(list, req)) {
@@ -2359,18 +2357,22 @@ static int io_submit_sqes(struct io_ring_ctx *ctx, struct sqe_submit *sqes,
 			io_queue_link_head(ctx, link, &link->submit, shadow_req,
 						true);
 			link = NULL;
+			shadow_req = NULL;
 		}
 		prev_was_link = (sqes[i].sqe->flags & IOSQE_IO_LINK) != 0;
 
 		if (link && (sqes[i].sqe->flags & IOSQE_IO_DRAIN)) {
 			if (!shadow_req) {
 				shadow_req = io_get_req(ctx, NULL);
+				if (unlikely(!shadow_req))
+					goto out;
 				shadow_req->flags |= (REQ_F_IO_DRAIN | REQ_F_SHADOW_DRAIN);
 				refcount_dec(&shadow_req->refs);
 			}
 			shadow_req->sequence = sqes[i].sequence;
 		}
 
+out:
 		if (unlikely(mm_fault)) {
 			io_cqring_add_event(ctx, sqes[i].sqe->user_data,
 						-EFAULT);
@@ -2436,7 +2438,7 @@ static int io_sq_thread(void *data)
 			 * to sleep.
 			 */
 			if (inflight || !time_after(jiffies, timeout)) {
-				cpu_relax();
+				cond_resched();
 				continue;
 			}
 
@@ -2545,18 +2547,22 @@ static int io_ring_submit(struct io_ring_ctx *ctx, unsigned int to_submit,
 			io_queue_link_head(ctx, link, &link->submit, shadow_req,
 						force_nonblock);
 			link = NULL;
+			shadow_req = NULL;
 		}
 		prev_was_link = (s.sqe->flags & IOSQE_IO_LINK) != 0;
 
 		if (link && (s.sqe->flags & IOSQE_IO_DRAIN)) {
 			if (!shadow_req) {
 				shadow_req = io_get_req(ctx, NULL);
+				if (unlikely(!shadow_req))
+					goto out;
 				shadow_req->flags |= (REQ_F_IO_DRAIN | REQ_F_SHADOW_DRAIN);
 				refcount_dec(&shadow_req->refs);
 			}
 			shadow_req->sequence = s.sequence;
 		}
 
+out:
 		s.has_user = true;
 		s.needs_lock = false;
 		s.needs_fixed_file = false;
