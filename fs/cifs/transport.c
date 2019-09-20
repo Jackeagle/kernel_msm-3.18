@@ -995,7 +995,15 @@ compound_send_recv(const unsigned int xid, struct cifs_ses *ses,
 		return -EIO;
 	}
 
-	server = ses->server;
+	if (!ses->binding) {
+		uint index = 0;
+		if (ses->chan_count > 1)
+			index = ((unsigned)get_random_int()) % ses->chan_count;
+		server = ses->chans[index].server;
+	} else {
+		server = cifs_ses_server(ses);
+	}
+
 	if (server->tcpStatus == CifsExiting)
 		return -ENOENT;
 
