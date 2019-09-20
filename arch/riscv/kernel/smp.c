@@ -8,7 +8,9 @@
  * Copyright (C) 2017 SiFive
  */
 
+#include <linux/cpu.h>
 #include <linux/interrupt.h>
+#include <linux/profile.h>
 #include <linux/smp.h>
 #include <linux/sched.h>
 #include <linux/seq_file.h>
@@ -66,11 +68,13 @@ bool arch_match_cpu_phys_id(int cpu, u64 phys_id)
 	return phys_id == cpuid_to_hartid_map(cpu);
 }
 
+#ifdef CONFIG_PROFILING
 /* Unsupported */
 int setup_profiling_timer(unsigned int multiplier)
 {
 	return -EINVAL;
 }
+#endif
 
 static void ipi_stop(void)
 {
@@ -206,3 +210,4 @@ void smp_send_reschedule(int cpu)
 {
 	send_ipi_single(cpu, IPI_RESCHEDULE);
 }
+EXPORT_SYMBOL_GPL(smp_send_reschedule);

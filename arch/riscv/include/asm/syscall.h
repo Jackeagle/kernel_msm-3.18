@@ -89,4 +89,7 @@ static inline int syscall_get_arch(struct task_struct *task)
 #endif
 }
 
+void do_syscall_trace_enter(struct pt_regs *regs);
+void do_syscall_trace_exit(struct pt_regs *regs);
+
 #endif	/* _ASM_RISCV_SYSCALL_H */

@@ -18,6 +18,7 @@
 #include <asm/processor.h>
 #include <asm/ptrace.h>
 #include <asm/csr.h>
+#include <asm/entry.h>
 
 int show_unhandled_signals = 1;
 
