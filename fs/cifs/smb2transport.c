@@ -48,7 +48,7 @@ smb2_crypto_shash_allocate(struct TCP_Server_Info *server)
 			       &server->secmech.sdeschmacsha256);
 }
 
-int
+static int
 smb3_crypto_shash_allocate(struct TCP_Server_Info *server)
 {
 	struct cifs_secmech *p = &server->secmech;
@@ -98,7 +98,8 @@ err:
 	return rc;
 }
 
-u8 *smb2_find_chan_signkey(struct cifs_ses *ses, struct TCP_Server_Info *server)
+static u8 *
+smb2_find_chan_signkey(struct cifs_ses *ses, struct TCP_Server_Info *server)
 {
 	int i;
 
@@ -120,7 +121,7 @@ u8 *smb2_find_chan_signkey(struct cifs_ses *ses, struct TCP_Server_Info *server)
 	return NULL;
 }
 
-struct cifs_ses *
+static struct cifs_ses *
 smb2_find_global_smb_ses(__u64 ses_id)
 {
 	struct TCP_Server_Info *server;
