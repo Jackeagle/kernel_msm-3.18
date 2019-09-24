@@ -2352,6 +2352,7 @@ int smb311_posix_mkdir(const unsigned int xid, struct inode *inode,
 	rqst.rq_iov = iov;
 	rqst.rq_nvec = n_iov;
 
+	/* no need to inc num_remote_opens because we close it just below */
 	trace_smb3_posix_mkdir_enter(xid, tcon->tid, ses->Suid, CREATE_NOT_FILE,
 				    FILE_WRITE_ATTRIBUTES);
 	/* resource #4: response buffer */
@@ -3180,7 +3181,7 @@ SMB2_get_srv_num(const unsigned int xid, struct cifs_tcon *tcon,
  * See MS-SMB2 2.2.35 and 2.2.36
  */
 
-int
+static int
 SMB2_notify_init(const unsigned int xid, struct smb_rqst *rqst,
 		struct cifs_tcon *tcon, u64 persistent_fid, u64 volatile_fid,
 		u32 completion_filter, bool watch_tree)
