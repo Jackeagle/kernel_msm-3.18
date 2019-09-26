@@ -599,6 +599,10 @@ cifs_show_options(struct seq_file *s, struct dentry *root)
 	/* convert actimeo and display it in seconds */
 	seq_printf(s, ",actimeo=%lu", cifs_sb->actimeo / HZ);
 
+	if (tcon->ses->chan_max > 1)
+		seq_printf(s, ",multichannel,max_channels=%zu",
+			   tcon->ses->chan_max);
+
 	return 0;
 }
 
