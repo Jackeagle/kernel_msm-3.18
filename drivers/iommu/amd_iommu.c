@@ -501,6 +501,29 @@ static void iommu_uninit_device(struct device *dev)
 	 */
 }
 
+/*
+ * Helper function to get the first pte of a large mapping
+ */
+static u64 *first_pte_l7(u64 *pte, unsigned long *page_size,
+			 unsigned long *count)
+{
+	unsigned long pte_mask, pg_size, cnt;
+	u64 *fpte;
+
+	pg_size  = PTE_PAGE_SIZE(*pte);
+	cnt      = PAGE_SIZE_PTE_COUNT(pg_size);
+	pte_mask = ~((cnt << 3) - 1);
+	fpte     = (u64 *)(((unsigned long)pte) & pte_mask);
+
+	if (page_size)
+		*page_size = pg_size;
+
+	if (count)
+		*count = cnt;
+
+	return fpte;
+}
+
 /****************************************************************************
  *
  * Interrupt handling functions
@@ -1425,7 +1448,7 @@ static void free_pagetable(struct protection_domain *domain)
 	BUG_ON(domain->mode < PAGE_MODE_NONE ||
 	       domain->mode > PAGE_MODE_6_LEVEL);
 
-	free_sub_pt(root, domain->mode, freelist);
+	freelist = free_sub_pt(root, domain->mode, freelist);
 
 	free_page_list(freelist);
 }
@@ -1489,9 +1512,32 @@ static u64 *alloc_pte(struct protection_domain *domain,
 		__pte     = *pte;
 		pte_level = PM_PTE_LEVEL(__pte);
 
-		if (!IOMMU_PTE_PRESENT(__pte) ||
+		/*
+		 * If we replace a series of large PTEs, we need
+		 * to tear down all of them.
+		 */
+		if (IOMMU_PTE_PRESENT(__pte) &&
 		    pte_level == PAGE_MODE_7_LEVEL) {
+			unsigned long count, i;
+			u64 *lpte;
+
+			lpte = first_pte_l7(pte, NULL, &count);
+
+			/*
+			 * Unmap the replicated PTEs that still match the
+			 * original large mapping
+			 */
+			for (i = 0; i < count; ++i)
+				cmpxchg64(&lpte[i], __pte, 0ULL);
+
+			domain->updated = true;
+			continue;
+		}
+
+		if (!IOMMU_PTE_PRESENT(__pte) ||
+		    pte_level == PAGE_MODE_NONE) {
 			page = (u64 *)get_zeroed_page(gfp);
+
 			if (!page)
 				return NULL;
 
@@ -1500,7 +1546,7 @@ static u64 *alloc_pte(struct protection_domain *domain,
 			/* pte could have been changed somewhere. */
 			if (cmpxchg64(pte, __pte, __npte) != __pte)
 				free_page((unsigned long)page);
-			else if (pte_level == PAGE_MODE_7_LEVEL)
+			else if (IOMMU_PTE_PRESENT(__pte))
 				domain->updated = true;
 
 			continue;
@@ -1566,17 +1612,12 @@ static u64 *fetch_pte(struct protection_domain *domain,
 		*page_size = PTE_LEVEL_PAGE_SIZE(level);
 	}
 
-	if (PM_PTE_LEVEL(*pte) == 0x07) {
-		unsigned long pte_mask;
-
-		/*
-		 * If we have a series of large PTEs, make
-		 * sure to return a pointer to the first one.
-		 */
-		*page_size = pte_mask = PTE_PAGE_SIZE(*pte);
-		pte_mask   = ~((PAGE_SIZE_PTE_COUNT(pte_mask) << 3) - 1);
-		pte        = (u64 *)(((unsigned long)pte) & pte_mask);
-	}
+	/*
+	 * If we have a series of large PTEs, make
+	 * sure to return a pointer to the first one.
+	 */
+	if (PM_PTE_LEVEL(*pte) == PAGE_MODE_7_LEVEL)
+		pte = first_pte_l7(pte, page_size, NULL);
 
 	return pte;
 }
@@ -1627,8 +1668,10 @@ static int iommu_map_page(struct protection_domain *dom,
 	count = PAGE_SIZE_PTE_COUNT(page_size);
 	pte   = alloc_pte(dom, bus_addr, page_size, NULL, gfp);
 
-	if (!pte)
+	if (!pte) {
+		update_domain(dom);
 		return -ENOMEM;
+	}
 
 	for (i = 0; i < count; ++i)
 		freelist = free_clear_pte(&pte[i], pte[i], freelist);
@@ -2168,6 +2211,8 @@ skip_ats_check:
 	 * here to evict all dirty stuff.
 	 */
 	domain_flush_tlb_pde(domain);
+
+	domain_flush_complete(domain);
 
 	return ret;
 }
