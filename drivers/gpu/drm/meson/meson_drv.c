@@ -14,6 +14,7 @@
 #include <linux/platform_device.h>
 #include <linux/component.h>
 #include <linux/of_graph.h>
+#include <linux/pm_runtime.h>
 
 #include <drm/drmP.h>
 #include <drm/drm_atomic.h>
@@ -274,6 +275,7 @@ static int meson_drv_bind_master(struct device *dev, bool has_components)
 
 	/* Hardware Initialization */
 
+	pm_runtime_get_sync(dev);
 	meson_vpu_init(priv);
 	meson_venc_init(priv);
 	meson_vpp_init(priv);
@@ -416,6 +418,7 @@ static int meson_drv_probe(struct platform_device *pdev)
 	struct device_node *ep, *remote;
 	int count = 0;
 
+	pm_runtime_enable(&pdev->dev);
 	for_each_endpoint_of_node(np, ep) {
 		remote = of_graph_get_remote_port_parent(ep);
 		if (!remote || !of_device_is_available(remote)) {
@@ -440,6 +443,7 @@ static int meson_drv_probe(struct platform_device *pdev)
 	}
 
 	/* If no output endpoints were available, simply bail out */
+	pm_runtime_disable(&pdev->dev);
 	return 0;
 };
 
