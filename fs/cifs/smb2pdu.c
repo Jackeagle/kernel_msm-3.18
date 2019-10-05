@@ -2521,10 +2521,6 @@ SMB2_open_init(struct cifs_tcon *tcon, struct smb_rqst *rqst, __u8 *oplock,
 			return rc;
 	}
 
-	/* TODO: add handling for the mode on create */
-	if (oparms->disposition == FILE_CREATE)
-		cifs_dbg(VFS, "mode is 0x%x\n", oparms->mode); /* BB REMOVEME */
-
 	if ((oparms->disposition == FILE_CREATE) && (oparms->mode != -1)) {
 		if (n_iov > 2) {
 			struct create_context *ccontext =
