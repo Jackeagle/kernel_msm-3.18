@@ -5,7 +5,7 @@
 #include <linux/kernel.h>
 
 /*
- * Ensure these tables to not accidentally become gigantic if some
+ * Ensure these tables do not accidentally become gigantic if some
  * huge errno makes it in. On most architectures, the first table will
  * only have about 140 entries, but mips and parisc have more sparsely
  * allocated errnos (with EHWPOISON = 257 on parisc, and EDQUOT = 1133
