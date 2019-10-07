@@ -265,7 +265,7 @@ int anon_vma_clone(struct vm_area_struct *dst, struct vm_area_struct *src)
 	struct vm_area_struct *prev = dst->vm_prev, *pprev = src->vm_prev;
 
 	/*
-	 * If parent share anon_vma with its vm_prev, keep this sharing in in
+	 * If parent shares anon_vma with its vm_prev, keep this sharing in the
 	 * child.
 	 *
 	 * 1. Parent has vm_prev, which implies we have vm_prev.
