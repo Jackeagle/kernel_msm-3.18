@@ -50,6 +50,16 @@ void *memset(void *s, int c, size_t n)
 	return s;
 }
 
+void memzero_explicit(void *s, size_t count)
+{
+	memset(s, 0, count);
+	/*
+	 * Make sure this function never gets inlined and
+	 * the memset() never gets optimized away:
+	 */
+	barrier_data(s);
+}
+
 void *memmove(void *dest, const void *src, size_t n)
 {
 	unsigned char *d = dest;
