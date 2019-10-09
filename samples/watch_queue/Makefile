@@ -5,4 +5,3 @@ hostprogs-y := watch_test
 always := $(hostprogs-y)
 
 HOSTCFLAGS_watch_test.o += -I$(objtree)/usr/include
-HOSTLDLIBS_watch_test += -lkeyutils
