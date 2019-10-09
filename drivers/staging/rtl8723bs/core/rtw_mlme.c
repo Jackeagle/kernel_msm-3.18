@@ -329,7 +329,6 @@ void rtw_generate_random_ibss(u8 *pibss)
 	pibss[3] = (u8)(curtime & 0xff) ;/* p[0]; */
 	pibss[4] = (u8)((curtime>>8) & 0xff) ;/* p[1]; */
 	pibss[5] = (u8)((curtime>>16) & 0xff) ;/* p[2]; */
-	return;
 }
 
 u8 *rtw_get_capability_from_ie(u8 *ie)
@@ -832,8 +831,6 @@ void rtw_survey_event_callback(struct adapter	*adapter, u8 *pbuf)
 exit:
 
 	spin_unlock_bh(&pmlmepriv->lock);
-
-	return;
 }
 
 
@@ -1840,8 +1837,6 @@ void rtw_mlme_reset_auto_scan_int(struct adapter *adapter)
 			mlme->auto_scan_int_ms = mlme->roam_scan_int_ms;
 	} else
 		mlme->auto_scan_int_ms = 0; /* disabled */
-
-	return;
 }
 
 static void rtw_auto_scan_handler(struct adapter *padapter)
@@ -1994,7 +1989,6 @@ int rtw_select_roaming_candidate(struct mlme_priv *mlme)
 {
 	int ret = _FAIL;
 	struct list_head	*phead;
-	struct adapter *adapter;
 	struct __queue	*queue	= &(mlme->scanned_queue);
 	struct	wlan_network	*pnetwork = NULL;
 	struct	wlan_network	*candidate = NULL;
@@ -2006,7 +2000,6 @@ int rtw_select_roaming_candidate(struct mlme_priv *mlme)
 
 	spin_lock_bh(&(mlme->scanned_queue.lock));
 	phead = get_list_head(queue);
-	adapter = (struct adapter *)mlme->nic_hdl;
 
 	mlme->pscanned = get_next(phead);
 
