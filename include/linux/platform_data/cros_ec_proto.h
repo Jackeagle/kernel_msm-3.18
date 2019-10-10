@@ -306,12 +306,22 @@ int cros_ec_query_all(struct cros_ec_device *ec_dev);
  * @ec_dev: Device to fetch event from.
  * @wake_event: Pointer to a bool set to true upon return if the event might be
  *              treated as a wake event. Ignored if null.
+ * @has_more_events: Pointer to bool set to true if more than one event is
+ *              pending.
+ *              Some EC will set this flag to indicate cros_ec_get_next_event()
+ *              can be called multiple times in a row.
+ *              It is an optimization to prevent issuing a EC command for
+ *              nothing or wait for another interrupt from the EC to process
+ *              the next message.
+ *              Ignored if null.
  *
  * Return: negative error code on errors; 0 for no data; or else number of
  * bytes received (i.e., an event was retrieved successfully). Event types are
  * written out to @ec_dev->event_data.event_type on success.
  */
-int cros_ec_get_next_event(struct cros_ec_device *ec_dev, bool *wake_event);
+int cros_ec_get_next_event(struct cros_ec_device *ec_dev,
+			   bool *wake_event,
+			   bool *has_more_events);
 
 /**
  * cros_ec_get_host_event() - Return a mask of event set by the ChromeOS EC.
