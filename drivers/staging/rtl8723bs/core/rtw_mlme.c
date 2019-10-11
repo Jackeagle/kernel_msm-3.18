@@ -19,7 +19,7 @@ int	rtw_init_mlme_priv(struct adapter *padapter)
 	int	i;
 	u8 *pbuf;
 	struct wlan_network	*pnetwork;
-	struct mlme_priv 	*pmlmepriv = &padapter->mlmepriv;
+	struct mlme_priv	*pmlmepriv = &padapter->mlmepriv;
 	int	res = _SUCCESS;
 
 	pmlmepriv->nic_hdl = (u8 *)padapter;
@@ -329,7 +329,6 @@ void rtw_generate_random_ibss(u8 *pibss)
 	pibss[3] = (u8)(curtime & 0xff) ;/* p[0]; */
 	pibss[4] = (u8)((curtime>>8) & 0xff) ;/* p[1]; */
 	pibss[5] = (u8)((curtime>>16) & 0xff) ;/* p[2]; */
-	return;
 }
 
 u8 *rtw_get_capability_from_ie(u8 *ie)
@@ -832,8 +831,6 @@ void rtw_survey_event_callback(struct adapter	*adapter, u8 *pbuf)
 exit:
 
 	spin_unlock_bh(&pmlmepriv->lock);
-
-	return;
 }
 
 
@@ -1840,8 +1837,6 @@ void rtw_mlme_reset_auto_scan_int(struct adapter *adapter)
 			mlme->auto_scan_int_ms = mlme->roam_scan_int_ms;
 	} else
 		mlme->auto_scan_int_ms = 0; /* disabled */
-
-	return;
 }
 
 static void rtw_auto_scan_handler(struct adapter *padapter)
@@ -1994,7 +1989,6 @@ int rtw_select_roaming_candidate(struct mlme_priv *mlme)
 {
 	int ret = _FAIL;
 	struct list_head	*phead;
-	struct adapter *adapter;
 	struct __queue	*queue	= &(mlme->scanned_queue);
 	struct	wlan_network	*pnetwork = NULL;
 	struct	wlan_network	*candidate = NULL;
@@ -2006,7 +2000,6 @@ int rtw_select_roaming_candidate(struct mlme_priv *mlme)
 
 	spin_lock_bh(&(mlme->scanned_queue.lock));
 	phead = get_list_head(queue);
-	adapter = (struct adapter *)mlme->nic_hdl;
 
 	mlme->pscanned = get_next(phead);
 
@@ -2214,7 +2207,7 @@ sint rtw_set_auth(struct adapter *adapter, struct security_priv *psecuritypriv)
 
 	psetauthparm = rtw_zmalloc(sizeof(struct setauth_parm));
 	if (psetauthparm == NULL) {
-		kfree((unsigned char *)pcmd);
+		kfree(pcmd);
 		res = _FAIL;
 		goto exit;
 	}
@@ -2291,7 +2284,7 @@ sint rtw_set_key(struct adapter *adapter, struct security_priv *psecuritypriv, s
 	default:
 		RT_TRACE(_module_rtl871x_mlme_c_, _drv_err_, ("\n rtw_set_key:psecuritypriv->dot11PrivacyAlgrthm = %x (must be 1 or 2 or 4 or 5)\n", psecuritypriv->dot11PrivacyAlgrthm));
 		res = _FAIL;
-		kfree((unsigned char *)psetkeyparm);
+		kfree(psetkeyparm);
 		goto exit;
 	}
 
@@ -2299,7 +2292,7 @@ sint rtw_set_key(struct adapter *adapter, struct security_priv *psecuritypriv, s
 	if (enqueue) {
 		pcmd = rtw_zmalloc(sizeof(struct cmd_obj));
 		if (pcmd == NULL) {
-			kfree((unsigned char *)psetkeyparm);
+			kfree(psetkeyparm);
 			res = _FAIL;  /* try again */
 			goto exit;
 		}
@@ -2315,7 +2308,7 @@ sint rtw_set_key(struct adapter *adapter, struct security_priv *psecuritypriv, s
 		res = rtw_enqueue_cmd(pcmdpriv, pcmd);
 	} else {
 		setkey_hdl(adapter, (u8 *)psetkeyparm);
-		kfree((u8 *) psetkeyparm);
+		kfree(psetkeyparm);
 	}
 exit:
 	return res;
