@@ -57,8 +57,10 @@ enum mode_set_atomic {
  * according to the largest width/height (so it is large enough for all CRTCs
  * to scanout).  But the fbdev width/height is sized to the minimum width/
  * height of all the displays.  This ensures that fbcon fits on the smallest
- * of the attached displays. fb_width/fb_height is used by
- * drm_fb_helper_fill_info() to fill out the &fb_info.var structure.
+ * of the attached displays.
+ *
+ * So what is passed to drm_fb_helper_fill_var() should be fb_width/fb_height,
+ * rather than the surface size.
  */
 struct drm_fb_helper_surface_size {
 	u32 fb_width;
@@ -349,10 +351,14 @@ static inline void drm_fb_helper_unregister_fbi(struct drm_fb_helper *fb_helper)
 {
 }
 
-static inline void
-drm_fb_helper_fill_info(struct fb_info *info,
-			struct drm_fb_helper *fb_helper,
-			struct drm_fb_helper_surface_size *sizes)
+static inline void drm_fb_helper_fill_var(struct fb_info *info,
+					  struct drm_fb_helper *fb_helper,
+					  uint32_t fb_width, uint32_t fb_height)
+{
+}
+
+static inline void drm_fb_helper_fill_fix(struct fb_info *info, uint32_t pitch,
+					  uint32_t depth)
 {
 }
 
