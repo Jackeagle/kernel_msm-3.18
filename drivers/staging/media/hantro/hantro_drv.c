@@ -27,6 +27,7 @@
 #include "hantro_v4l2.h"
 #include "hantro.h"
 #include "hantro_hw.h"
+#include "hantro_vp8.h"
 
 #define DRIVER_NAME "hantro-vpu"
 
@@ -100,6 +101,9 @@ static void hantro_job_finish(struct hantro_dev *vpu,
 	pm_runtime_put_autosuspend(vpu->dev);
 	clk_bulk_disable(vpu->variant->num_clocks, vpu->clocks);
 
+	if (ctx->dummy_ctx_run)
+		return;
+
 	src = v4l2_m2m_src_buf_remove(ctx->fh.m2m_ctx);
 	dst = v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
 
@@ -132,8 +136,12 @@ void hantro_irq_done(struct hantro_dev *vpu, unsigned int bytesused,
 	 * the timeout expired. The watchdog is running,
 	 * and will take care of finishing the job.
 	 */
-	if (cancel_delayed_work(&vpu->watchdog_work))
+	if (cancel_delayed_work(&vpu->watchdog_work)) {
 		hantro_job_finish(vpu, ctx, bytesused, result);
+		if (result == VB2_BUF_STATE_DONE &&
+		    ctx->codec_ops && ctx->codec_ops->done)
+			ctx->codec_ops->done(ctx, result);
+	}
 }
 
 void hantro_watchdog(struct work_struct *work)
@@ -164,9 +172,11 @@ void hantro_finish_run(struct hantro_ctx *ctx)
 {
 	struct vb2_v4l2_buffer *src_buf;
 
-	src_buf = hantro_get_src_buf(ctx);
-	v4l2_ctrl_request_complete(src_buf->vb2_buf.req_obj.req,
-				   &ctx->ctrl_handler);
+	if (!hantro_ctx_is_dummy_encode(ctx)) {
+		src_buf = hantro_get_src_buf(ctx);
+		v4l2_ctrl_request_complete(src_buf->vb2_buf.req_obj.req,
+					   &ctx->ctrl_handler);
+	}
 
 	/* Kick the watchdog. */
 	schedule_delayed_work(&ctx->dev->watchdog_work,
@@ -179,9 +189,6 @@ static void device_run(void *priv)
 	struct vb2_v4l2_buffer *src, *dst;
 	int ret;
 
-	src = hantro_get_src_buf(ctx);
-	dst = hantro_get_dst_buf(ctx);
-
 	ret = clk_bulk_enable(ctx->dev->variant->num_clocks, ctx->dev->clocks);
 	if (ret)
 		goto err_cancel_job;
@@ -189,13 +196,36 @@ static void device_run(void *priv)
 	if (ret < 0)
 		goto err_cancel_job;
 
+	if (ctx->dev->was_decoding && hantro_is_encoder_ctx(ctx)) {
+		vpu_debug(4, "Running dummy context.\n");
+		ctx->dummy_ctx_run = true;
+		ctx->dev->was_decoding = false;
+		ctx->codec_ops->run(ctx->dev->dummy_encode_ctx);
+		return;
+	}
+
+	src = hantro_get_src_buf(ctx);
+	dst = hantro_get_dst_buf(ctx);
+
 	v4l2_m2m_buf_copy_metadata(src, dst, true);
 
 	ctx->codec_ops->run(ctx);
+	ctx->dev->was_decoding = !hantro_is_encoder_ctx(ctx);
+
 	return;
 
 err_cancel_job:
 	hantro_job_finish(ctx->dev, ctx, 0, VB2_BUF_STATE_ERROR);
+}
+
+static void hantro_job_rerun(struct work_struct *work)
+{
+	struct hantro_dev *vpu =
+		container_of(work, struct hantro_dev, job_rerun);
+	struct hantro_ctx *ctx = v4l2_m2m_get_curr_priv(vpu->m2m_dev);
+
+	ctx->dummy_ctx_run = false;
+	device_run(ctx);
 }
 
 bool hantro_is_encoder_ctx(const struct hantro_ctx *ctx)
@@ -215,6 +245,9 @@ queue_init(void *priv, struct vb2_queue *src_vq, struct vb2_queue *dst_vq)
 
 	src_vq->type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
 	src_vq->io_modes = VB2_MMAP | VB2_DMABUF;
+	if (hantro_is_encoder_ctx(ctx))
+		src_vq->io_modes |= VB2_USERPTR;
+
 	src_vq->drv_priv = ctx;
 	src_vq->ops = &hantro_queue_ops;
 	src_vq->mem_ops = &vb2_dma_contig_memops;
@@ -236,21 +269,11 @@ queue_init(void *priv, struct vb2_queue *src_vq, struct vb2_queue *dst_vq)
 	if (ret)
 		return ret;
 
-	/*
-	 * When encoding, the CAPTURE queue doesn't need dma memory,
-	 * as the CPU needs to create the JPEG frames, from the
-	 * hardware-produced JPEG payload.
-	 *
-	 * For the DMA destination buffer, we use a bounce buffer.
-	 */
-	if (hantro_is_encoder_ctx(ctx)) {
-		dst_vq->mem_ops = &vb2_vmalloc_memops;
-	} else {
-		dst_vq->bidirectional = true;
-		dst_vq->mem_ops = &vb2_dma_contig_memops;
-		dst_vq->dma_attrs = DMA_ATTR_ALLOC_SINGLE_PAGES |
-				    DMA_ATTR_NO_KERNEL_MAPPING;
-	}
+	dst_vq->bidirectional = true;
+	dst_vq->mem_ops = &vb2_dma_contig_memops;
+	dst_vq->dma_attrs = DMA_ATTR_ALLOC_SINGLE_PAGES;
+	if (!hantro_is_encoder_ctx(ctx))
+		dst_vq->dma_attrs |= DMA_ATTR_NO_KERNEL_MAPPING;
 
 	dst_vq->type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	dst_vq->io_modes = VB2_MMAP | VB2_DMABUF;
@@ -284,8 +307,25 @@ static int hantro_s_ctrl(struct v4l2_ctrl *ctrl)
 	return 0;
 }
 
+static int hantro_enc_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
+{
+	struct hantro_ctx *ctx;
+
+	ctx = container_of(ctrl->handler, struct hantro_ctx, ctrl_handler);
+
+	vpu_debug(4, "ctrl id %d\n", ctrl->id);
+
+	// Other controls are ignored.
+	if (ctrl->id == V4L2_CID_PRIVATE_HANTRO_RET_PARAMS)
+		memcpy(ctrl->p_new.p, ctx->vp8_enc.priv_dst.cpu,
+		       HANTRO_VP8_RET_PARAMS_SIZE);
+
+	return 0;
+}
+
 static const struct v4l2_ctrl_ops hantro_ctrl_ops = {
 	.s_ctrl = hantro_s_ctrl,
+	.g_volatile_ctrl = hantro_enc_g_volatile_ctrl,
 };
 
 static const struct hantro_ctrl controls[] = {
@@ -299,6 +339,110 @@ static const struct hantro_ctrl controls[] = {
 			.def = 50,
 			.ops = &hantro_ctrl_ops,
 		},
+	}, {
+		.codec = HANTRO_VP8_ENCODER,
+		.cfg = {
+			.id	= V4L2_CID_PRIVATE_HANTRO_HEADER,
+			.name = "Hantro Private Header",
+			.type = V4L2_CTRL_TYPE_PRIVATE,
+			.elem_size = HANTRO_VP8_HEADER_SIZE,
+		}
+	}, {
+		.codec = HANTRO_VP8_ENCODER,
+		.cfg = {
+			.id = V4L2_CID_PRIVATE_HANTRO_REG_PARAMS,
+			.name = "Hantro Private Reg Params",
+			.type = V4L2_CTRL_TYPE_PRIVATE,
+			.elem_size = sizeof(struct hantro_vp8_enc_reg_params),
+		}
+	}, {
+		.codec = HANTRO_VP8_ENCODER,
+		.cfg = {
+			.id = V4L2_CID_PRIVATE_HANTRO_HW_PARAMS,
+			.name = "Hantro Private Hw Params",
+			.type = V4L2_CTRL_TYPE_PRIVATE,
+			.elem_size = HANTRO_VP8_HW_PARAMS_SIZE,
+		}
+	}, {
+		.codec = HANTRO_VP8_ENCODER,
+		.cfg = {
+			.id = V4L2_CID_PRIVATE_HANTRO_RET_PARAMS,
+			.name = "Rk3288 Private Ret Params",
+			.flags = V4L2_CTRL_FLAG_VOLATILE |
+				V4L2_CTRL_FLAG_READ_ONLY,
+			.type = V4L2_CTRL_TYPE_PRIVATE,
+			.ops = &hantro_ctrl_ops,
+			.elem_size = HANTRO_VP8_RET_PARAMS_SIZE,
+		}
+	}, {
+		.codec = HANTRO_VP8_ENCODER,
+		.cfg = {
+			.id = V4L2_CID_MPEG_VIDEO_FRAME_RC_ENABLE,
+			.type = V4L2_CTRL_TYPE_BOOLEAN,
+			.min = 0,
+			.max = 1,
+			.step = 1,
+			.def = 0,
+		}
+	}, {
+		.codec = HANTRO_VP8_ENCODER,
+		.cfg = {
+			.id = V4L2_CID_MPEG_VIDEO_BITRATE,
+			.type = V4L2_CTRL_TYPE_INTEGER,
+			.min = 10000,
+			.max = 288000000,
+			.step = 1,
+			.def = 2097152,
+		}
+	}, {
+		.codec = HANTRO_VP8_ENCODER,
+		.cfg = {
+			.id = V4L2_CID_MPEG_VIDEO_MB_RC_ENABLE,
+			.type = V4L2_CTRL_TYPE_BOOLEAN,
+			.min = 0,
+			.max = 1,
+			.step = 1,
+			.def = 0,
+		}
+	}, {
+		.codec = HANTRO_VP8_ENCODER,
+		.cfg = {
+			.id = V4L2_CID_MPEG_VIDEO_GOP_SIZE,
+			.type = V4L2_CTRL_TYPE_INTEGER,
+			.min = 1,
+			.max = 150,
+			.step = 1,
+			.def = 30,
+		}
+	}, {
+		.codec = HANTRO_VP8_ENCODER,
+		.cfg = {
+			.id = V4L2_CID_MPEG_MFC51_VIDEO_RC_REACTION_COEFF,
+			.type = V4L2_CTRL_TYPE_INTEGER,
+			.name = "Rate Control Reaction Coeff.",
+			.min = 1,
+			.max = (1 << 16) - 1,
+			.step = 1,
+			.def = 1,
+		}
+	}, {
+		.codec = HANTRO_VP8_ENCODER,
+		.cfg = {
+			.id = V4L2_CID_MPEG_MFC51_VIDEO_RC_FIXED_TARGET_BIT,
+			.type = V4L2_CTRL_TYPE_BOOLEAN,
+			.name = "Fixed Target Bit Enable",
+			.min = 0,
+			.max = 1,
+			.step = 1,
+			.def = 0,
+			.menu_skip_mask = 0,
+		}
+	}, {
+		.codec = HANTRO_VP8_ENCODER,
+		.cfg = {
+			.id = V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME,
+			.type = V4L2_CTRL_TYPE_BUTTON,
+		}
 	}, {
 		.codec = HANTRO_MPEG2_DECODER,
 		.cfg = {
@@ -751,6 +895,7 @@ static int hantro_probe(struct platform_device *pdev)
 	vpu->variant = match->data;
 
 	INIT_DELAYED_WORK(&vpu->watchdog_work, hantro_watchdog);
+	INIT_WORK(&vpu->job_rerun, hantro_job_rerun);
 
 	vpu->clocks = devm_kcalloc(&pdev->dev, vpu->variant->num_clocks,
 				   sizeof(*vpu->clocks), GFP_KERNEL);
@@ -848,10 +993,16 @@ static int hantro_probe(struct platform_device *pdev)
 	vpu->mdev.ops = &hantro_m2m_media_ops;
 	vpu->v4l2_dev.mdev = &vpu->mdev;
 
+	ret = hantro_dummy_enc_init(vpu);
+	if (ret) {
+		v4l2_err(&vpu->v4l2_dev, "Failed to create dummy encode context\n");
+		goto err_m2m_rel;
+	}
+
 	ret = hantro_add_enc_func(vpu);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to register encoder\n");
-		goto err_m2m_rel;
+		goto err_dummy_enc;
 	}
 
 	ret = hantro_add_dec_func(vpu);
@@ -872,6 +1023,8 @@ err_rm_dec_func:
 	hantro_remove_dec_func(vpu);
 err_rm_enc_func:
 	hantro_remove_enc_func(vpu);
+err_dummy_enc:
+	hantro_dummy_enc_release(vpu);
 err_m2m_rel:
 	media_device_cleanup(&vpu->mdev);
 	v4l2_m2m_release(vpu->m2m_dev);
@@ -893,6 +1046,7 @@ static int hantro_remove(struct platform_device *pdev)
 	media_device_unregister(&vpu->mdev);
 	hantro_remove_dec_func(vpu);
 	hantro_remove_enc_func(vpu);
+	hantro_dummy_enc_release(vpu);
 	media_device_cleanup(&vpu->mdev);
 	v4l2_m2m_release(vpu->m2m_dev);
 	v4l2_device_unregister(&vpu->v4l2_dev);
