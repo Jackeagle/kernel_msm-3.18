@@ -7,6 +7,8 @@
  */
 
 #include <linux/acpi.h>
+#include <linux/delay.h>
+#include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/regmap.h>
@@ -19,6 +21,12 @@
 #include <linux/of_gpio.h>
 #include <sound/tlv.h>
 #include "max98927.h"
+
+#define MAX98927_RESET_HOLD_US 1
+#define MAX98927_RESET_RELEASE_US 500
+
+static LIST_HEAD(reset_list);
+static DEFINE_MUTEX(reset_list_lock);
 
 static struct reg_default max98927_reg[] = {
 	{MAX98927_R0001_INT_RAW1,  0x00},
@@ -620,6 +628,18 @@ static SOC_ENUM_SINGLE_DECL(max98927_current_limit,
 		MAX98927_R0042_BOOST_CTRL1, 1,
 		max98927_current_limit_text);
 
+static const char * const max98927_env_track_headroom_text[] = {
+	"0.000V", "0.125V", "0.250V", "0.375V", "0.500V", "0.625V",
+	"0.750V", "0.875V", "1.000V", "1.125V", "1.250V", "1.375V",
+	"1.500V", "1.625V", "1.750V", "1.875V", "2.000V", "2.125V",
+	"2.250V", "2.375V", "2.500V", "2.625V", "2.750V", "2.875V",
+	"3.000V", "3.125V", "3.250V", "3.375V", "3.500V"
+};
+
+static SOC_ENUM_SINGLE_DECL(max98927_env_track_headroom,
+		MAX98927_R0082_ENV_TRACK_VOUT_HEADROOM, 0,
+		max98927_env_track_headroom_text);
+
 static const struct snd_kcontrol_new max98927_snd_controls[] = {
 	SOC_SINGLE_TLV("Speaker Volume", MAX98927_R003C_SPK_GAIN,
 		0, 6, 0,
@@ -637,6 +657,9 @@ static const struct snd_kcontrol_new max98927_snd_controls[] = {
 		MAX98927_AMP_VOL_SEL_SHIFT, 1, 0),
 	SOC_ENUM("Boost Output Voltage", max98927_boost_voltage),
 	SOC_ENUM("Current Limit", max98927_current_limit),
+	SOC_SINGLE("EnvTrack Switch", MAX98927_R0086_ENV_TRACK_CTRL,
+		MAX98927_ENV_TRACKER_EN_SHIFT, 1, 0),
+	SOC_ENUM("EnvTrack Headroom", max98927_env_track_headroom),
 };
 
 static const struct snd_soc_dapm_route max98927_audio_map[] = {
@@ -735,13 +758,10 @@ static int max98927_probe(struct snd_soc_component *component)
 	/* Envelope Tracking configuration */
 	regmap_write(max98927->regmap,
 		MAX98927_R0082_ENV_TRACK_VOUT_HEADROOM,
-		0x08);
+		0x0A);
 	regmap_write(max98927->regmap,
 		MAX98927_R0086_ENV_TRACK_CTRL,
 		0x01);
-	regmap_write(max98927->regmap,
-		MAX98927_R0087_ENV_TRACK_BOOST_VOUT_READ,
-		0x10);
 
 	/* voltage, current slot configuration */
 	regmap_write(max98927->regmap,
@@ -861,6 +881,59 @@ static void max98927_slot_config(struct i2c_client *i2c,
 		max98927->i_l_slot = 1;
 }
 
+/*
+ * Must be holding reset_list_lock.
+ */
+static void max98927_i2c_toggle_reset(struct device *dev,
+				      struct max98927_priv *max98927)
+{
+	/*
+	 * If we do not have reset gpio, assume platform firmware
+	 * controls the regulator and toggles it for us.
+	 */
+	if (!max98927->reset_gpio)
+		return;
+
+	gpiod_set_value_cansleep(max98927->reset_gpio, 1);
+
+	/*
+	 * We need to wait a bit before we are allowed to release reset GPIO.
+	 */
+	usleep_range(MAX98927_RESET_HOLD_US, MAX98927_RESET_HOLD_US + 5);
+
+	gpiod_set_value_cansleep(max98927->reset_gpio, 0);
+
+	/*
+	 * We need to wait a bit before I2C communication is available.
+	 */
+	usleep_range(MAX98927_RESET_RELEASE_US, MAX98927_RESET_RELEASE_US + 5);
+
+	/*
+	 * Release reset GPIO after reset.
+	 * Note that we need to do so because otherwise the other driver
+	 * requesting the same GPIO will fail with -EBUSY.
+	 */
+	devm_gpiod_put(dev, max98927->reset_gpio);
+}
+
+/*
+ * Must be holding reset_list_lock.
+ */
+static bool max98927_is_first_to_reset(struct max98927_priv *max98927)
+{
+	struct max98927_priv *p;
+
+	if (!max98927->reset_gpio)
+		return false;
+
+	list_for_each_entry(p, &reset_list, list) {
+		if (max98927->reset_gpio == p->reset_gpio)
+			return false;
+	}
+
+	return true;
+}
+
 static int max98927_i2c_probe(struct i2c_client *i2c,
 	const struct i2c_device_id *id)
 {
@@ -888,6 +961,44 @@ static int max98927_i2c_probe(struct i2c_client *i2c,
 	} else
 		max98927->interleave_mode = false;
 
+	/* Gets optional GPIO for reset line. */
+	max98927->reset_gpio = devm_gpiod_get_optional(
+			&i2c->dev, "reset", GPIOD_OUT_LOW);
+
+	if (IS_ERR(max98927->reset_gpio)) {
+		ret = PTR_ERR(max98927->reset_gpio);
+		/*
+		 * -EBUSY error is expected if the first driver is
+		 *  holding the reset GPIO.
+		 */
+		if (ret == -EBUSY) {
+			dev_warn(&i2c->dev,
+				 "reset gpio is busy. Defer the probe\n");
+			return -EPROBE_DEFER;
+		}
+		dev_err(&i2c->dev, "error getting reset gpio: %d\n", ret);
+		return ret;
+	}
+
+	if (max98927->reset_gpio) {
+		mutex_lock(&reset_list_lock);
+
+		/*
+		 * Only toggle reset line for the first instance when the
+		 * reset line is shared among instances. For example,
+		 * left and right amplifier share the same reset line, and
+		 * we should only toggle the reset line once.
+		 */
+		if (max98927_is_first_to_reset(max98927)) {
+			dev_info(&i2c->dev,
+				 "%s: toggle reset line\n", __func__);
+			max98927_i2c_toggle_reset(&i2c->dev, max98927);
+			list_add(&max98927->list, &reset_list);
+		}
+
+		mutex_unlock(&reset_list_lock);
+	}
+
 	/* regmap initialization */
 	max98927->regmap
 		= devm_regmap_init_i2c(i2c, &max98927_regmap);
@@ -895,7 +1006,7 @@ static int max98927_i2c_probe(struct i2c_client *i2c,
 		ret = PTR_ERR(max98927->regmap);
 		dev_err(&i2c->dev,
 			"Failed to allocate regmap: %d\n", ret);
-		return ret;
+		goto err_i2c;
 	}
 
 	/* Check Revision ID */
@@ -904,7 +1015,7 @@ static int max98927_i2c_probe(struct i2c_client *i2c,
 	if (ret < 0) {
 		dev_err(&i2c->dev,
 			"Failed to read: 0x%02X\n", MAX98927_R01FF_REV_ID);
-		return ret;
+		goto err_i2c;
 	}
 	dev_info(&i2c->dev, "MAX98927 revisionID: 0x%02X\n", reg);
 
@@ -918,6 +1029,10 @@ static int max98927_i2c_probe(struct i2c_client *i2c,
 	if (ret < 0)
 		dev_err(&i2c->dev, "Failed to register component: %d\n", ret);
 
+	return ret;
+
+err_i2c:
+	list_del(&max98927->list);
 	return ret;
 }
 
