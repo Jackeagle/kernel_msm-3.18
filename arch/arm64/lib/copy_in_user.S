@@ -23,117 +23,93 @@
  */
 
 	.macro ldrb1 reg, ptr, offset=0
-	8888: ldtrb \reg, [\ptr, \offset]
-	_asm_extable_faultaddr	8888b,9998f;
+	USER_F(9998f, ldtrb \reg, [\ptr, \offset])
 	.endm
 
 	.macro strb1 reg, ptr, offset=0
-	8888: sttrb \reg, [\ptr, \offset]
-	_asm_extable_faultaddr	8888b,9998f;
+	USER_F(9998f, sttrb \reg, [\ptr, \offset])
 	.endm
 
 	.macro ldrb1_reg reg, ptr, offset
 	add \ptr, \ptr, \offset
-	8888: ldtrb \reg, [\ptr]
+	USER_F(9998f, ldtrb \reg, [\ptr])
 	sub \ptr, \ptr, \offset
-	_asm_extable_faultaddr	8888b,9998f;
 	.endm
 
 	.macro strb1_reg reg, ptr, offset
 	add \ptr, \ptr, \offset
-	8888: sttrb \reg, [\ptr]
+	USER_F(9998f, sttrb \reg, [\ptr])
 	sub \ptr, \ptr, \offset
-	_asm_extable_faultaddr	8888b,9998f;
 	.endm
 
 	.macro ldr1 reg, ptr, offset=0
-	8888: ldtr \reg, [\ptr, \offset]
-	_asm_extable_faultaddr	8888b,9998f;
+	USER_F(9998f, ldtr \reg, [\ptr, \offset])
 	.endm
 
 	.macro str1 reg, ptr, offset=0
-	8888: sttr \reg, [\ptr, \offset]
-	_asm_extable_faultaddr	8888b,9998f;
+	USER_F(9998f, sttr \reg, [\ptr, \offset])
 	.endm
 
 	.macro ldp1 regA, regB, ptr, offset=0
-	8888: ldtr \regA, [\ptr, \offset]
-	8889: ldtr \regB, [\ptr, \offset + 8]
-	_asm_extable_faultaddr	8888b,9998f;
-	_asm_extable_faultaddr	8889b,9998f;
+	USER_F(9998f, ldtr \regA, [\ptr, \offset])
+	USER_F(9998f, ldtr \regB, [\ptr, \offset + 8])
 	.endm
 
 	.macro stp1 regA, regB, ptr, offset=0
-	8888: sttr \regA, [\ptr, \offset]
-	8889: sttr \regB, [\ptr, \offset + 8]
-	_asm_extable_faultaddr	8888b,9998f;
-	_asm_extable_faultaddr	8889b,9998f;
+	USER_F(9998f, sttr \regA, [\ptr, \offset])
+	USER_F(9998f, sttr \regB, [\ptr, \offset + 8])
 	.endm
 
 	.macro ldp1_pre regA, regB, ptr, offset
-	8888: ldtr \regA, [\ptr, \offset]
-	8889: ldtr \regB, [\ptr, \offset + 8]
+	USER_F(9998f, ldtr \regA, [\ptr, \offset])
+	USER_F(9998f, ldtr \regB, [\ptr, \offset + 8])
 	add \ptr, \ptr, \offset
-	_asm_extable_faultaddr	8888b,9998f;
-	_asm_extable_faultaddr	8889b,9998f;
 	.endm
 
 	.macro stp1_pre regA, regB, ptr, offset
-	8888: sttr \regA, [\ptr, \offset]
-	8889: sttr \regB, [\ptr, \offset + 8]
+	USER_F(9998f, sttr \regA, [\ptr, \offset])
+	USER_F(9998f, sttr \regB, [\ptr, \offset + 8])
 	add \ptr, \ptr, \offset
-	_asm_extable_faultaddr	8888b,9998f;
-	_asm_extable_faultaddr	8889b,9998f;
 	.endm
 
 	.macro ldrb1_nuao reg, ptr, offset=0
-	8888: ldrb \reg, [\ptr, \offset]
-	_asm_extable_faultaddr	8888b,9998f;
+	USER_F(9998f, ldrb \reg, [\ptr, \offset])
 	.endm
 
 	.macro strb1_nuao reg, ptr, offset=0
-	8888: strb \reg, [\ptr, \offset]
-	_asm_extable_faultaddr	8888b,9998f;
+	USER_F(9998f, strb \reg, [\ptr, \offset])
 	.endm
 
 	.macro ldrb1_nuao_reg reg, ptr, offset=0
-	8888: ldrb \reg, [\ptr, \offset]
-	_asm_extable_faultaddr	8888b,9998f;
+	USER_F(9998f, ldrb \reg, [\ptr, \offset])
 	.endm
 
 	.macro strb1_nuao_reg reg, ptr, offset=0
-	8888: strb \reg, [\ptr, \offset]
-	_asm_extable_faultaddr	8888b,9998f;
+	USER_F(9998f, strb \reg, [\ptr, \offset])
 	.endm
 
 	.macro ldr1_nuao reg, ptr, offset=0
-	8888: ldr \reg, [\ptr, \offset]
-	_asm_extable_faultaddr	8888b,9998f;
+	USER_F(9998f, ldr \reg, [\ptr, \offset])
 	.endm
 
 	.macro str1_nuao reg, ptr, offset=0
-	8888: str \reg, [\ptr, \offset]
-	_asm_extable_faultaddr	8888b,9998f;
+	USER_F(9998f, str \reg, [\ptr, \offset])
 	.endm
 
 	.macro ldp1_nuao  regA, regB, ptr, offset=0
-	8888: ldp \regA, \regB, [\ptr, \offset]
-	_asm_extable_faultaddr	8888b,9998f;
+	USER_F(9998f, ldp \regA, \regB, [\ptr, \offset])
 	.endm
 
 	.macro stp1_nuao regA, regB, ptr, offset=0
-	8888: stp \regA, \regB, [\ptr, \offset]
-	_asm_extable_faultaddr	8888b,9998f;
+	USER_F(9998f, stp \regA, \regB, [\ptr, \offset])
 	.endm
 
 	.macro ldp1_pre_nuao regA, regB, ptr, offset
-	8888: ldp \regA, \regB, [\ptr, \offset]!
-	_asm_extable_faultaddr	8888b,9998f;
+	USER_F(9998f, ldp \regA, \regB, [\ptr, \offset]!)
 	.endm
 
 	.macro stp1_pre_nuao regA, regB, ptr, offset
-	8888: stp \regA, \regB, [\ptr, \offset]!
-	_asm_extable_faultaddr	8888b,9998f;
+	USER_F(9998f, stp \regA, \regB, [\ptr, \offset]!)
 	.endm
 
 	.macro copy_exit

@@ -155,6 +155,10 @@ alternative_endif
 9999:	x;					\
 	_asm_extable	9999b, l
 
+#define USER_F(l, x...)				\
+9999:	x;					\
+	_asm_extable_faultaddr	9999b, l
+
 /*
  * Register aliases.
  */
