@@ -6863,7 +6863,9 @@ void gen6_rps_idle(struct drm_i915_private *dev_priv)
 void gen6_rps_boost(struct i915_request *rq)
 {
 	struct intel_rps *rps = &rq->i915->gt_pm.rps;
+	/* FIXME see below
 	unsigned long flags;
+	*/
 	bool boost;
 
 	/* This is intentionally racy! We peek at the state here, then
@@ -6877,6 +6879,11 @@ void gen6_rps_boost(struct i915_request *rq)
 
 	/* Serializes with i915_request_retire() */
 	boost = false;
+	/*
+	 * FIXME: This is temporary change to improve power consumption
+	 * in hangouts use case. (See: b/130638275)
+	 */
+	/*
 	spin_lock_irqsave(&rq->lock, flags);
 	if (!i915_request_has_waitboost(rq) &&
 	    !dma_fence_is_signaled_locked(&rq->fence)) {
@@ -6884,6 +6891,7 @@ void gen6_rps_boost(struct i915_request *rq)
 		rq->flags |= I915_REQUEST_WAITBOOST;
 	}
 	spin_unlock_irqrestore(&rq->lock, flags);
+	*/
 	if (!boost)
 		return;
 
