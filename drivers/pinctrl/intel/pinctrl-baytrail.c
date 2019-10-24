@@ -1513,7 +1513,6 @@ static int byt_gpio_probe(struct byt_gpio *vg)
 	gc->can_sleep	= false;
 	gc->parent	= &vg->pdev->dev;
 	gc->ngpio	= vg->soc_data->npins;
-	gc->irq.init_valid_mask	= byt_init_irq_valid_mask;
 
 #ifdef CONFIG_PM_SLEEP
 	vg->saved_context = devm_kcalloc(&vg->pdev->dev, gc->ngpio,
@@ -1537,6 +1536,7 @@ static int byt_gpio_probe(struct byt_gpio *vg)
 		girq = &gc->irq;
 		girq->chip = &vg->irqchip;
 		girq->init_hw = byt_gpio_irq_init_hw;
+		girq->init_valid_mask = byt_init_irq_valid_mask;
 		girq->parent_handler = byt_gpio_irq_handler;
 		girq->num_parents = 1;
 		girq->parents = devm_kcalloc(&vg->pdev->dev, 1,
