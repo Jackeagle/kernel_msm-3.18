@@ -34,6 +34,7 @@
 #include "xfs_ag_resv.h"
 #include "xfs_refcount.h"
 #include "xfs_icache.h"
+#include "xfs_iomap.h"
 
 
 kmem_zone_t		*xfs_bmap_free_item_zone;
@@ -3500,13 +3501,11 @@ xfs_bmap_btalloc(
 			args.mod = args.prod - args.mod;
 	}
 	/*
-	 * If we are not low on available data blocks, and the
-	 * underlying logical volume manager is a stripe, and
-	 * the file offset is zero then try to allocate data
-	 * blocks on stripe unit boundary.
-	 * NOTE: ap->aeof is only set if the allocation length
-	 * is >= the stripe unit and the allocation offset is
-	 * at the end of file.
+	 * If we are not low on available data blocks, and the underlying
+	 * logical volume manager is a stripe, and the file offset is zero then
+	 * try to allocate data blocks on stripe unit boundary. NOTE: ap->aeof
+	 * is only set if the allocation length is >= the stripe unit and the
+	 * allocation offset is at the end of file.
 	 */
 	if (!(ap->tp->t_flags & XFS_TRANS_LOWMODE) && ap->aeof) {
 		if (!ap->offset) {
@@ -3514,9 +3513,11 @@ xfs_bmap_btalloc(
 			atype = args.type;
 			isaligned = 1;
 			/*
-			 * Adjust for alignment
+			 * Adjust minlen to try and preserve alignment if we
+			 * can't guarantee an aligned maxlen extent.
 			 */
-			if (blen > args.alignment && blen <= args.maxlen)
+			if (blen > args.alignment &&
+			    blen <= args.maxlen + args.alignment)
 				args.minlen = blen - args.alignment;
 			args.minalignslop = 0;
 		} else {
@@ -4456,15 +4457,20 @@ int
 xfs_bmapi_convert_delalloc(
 	struct xfs_inode	*ip,
 	int			whichfork,
-	xfs_fileoff_t		offset_fsb,
-	struct xfs_bmbt_irec	*imap,
+	xfs_off_t		offset,
+	struct iomap		*iomap,
 	unsigned int		*seq)
 {
 	struct xfs_ifork	*ifp = XFS_IFORK_PTR(ip, whichfork);
 	struct xfs_mount	*mp = ip->i_mount;
+	xfs_fileoff_t		offset_fsb = XFS_B_TO_FSBT(mp, offset);
 	struct xfs_bmalloca	bma = { NULL };
+	u16			flags = 0;
 	struct xfs_trans	*tp;
 	int			error;
+
+	if (whichfork == XFS_COW_FORK)
+		flags |= IOMAP_F_SHARED;
 
 	/*
 	 * Space for the extent and indirect blocks was reserved when the
@@ -4495,7 +4501,7 @@ xfs_bmapi_convert_delalloc(
 	 * the extent.  Just return the real extent at this offset.
 	 */
 	if (!isnullstartblock(bma.got.br_startblock)) {
-		*imap = bma.got;
+		xfs_bmbt_to_iomap(ip, iomap, &bma.got, flags);
 		*seq = READ_ONCE(ifp->if_seq);
 		goto out_trans_cancel;
 	}
@@ -4505,7 +4511,6 @@ xfs_bmapi_convert_delalloc(
 	bma.wasdel = true;
 	bma.offset = bma.got.br_startoff;
 	bma.length = max_t(xfs_filblks_t, bma.got.br_blockcount, MAXEXTLEN);
-	bma.total = XFS_EXTENTADD_SPACE_RES(ip->i_mount, XFS_DATA_FORK);
 	bma.minleft = xfs_bmapi_minleft(tp, ip, whichfork);
 	if (whichfork == XFS_COW_FORK)
 		bma.flags = XFS_BMAPI_COWFORK | XFS_BMAPI_PREALLOC;
@@ -4528,7 +4533,7 @@ xfs_bmapi_convert_delalloc(
 	XFS_STATS_INC(mp, xs_xstrat_quick);
 
 	ASSERT(!isnullstartblock(bma.got.br_startblock));
-	*imap = bma.got;
+	xfs_bmbt_to_iomap(ip, iomap, &bma.got, flags);
 	*seq = READ_ONCE(ifp->if_seq);
 
 	if (whichfork == XFS_COW_FORK)
