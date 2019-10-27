@@ -964,8 +964,8 @@ xfs_alloc_file_space(
 		xfs_trans_ijoin(tp, ip, 0);
 
 		error = xfs_bmapi_write(tp, ip, startoffset_fsb,
-					allocatesize_fsb, alloc_type, resblks,
-					imapp, &nimaps);
+					allocatesize_fsb, alloc_type, 0, imapp,
+					&nimaps);
 		if (error)
 			goto error0;
 
@@ -1113,7 +1113,8 @@ xfs_free_file_space(
 		return 0;
 	if (offset + len > XFS_ISIZE(ip))
 		len = XFS_ISIZE(ip) - offset;
-	error = iomap_zero_range(VFS_I(ip), offset, len, NULL, &xfs_iomap_ops);
+	error = iomap_zero_range(VFS_I(ip), offset, len, NULL,
+			&xfs_buffered_write_iomap_ops);
 	if (error)
 		return error;
 
