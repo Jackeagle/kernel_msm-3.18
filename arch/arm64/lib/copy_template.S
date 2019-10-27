@@ -1,13 +1,12 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (C) 2013 ARM Ltd.
- * Copyright (C) 2013 Linaro.
+ * Copyright (c) 2012 Linaro Limited. All rights reserved.
+ * Copyright (c) 2015 ARM Ltd. All rights reserved.
  *
- * This code is based on glibc cortex strings work originally authored by Linaro
- * be found @
+ * This code is based on glibc Cortex Strings work originally authored by
+ * Linaro, found at:
  *
- * http://bazaar.launchpad.net/~linaro-toolchain-dev/cortex-strings/trunk/
- * files/head:/src/aarch64/
+ * https://git.linaro.org/toolchain/cortex-strings.git
  */
 
 
@@ -21,161 +20,146 @@
  * Returns:
  *	x0 - dest
  */
-dstin	.req	x0
-src	.req	x1
-count	.req	x2
-tmp1	.req	x3
-tmp1w	.req	w3
-tmp2	.req	x4
-tmp2w	.req	w4
-dst	.req	x6
+ #define dstin	x0
+ #define src	x1
+ #define count	x2
+ #define dst	x3
+ #define srcend	x4
+ #define dstend	x5
+ #define A_l	x6
+ #define A_lw	w6
+ #define A_h	x7
+ #define A_hw	w7
+ #define B_l	x8
+ #define B_lw	w8
+ #define B_h	x9
+ #define C_l	x10
+ #define C_h	x11
+ #define D_l	x12
+ #define D_h	x13
+ #define E_l	src
+ #define E_h	count
+ #define F_l	srcend
+ #define F_h	dst
+ #define tmp1	x9
 
-A_l	.req	x7
-A_h	.req	x8
-B_l	.req	x9
-B_h	.req	x10
-C_l	.req	x11
-C_h	.req	x12
-D_l	.req	x13
-D_h	.req	x14
+	prfm	PLDL1KEEP, [src]
+	add	srcend, src, count
+	add	dstend, dstin, count
+	cmp	count, 16
+	b.ls	L(copy16)
+	cmp	count, 96
+	b.hi	L(copy_long)
 
-	mov	dst, dstin
-	cmp	count, #16
-	/*When memory length is less than 16, the accessed are not aligned.*/
-	b.lo	.Ltiny15
-
-	neg	tmp2, src
-	ands	tmp2, tmp2, #15/* Bytes to reach alignment. */
-	b.eq	.LSrcAligned
-	sub	count, count, tmp2
-	/*
-	* Copy the leading memory data from src to dst in an increasing
-	* address order.By this way,the risk of overwriting the source
-	* memory data is eliminated when the distance between src and
-	* dst is less than 16. The memory accesses here are alignment.
-	*/
-	tbz	tmp2, #0, 1f
-	ldrb1	tmp1w, src, #1
-	strb1	tmp1w, dst, #1
+	/* Medium copies: 17..96 bytes.  */
+	sub	tmp1, count, 1
+	ldp1	A_l, A_h, src
+	tbnz	tmp1, 6, L(copy96)
+	ldp1	D_l, D_h, srcend, -16
+	tbz	tmp1, 5, 1f
+	ldp1	B_l, B_h, src, 16
+	ldp1	C_l, C_h, srcend, -32
+	stp1	B_l, B_h, dstin, 16
+	stp1	C_l, C_h, dstend, -32
 1:
-	tbz	tmp2, #1, 2f
-	ldrh1	tmp1w, src, #2
-	strh1	tmp1w, dst, #2
+	stp1	A_l, A_h, dstin
+	stp1	D_l, D_h, dstend, -16
+	copy_exit
+
+	.p2align 4
+	/* Small copies: 0..16 bytes.  */
+L(copy16):
+	cmp	count, 8
+	b.lo	1f
+	ldr1	A_l, src
+	ldr1	A_h, srcend, -8
+	str1	A_l, dstin
+	str1	A_h, dstend, -8
+	copy_exit
+	.p2align 4
+1:
+	tbz	count, 2, 1f
+	ldr1	A_lw, src
+	ldr1	A_hw, srcend, -4
+	str1	A_lw, dstin
+	str1	A_hw, dstend, -4
+	copy_exit
+
+	/* Copy 0..3 bytes.  Use a branchless sequence that copies the same
+	   byte 3 times if count==1, or the 2nd byte twice if count==2.  */
+1:
+	cbz	count, 2f
+	lsr	tmp1, count, 1
+	ldrb1	A_lw, src
+	ldrb1	A_hw, srcend, -1
+	ldrb1_reg	B_lw, src, tmp1
+	strb1	A_lw, dstin
+	strb1_reg	B_lw, dstin, tmp1
+	strb1	A_hw, dstend, -1
+2:	copy_exit
+
+	.p2align 4
+	/* Copy 64..96 bytes.  Copy 64 bytes from the start and
+	   32 bytes from the end.  */
+L(copy96):
+	ldp1	B_l, B_h, src, 16
+	ldp1	C_l, C_h, src, 32
+	ldp1	D_l, D_h, src, 48
+	ldp1	E_l, E_h, srcend, -32
+	ldp1	F_l, F_h, srcend, -16
+	stp1	A_l, A_h, dstin
+	stp1	B_l, B_h, dstin, 16
+	stp1	C_l, C_h, dstin, 32
+	stp1	D_l, D_h, dstin, 48
+	stp1	E_l, E_h, dstend, -32
+	stp1	F_l, F_h, dstend, -16
+	copy_exit
+
+	/* Align DST to 16 byte alignment so that we don't cross cache line
+	   boundaries on both loads and stores.	 There are at least 96 bytes
+	   to copy, so copy 16 bytes unaligned and then align.	The loop
+	   copies 64 bytes per iteration and prefetches one iteration ahead.  */
+
+	.p2align 4
+L(copy_long):
+	and	tmp1, dstin, 15
+	bic	dst, dstin, 15
+	ldp1	D_l, D_h, src
+	sub	src, src, tmp1
+	add	count, count, tmp1	/* Count is now 16 too large.  */
+	ldp1	A_l, A_h, src, 16
+	stp1	D_l, D_h, dstin
+	ldp1	B_l, B_h, src, 32
+	ldp1	C_l, C_h, src, 48
+	ldp1_pre	D_l, D_h, src, 64
+	subs	count, count, 128 + 16	/* Test and readjust count.  */
+	b.ls	2f
+1:
+	stp1	A_l, A_h, dst, 16
+	ldp1	A_l, A_h, src, 16
+	stp1	B_l, B_h, dst, 32
+	ldp1	B_l, B_h, src, 32
+	stp1	C_l, C_h, dst, 48
+	ldp1	C_l, C_h, src, 48
+	stp1_pre	D_l, D_h, dst, 64
+	ldp1_pre	D_l, D_h, src, 64
+	subs	count, count, 64
+	b.hi	1b
+
+	/* Write the last full set of 64 bytes.	 The remainder is at most 64
+	   bytes, so it is safe to always copy 64 bytes from the end even if
+	   there is just 1 byte left.  */
 2:
-	tbz	tmp2, #2, 3f
-	ldr1	tmp1w, src, #4
-	str1	tmp1w, dst, #4
-3:
-	tbz	tmp2, #3, .LSrcAligned
-	ldr1	tmp1, src, #8
-	str1	tmp1, dst, #8
-
-.LSrcAligned:
-	cmp	count, #64
-	b.ge	.Lcpy_over64
-	/*
-	* Deal with small copies quickly by dropping straight into the
-	* exit block.
-	*/
-.Ltail63:
-	/*
-	* Copy up to 48 bytes of data. At this point we only need the
-	* bottom 6 bits of count to be accurate.
-	*/
-	ands	tmp1, count, #0x30
-	b.eq	.Ltiny15
-	cmp	tmp1w, #0x20
-	b.eq	1f
-	b.lt	2f
-	ldp1	A_l, A_h, src, #16
-	stp1	A_l, A_h, dst, #16
-1:
-	ldp1	A_l, A_h, src, #16
-	stp1	A_l, A_h, dst, #16
-2:
-	ldp1	A_l, A_h, src, #16
-	stp1	A_l, A_h, dst, #16
-.Ltiny15:
-	/*
-	* Prefer to break one ldp/stp into several load/store to access
-	* memory in an increasing address order,rather than to load/store 16
-	* bytes from (src-16) to (dst-16) and to backward the src to aligned
-	* address,which way is used in original cortex memcpy. If keeping
-	* the original memcpy process here, memmove need to satisfy the
-	* precondition that src address is at least 16 bytes bigger than dst
-	* address,otherwise some source data will be overwritten when memove
-	* call memcpy directly. To make memmove simpler and decouple the
-	* memcpy's dependency on memmove, withdrew the original process.
-	*/
-	tbz	count, #3, 1f
-	ldr1	tmp1, src, #8
-	str1	tmp1, dst, #8
-1:
-	tbz	count, #2, 2f
-	ldr1	tmp1w, src, #4
-	str1	tmp1w, dst, #4
-2:
-	tbz	count, #1, 3f
-	ldrh1	tmp1w, src, #2
-	strh1	tmp1w, dst, #2
-3:
-	tbz	count, #0, .Lexitfunc
-	ldrb1	tmp1w, src, #1
-	strb1	tmp1w, dst, #1
-
-	b	.Lexitfunc
-
-.Lcpy_over64:
-	subs	count, count, #128
-	b.ge	.Lcpy_body_large
-	/*
-	* Less than 128 bytes to copy, so handle 64 here and then jump
-	* to the tail.
-	*/
-	ldp1	A_l, A_h, src, #16
-	stp1	A_l, A_h, dst, #16
-	ldp1	B_l, B_h, src, #16
-	ldp1	C_l, C_h, src, #16
-	stp1	B_l, B_h, dst, #16
-	stp1	C_l, C_h, dst, #16
-	ldp1	D_l, D_h, src, #16
-	stp1	D_l, D_h, dst, #16
-
-	tst	count, #0x3f
-	b.ne	.Ltail63
-	b	.Lexitfunc
-
-	/*
-	* Critical loop.  Start at a new cache line boundary.  Assuming
-	* 64 bytes per line this ensures the entire loop is in one line.
-	*/
-	.p2align	L1_CACHE_SHIFT
-.Lcpy_body_large:
-	/* pre-get 64 bytes data. */
-	ldp1	A_l, A_h, src, #16
-	ldp1	B_l, B_h, src, #16
-	ldp1	C_l, C_h, src, #16
-	ldp1	D_l, D_h, src, #16
-1:
-	/*
-	* interlace the load of next 64 bytes data block with store of the last
-	* loaded 64 bytes data.
-	*/
-	stp1	A_l, A_h, dst, #16
-	ldp1	A_l, A_h, src, #16
-	stp1	B_l, B_h, dst, #16
-	ldp1	B_l, B_h, src, #16
-	stp1	C_l, C_h, dst, #16
-	ldp1	C_l, C_h, src, #16
-	stp1	D_l, D_h, dst, #16
-	ldp1	D_l, D_h, src, #16
-	subs	count, count, #64
-	b.ge	1b
-	stp1	A_l, A_h, dst, #16
-	stp1	B_l, B_h, dst, #16
-	stp1	C_l, C_h, dst, #16
-	stp1	D_l, D_h, dst, #16
-
-	tst	count, #0x3f
-	b.ne	.Ltail63
-.Lexitfunc:
+	ldp1	E_l, E_h, srcend, -64
+	stp1	A_l, A_h, dst, 16
+	ldp1	A_l, A_h, srcend, -48
+	stp1	B_l, B_h, dst, 32
+	ldp1	B_l, B_h, srcend, -32
+	stp1	C_l, C_h, dst, 48
+	ldp1	C_l, C_h, srcend, -16
+	stp1	D_l, D_h, dst, 64
+	stp1	E_l, E_h, dstend, -64
+	stp1	A_l, A_h, dstend, -48
+	stp1	B_l, B_h, dstend, -32
+	stp1	C_l, C_h, dstend, -16
+	copy_exit
