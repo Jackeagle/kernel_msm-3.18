@@ -218,9 +218,9 @@ vm_fault_t ttm_bo_vm_fault_reserved(struct vm_fault *vmf,
 		}
 
 		if (bo->moving != moving) {
-			spin_lock(&bdev->glob->lru_lock);
+			spin_lock(&ttm_bo_glob.lru_lock);
 			ttm_bo_move_to_lru_tail(bo, NULL);
-			spin_unlock(&bdev->glob->lru_lock);
+			spin_unlock(&ttm_bo_glob.lru_lock);
 		}
 		dma_fence_put(moving);
 	}
