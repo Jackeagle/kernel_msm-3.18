@@ -39,7 +39,7 @@
 #include "inc/hw/dmcu.h"
 #include "dml/display_mode_lib.h"
 
-#define DC_VER "3.2.51.1"
+#define DC_VER "3.2.56"
 
 #define MAX_SURFACES 3
 #define MAX_PLANES 6
@@ -111,6 +111,7 @@ struct dc_caps {
 	bool force_dp_tps4_for_cp2520;
 	bool disable_dp_clk_share;
 	bool psp_setup_panel_mode;
+	bool extended_aux_timeout_support;
 #ifdef CONFIG_DRM_AMD_DC_DCN2_0
 	bool hw_3d_lut;
 #endif
@@ -219,7 +220,9 @@ struct dc_config {
 	bool allow_seamless_boot_optimization;
 	bool power_down_display_on_boot;
 	bool edp_not_connected;
+	bool force_enum_edp;
 	bool forced_clocks;
+	bool disable_extended_timeout_support; // Used to disable extended timeout and lttpr feature as well
 	bool multi_mon_pp_mclk_switch;
 };
 
@@ -227,6 +230,7 @@ enum visual_confirm {
 	VISUAL_CONFIRM_DISABLE = 0,
 	VISUAL_CONFIRM_SURFACE = 1,
 	VISUAL_CONFIRM_HDR = 2,
+	VISUAL_CONFIRM_MPCTREE = 4,
 };
 
 enum dcc_option {
@@ -245,6 +249,19 @@ enum wm_report_mode {
 	WM_REPORT_DEFAULT = 0,
 	WM_REPORT_OVERRIDE = 1,
 };
+enum dtm_pstate{
+	dtm_level_p0 = 0,/*highest voltage*/
+	dtm_level_p1,
+	dtm_level_p2,
+	dtm_level_p3,
+	dtm_level_p4,/*when active_display_count = 0*/
+};
+
+enum dcn_pwr_state {
+	DCN_PWR_STATE_UNKNOWN = -1,
+	DCN_PWR_STATE_MISSION_MODE = 0,
+	DCN_PWR_STATE_LOW_POWER = 3,
+};
 
 /*
  * For any clocks that may differ per pipe
@@ -260,12 +277,13 @@ struct dc_clocks {
 	int phyclk_khz;
 	int dramclk_khz;
 	bool p_state_change_support;
-
+	enum dcn_pwr_state pwr_state;
 	/*
 	 * Elements below are not compared for the purposes of
 	 * optimization required
 	 */
 	bool prev_p_state_change_support;
+	enum dtm_pstate dtm_level;
 	int max_supported_dppclk_khz;
 	int max_supported_dispclk_khz;
 	int bw_dppclk_khz; /*a copy of dppclk_khz*/

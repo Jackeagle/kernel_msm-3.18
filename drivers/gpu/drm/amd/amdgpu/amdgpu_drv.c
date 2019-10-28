@@ -84,9 +84,10 @@
  * - 3.33.0 - Fixes for GDS ENOMEM failures in AMDGPU_CS.
  * - 3.34.0 - Non-DC can flip correctly between buffers with different pitches
  * - 3.35.0 - Add drm_amdgpu_info_device::tcc_disabled_mask
+ * - 3.36.0 - Allow reading more status registers on si/cik
  */
 #define KMS_DRIVER_MAJOR	3
-#define KMS_DRIVER_MINOR	35
+#define KMS_DRIVER_MINOR	36
 #define KMS_DRIVER_PATCHLEVEL	0
 
 int amdgpu_vram_limit = 0;
@@ -128,6 +129,7 @@ char *amdgpu_disable_cu = NULL;
 char *amdgpu_virtual_display = NULL;
 /* OverDrive(bit 14) disabled by default*/
 uint amdgpu_pp_feature_mask = 0xffffbfff;
+uint amdgpu_force_long_training = 0;
 int amdgpu_job_hang_limit = 0;
 int amdgpu_lbpw = -1;
 int amdgpu_compute_multipipe = -1;
@@ -142,6 +144,7 @@ int amdgpu_discovery = -1;
 int amdgpu_mes = 0;
 int amdgpu_noretry = 1;
 int amdgpu_force_asic_type = -1;
+int amdgpu_tmz = 0;
 
 struct amdgpu_mgpu_info mgpu_info = {
 	.mutex = __MUTEX_INITIALIZER(mgpu_info.mutex),
@@ -250,9 +253,11 @@ module_param_named(msi, amdgpu_msi, int, 0444);
  * By default(with no lockup_timeout settings), the timeout for all non-compute(GFX, SDMA and Video)
  * jobs is 10000. And there is no timeout enforced on compute jobs.
  */
-MODULE_PARM_DESC(lockup_timeout, "GPU lockup timeout in ms (default: 10000 for non-compute jobs and infinity timeout for compute jobs."
+MODULE_PARM_DESC(lockup_timeout, "GPU lockup timeout in ms (default: for bare metal 10000 for non-compute jobs and infinity timeout for compute jobs; "
+		"for passthrough or sriov, 10000 for all jobs."
 		" 0: keep default value. negative: infinity timeout), "
-		"format is [Non-Compute] or [GFX,Compute,SDMA,Video]");
+		"format: for bare metal [Non-Compute] or [GFX,Compute,SDMA,Video]; "
+		"for passthrough or sriov [all jobs] or [GFX,Compute,SDMA,Video].");
 module_param_string(lockup_timeout, amdgpu_lockup_timeout, sizeof(amdgpu_lockup_timeout), 0444);
 
 /**
@@ -389,6 +394,14 @@ module_param_named(sched_hw_submission, amdgpu_sched_hw_submission, int, 0444);
  */
 MODULE_PARM_DESC(ppfeaturemask, "all power features enabled (default))");
 module_param_named(ppfeaturemask, amdgpu_pp_feature_mask, uint, 0444);
+
+/**
+ * DOC: forcelongtraining (uint)
+ * Force long memory training in resume.
+ * The default is zero, indicates short training in resume.
+ */
+MODULE_PARM_DESC(forcelongtraining, "force memory long training");
+module_param_named(forcelongtraining, amdgpu_force_long_training, uint, 0444);
 
 /**
  * DOC: pcie_gen_cap (uint)
@@ -715,6 +728,16 @@ module_param_named(dcfeaturemask, amdgpu_dc_feature_mask, uint, 0444);
 uint amdgpu_dm_abm_level = 0;
 MODULE_PARM_DESC(abmlevel, "ABM level (0 = off (default), 1-4 = backlight reduction level) ");
 module_param_named(abmlevel, amdgpu_dm_abm_level, uint, 0444);
+
+/**
+ * DOC: tmz (int)
+ * Trusted Memory Zone (TMZ) is a method to protect data being written
+ * to or read from memory.
+ *
+ * The default value: 0 (off).  TODO: change to auto till it is completed.
+ */
+MODULE_PARM_DESC(tmz, "Enable TMZ feature (-1 = auto, 0 = off (default), 1 = on)");
+module_param_named(tmz, amdgpu_tmz, int, 0444);
 
 static const struct pci_device_id pciidlist[] = {
 #ifdef  CONFIG_DRM_AMDGPU_SI
@@ -1154,8 +1177,13 @@ static int amdgpu_pmops_resume(struct device *dev)
 static int amdgpu_pmops_freeze(struct device *dev)
 {
 	struct drm_device *drm_dev = dev_get_drvdata(dev);
+	struct amdgpu_device *adev = drm_dev->dev_private;
+	int r;
 
-	return amdgpu_device_suspend(drm_dev, false, true);
+	r = amdgpu_device_suspend(drm_dev, false, true);
+	if (r)
+		return r;
+	return amdgpu_asic_reset(adev);
 }
 
 static int amdgpu_pmops_thaw(struct device *dev)

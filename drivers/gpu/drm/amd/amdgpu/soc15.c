@@ -339,6 +339,7 @@ static struct soc15_allowed_register_entry soc15_allowed_read_registers[] = {
 	{ SOC15_REG_ENTRY(GC, 0, mmCP_CPF_BUSY_STAT)},
 	{ SOC15_REG_ENTRY(GC, 0, mmCP_CPF_STALLED_STAT1)},
 	{ SOC15_REG_ENTRY(GC, 0, mmCP_CPF_STATUS)},
+	{ SOC15_REG_ENTRY(GC, 0, mmCP_CPC_BUSY_STAT)},
 	{ SOC15_REG_ENTRY(GC, 0, mmCP_CPC_STALLED_STAT1)},
 	{ SOC15_REG_ENTRY(GC, 0, mmCP_CPC_STATUS)},
 	{ SOC15_REG_ENTRY(GC, 0, mmGB_ADDR_CONFIG)},
@@ -478,36 +479,58 @@ static int soc15_asic_mode1_reset(struct amdgpu_device *adev)
 
 static int soc15_asic_get_baco_capability(struct amdgpu_device *adev, bool *cap)
 {
-	void *pp_handle = adev->powerplay.pp_handle;
-	const struct amd_pm_funcs *pp_funcs = adev->powerplay.pp_funcs;
+	if (is_support_sw_smu(adev)) {
+		struct smu_context *smu = &adev->smu;
 
-	if (!pp_funcs || !pp_funcs->get_asic_baco_capability) {
-		*cap = false;
-		return -ENOENT;
+		*cap = smu_baco_is_support(smu);
+		return 0;
+	} else {
+		void *pp_handle = adev->powerplay.pp_handle;
+		const struct amd_pm_funcs *pp_funcs = adev->powerplay.pp_funcs;
+
+		if (!pp_funcs || !pp_funcs->get_asic_baco_capability) {
+			*cap = false;
+			return -ENOENT;
+		}
+
+		return pp_funcs->get_asic_baco_capability(pp_handle, cap);
 	}
-
-	return pp_funcs->get_asic_baco_capability(pp_handle, cap);
 }
 
 static int soc15_asic_baco_reset(struct amdgpu_device *adev)
 {
-	void *pp_handle = adev->powerplay.pp_handle;
-	const struct amd_pm_funcs *pp_funcs = adev->powerplay.pp_funcs;
+	struct amdgpu_ras *ras = amdgpu_ras_get_context(adev);
 
-	if (!pp_funcs ||!pp_funcs->get_asic_baco_state ||!pp_funcs->set_asic_baco_state)
-		return -ENOENT;
-
-	/* enter BACO state */
-	if (pp_funcs->set_asic_baco_state(pp_handle, 1))
-		return -EIO;
-
-	/* exit BACO state */
-	if (pp_funcs->set_asic_baco_state(pp_handle, 0))
-		return -EIO;
+	/* avoid NBIF got stuck when do RAS recovery in BACO reset */
+	if (ras && ras->supported)
+		adev->nbio.funcs->enable_doorbell_interrupt(adev, false);
 
 	dev_info(adev->dev, "GPU BACO reset\n");
 
-	adev->in_baco_reset = 1;
+	if (is_support_sw_smu(adev)) {
+		struct smu_context *smu = &adev->smu;
+
+		if (smu_baco_reset(smu))
+			return -EIO;
+	} else {
+		void *pp_handle = adev->powerplay.pp_handle;
+		const struct amd_pm_funcs *pp_funcs = adev->powerplay.pp_funcs;
+
+		if (!pp_funcs ||!pp_funcs->get_asic_baco_state ||!pp_funcs->set_asic_baco_state)
+			return -ENOENT;
+
+		/* enter BACO state */
+		if (pp_funcs->set_asic_baco_state(pp_handle, 1))
+			return -EIO;
+
+		/* exit BACO state */
+		if (pp_funcs->set_asic_baco_state(pp_handle, 0))
+			return -EIO;
+	}
+
+	/* re-enable doorbell interrupt after BACO exit */
+	if (ras && ras->supported)
+		adev->nbio.funcs->enable_doorbell_interrupt(adev, true);
 
 	return 0;
 }

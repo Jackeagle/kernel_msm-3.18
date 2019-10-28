@@ -1202,14 +1202,8 @@ static void dcn20_update_dchubp_dpp(
 	struct dpp *dpp = pipe_ctx->plane_res.dpp;
 	struct dc_plane_state *plane_state = pipe_ctx->plane_state;
 
-	if (pipe_ctx->update_flags.bits.dppclk) {
+	if (pipe_ctx->update_flags.bits.dppclk)
 		dpp->funcs->dpp_dppclk_control(dpp, false, true);
-
-		dc->res_pool->dccg->funcs->update_dpp_dto(
-				dc->res_pool->dccg,
-				dpp->inst,
-				pipe_ctx->plane_res.bw.dppclk_khz);
-	}
 
 	/* TODO: Need input parameter to tell current DCHUB pipe tie to which OTG
 	 * VTG is within DCHUBBUB which is commond block share by each pipe HUBP.
@@ -1370,6 +1364,9 @@ static void dcn20_program_pipe(
 
 		pipe_ctx->stream_res.tg->funcs->set_vtg_params(
 				pipe_ctx->stream_res.tg, &pipe_ctx->stream->timing);
+
+		if (dc->hwss.setup_vupdate_interrupt)
+			dc->hwss.setup_vupdate_interrupt(pipe_ctx);
 	}
 
 	if (pipe_ctx->update_flags.bits.odm)
@@ -1396,6 +1393,26 @@ static void dcn20_program_pipe(
 	 */
 	if (pipe_ctx->update_flags.bits.enable || pipe_ctx->stream->update_flags.bits.out_tf)
 		dc->hwss.set_output_transfer_func(pipe_ctx, pipe_ctx->stream);
+
+	/* If the pipe has been enabled or has a different opp, we
+	 * should reprogram the fmt. This deals with cases where
+	 * interation between mpc and odm combine on different streams
+	 * causes a different pipe to be chosen to odm combine with.
+	 */
+	if (pipe_ctx->update_flags.bits.enable
+	    || pipe_ctx->update_flags.bits.opp_changed) {
+
+		pipe_ctx->stream_res.opp->funcs->opp_set_dyn_expansion(
+			pipe_ctx->stream_res.opp,
+			COLOR_SPACE_YCBCR601,
+			pipe_ctx->stream->timing.display_color_depth,
+			pipe_ctx->stream->signal);
+
+		pipe_ctx->stream_res.opp->funcs->opp_program_fmt(
+			pipe_ctx->stream_res.opp,
+			&pipe_ctx->stream->bit_depth_params,
+			&pipe_ctx->stream->clamping);
+	}
 }
 
 static bool does_pipe_need_lock(struct pipe_ctx *pipe)
@@ -1510,6 +1527,10 @@ static void dcn20_program_front_end_for_ctx(
 				msleep(1);
 		}
 	}
+
+	/* WA to apply WM setting*/
+	if (dc->hwseq->wa.DEGVIDCN21)
+		dc->res_pool->hubbub->funcs->apply_DEDCN21_147_wa(dc->res_pool->hubbub);
 }
 
 
@@ -1581,8 +1602,12 @@ bool dcn20_update_bandwidth(
 
 			pipe_ctx->stream_res.tg->funcs->set_vtg_params(
 					pipe_ctx->stream_res.tg, &pipe_ctx->stream->timing);
+
 			if (pipe_ctx->prev_odm_pipe == NULL)
 				dc->hwss.blank_pixel_data(dc, pipe_ctx, blank);
+
+			if (dc->hwss.setup_vupdate_interrupt)
+				dc->hwss.setup_vupdate_interrupt(pipe_ctx);
 		}
 
 		pipe_ctx->plane_res.hubp->funcs->hubp_setup(
@@ -1599,7 +1624,8 @@ bool dcn20_update_bandwidth(
 static void dcn20_enable_writeback(
 		struct dc *dc,
 		const struct dc_stream_status *stream_status,
-		struct dc_writeback_info *wb_info)
+		struct dc_writeback_info *wb_info,
+		struct dc_state *context)
 {
 	struct dwbc *dwb;
 	struct mcif_wb *mcif_wb;
@@ -1616,7 +1642,7 @@ static void dcn20_enable_writeback(
 	optc->funcs->set_dwb_source(optc, wb_info->dwb_pipe_inst);
 	/* set MCIF_WB buffer and arbitration configuration */
 	mcif_wb->funcs->config_mcif_buf(mcif_wb, &wb_info->mcif_buf_params, wb_info->dwb_params.dest_height);
-	mcif_wb->funcs->config_mcif_arb(mcif_wb, &dc->current_state->bw_ctx.bw.dcn.bw_writeback.mcif_wb_arb[wb_info->dwb_pipe_inst]);
+	mcif_wb->funcs->config_mcif_arb(mcif_wb, &context->bw_ctx.bw.dcn.bw_writeback.mcif_wb_arb[wb_info->dwb_pipe_inst]);
 	/* Enable MCIF_WB */
 	mcif_wb->funcs->enable_mcif(mcif_wb);
 	/* Enable DWB */
@@ -1964,6 +1990,28 @@ static void dcn20_reset_hw_ctx_wrap(
 	}
 }
 
+void dcn20_get_mpctree_visual_confirm_color(
+		struct pipe_ctx *pipe_ctx,
+		struct tg_color *color)
+{
+	const struct tg_color pipe_colors[6] = {
+			{MAX_TG_COLOR_VALUE, 0, 0}, // red
+			{MAX_TG_COLOR_VALUE, 0, MAX_TG_COLOR_VALUE}, // yellow
+			{0, MAX_TG_COLOR_VALUE, 0}, // blue
+			{MAX_TG_COLOR_VALUE / 2, 0, MAX_TG_COLOR_VALUE / 2}, // purple
+			{0, 0, MAX_TG_COLOR_VALUE}, // green
+			{MAX_TG_COLOR_VALUE, MAX_TG_COLOR_VALUE * 2 / 3, 0}, // orange
+	};
+
+	struct pipe_ctx *top_pipe = pipe_ctx;
+
+	while (top_pipe->top_pipe) {
+		top_pipe = top_pipe->top_pipe;
+	}
+
+	*color = pipe_colors[top_pipe->pipe_idx];
+}
+
 static void dcn20_update_mpcc(struct dc *dc, struct pipe_ctx *pipe_ctx)
 {
 	struct hubp *hubp = pipe_ctx->plane_res.hubp;
@@ -1980,6 +2028,9 @@ static void dcn20_update_mpcc(struct dc *dc, struct pipe_ctx *pipe_ctx)
 				pipe_ctx, &blnd_cfg.black_color);
 	} else if (dc->debug.visual_confirm == VISUAL_CONFIRM_SURFACE) {
 		dcn10_get_surface_visual_confirm_color(
+				pipe_ctx, &blnd_cfg.black_color);
+	} else if (dc->debug.visual_confirm == VISUAL_CONFIRM_MPCTREE) {
+		dcn20_get_mpctree_visual_confirm_color(
 				pipe_ctx, &blnd_cfg.black_color);
 	}
 
@@ -2181,8 +2232,10 @@ static void dcn20_enable_stream(struct pipe_ctx *pipe_ctx)
 	link->link_enc->funcs->connect_dig_be_to_fe(link->link_enc,
 						    pipe_ctx->stream_res.stream_enc->id, true);
 
-	if (link->dc->hwss.program_dmdata_engine)
-		link->dc->hwss.program_dmdata_engine(pipe_ctx);
+	if (pipe_ctx->plane_state && pipe_ctx->plane_state->flip_immediate != 1) {
+		if (link->dc->hwss.program_dmdata_engine)
+			link->dc->hwss.program_dmdata_engine(pipe_ctx);
+	}
 
 	link->dc->hwss.update_info_frame(pipe_ctx);
 

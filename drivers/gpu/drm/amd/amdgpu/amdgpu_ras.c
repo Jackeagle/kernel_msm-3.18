@@ -68,8 +68,16 @@ const char *ras_block_string[] = {
 /* inject address is 52 bits */
 #define	RAS_UMC_INJECT_ADDR_LIMIT	(0x1ULL << 52)
 
+enum amdgpu_ras_retire_page_reservation {
+	AMDGPU_RAS_RETIRE_PAGE_RESERVED,
+	AMDGPU_RAS_RETIRE_PAGE_PENDING,
+	AMDGPU_RAS_RETIRE_PAGE_FAULT,
+};
 
 atomic_t amdgpu_ras_in_intr = ATOMIC_INIT(0);
+
+static bool amdgpu_ras_check_bad_page(struct amdgpu_device *adev,
+				uint64_t addr);
 
 static ssize_t amdgpu_ras_debugfs_read(struct file *f, char __user *buf,
 					size_t size, loff_t *pos)
@@ -150,8 +158,6 @@ static int amdgpu_ras_debugfs_ctrl_parse_data(struct file *f,
 		op = 1;
 	else if (sscanf(str, "inject %32s %8s", block_name, err) == 2)
 		op = 2;
-	else if (sscanf(str, "reboot %32s", block_name) == 1)
-		op = 3;
 	else if (str[0] && str[1] && str[2] && str[3])
 		/* ascii string, but commands are not matched. */
 		return -EINVAL;
@@ -228,13 +234,13 @@ static struct ras_manager *amdgpu_ras_find_obj(struct amdgpu_device *adev,
  *
  * .. code-block:: bash
  *
- *	echo op block [error [sub_blcok address value]] > .../ras/ras_ctrl
+ *	echo op block [error [sub_block address value]] > .../ras/ras_ctrl
  *
  * op: disable, enable, inject
  *	disable: only block is needed
  *	enable: block and error are needed
  *	inject: error, address, value are needed
- * block: umc, smda, gfx, .........
+ * block: umc, sdma, gfx, .........
  *	see ras_block_string[] for details
  * error: ue, ce
  *	ue: multi_uncorrectable
@@ -290,11 +296,16 @@ static ssize_t amdgpu_ras_debugfs_ctrl_write(struct file *f, const char __user *
 			break;
 		}
 
+		/* umc ce/ue error injection for a bad page is not allowed */
+		if ((data.head.block == AMDGPU_RAS_BLOCK__UMC) &&
+		    amdgpu_ras_check_bad_page(adev, data.inject.address)) {
+			DRM_WARN("RAS WARN: 0x%llx has been marked as bad before error injection!\n",
+					data.inject.address);
+			break;
+		}
+
 		/* data.inject.address is offset instead of absolute gpu address */
 		ret = amdgpu_ras_error_inject(adev, &data.inject);
-		break;
-	case 3:
-		amdgpu_ras_get_context(adev)->reboot = true;
 		break;
 	default:
 		ret = -EINVAL;
@@ -803,11 +814,11 @@ static int amdgpu_ras_badpages_read(struct amdgpu_device *adev,
 static char *amdgpu_ras_badpage_flags_str(unsigned int flags)
 {
 	switch (flags) {
-	case 0:
+	case AMDGPU_RAS_RETIRE_PAGE_RESERVED:
 		return "R";
-	case 1:
+	case AMDGPU_RAS_RETIRE_PAGE_PENDING:
 		return "P";
-	case 2:
+	case AMDGPU_RAS_RETIRE_PAGE_FAULT:
 	default:
 		return "F";
 	};
@@ -1025,6 +1036,17 @@ static void amdgpu_ras_debugfs_create_ctrl_node(struct amdgpu_device *adev)
 				adev, &amdgpu_ras_debugfs_ctrl_ops);
 	debugfs_create_file("ras_eeprom_reset", S_IWUGO | S_IRUGO, con->dir,
 				adev, &amdgpu_ras_debugfs_eeprom_ops);
+
+	/*
+	 * After one uncorrectable error happens, usually GPU recovery will
+	 * be scheduled. But due to the known problem in GPU recovery failing
+	 * to bring GPU back, below interface provides one direct way to
+	 * user to reboot system automatically in such case within
+	 * ERREVENT_ATHUB_INTERRUPT generated. Normal GPU recovery routine
+	 * will never be called.
+	 */
+	debugfs_create_bool("auto_reboot", S_IWUGO | S_IRUGO, con->dir,
+				&con->reboot);
 }
 
 void amdgpu_ras_debugfs_create(struct amdgpu_device *adev,
@@ -1277,13 +1299,13 @@ static int amdgpu_ras_badpages_read(struct amdgpu_device *adev,
 		(*bps)[i] = (struct ras_badpage){
 			.bp = data->bps[i].retired_page,
 			.size = AMDGPU_GPU_PAGE_SIZE,
-			.flags = 0,
+			.flags = AMDGPU_RAS_RETIRE_PAGE_RESERVED,
 		};
 
 		if (data->last_reserved <= i)
-			(*bps)[i].flags = 1;
+			(*bps)[i].flags = AMDGPU_RAS_RETIRE_PAGE_PENDING;
 		else if (data->bps_bo[i] == NULL)
-			(*bps)[i].flags = 2;
+			(*bps)[i].flags = AMDGPU_RAS_RETIRE_PAGE_FAULT;
 	}
 
 	*count = data->count;
@@ -1427,6 +1449,39 @@ static int amdgpu_ras_load_bad_pages(struct amdgpu_device *adev)
 
 out:
 	kfree(bps);
+	return ret;
+}
+
+/*
+ * check if an address belongs to bad page
+ *
+ * Note: this check is only for umc block
+ */
+static bool amdgpu_ras_check_bad_page(struct amdgpu_device *adev,
+				uint64_t addr)
+{
+	struct amdgpu_ras *con = amdgpu_ras_get_context(adev);
+	struct ras_err_handler_data *data;
+	int i;
+	bool ret = false;
+
+	if (!con || !con->eh_data)
+		return ret;
+
+	mutex_lock(&con->recovery_lock);
+	data = con->eh_data;
+	if (!data)
+		goto out;
+
+	addr >>= AMDGPU_GPU_PAGE_SHIFT;
+	for (i = 0; i < data->count; i++)
+		if (addr == data->bps[i].retired_page) {
+			ret = true;
+			goto out;
+		}
+
+out:
+	mutex_unlock(&con->recovery_lock);
 	return ret;
 }
 
@@ -1843,6 +1898,12 @@ int amdgpu_ras_fini(struct amdgpu_device *adev)
 
 void amdgpu_ras_global_ras_isr(struct amdgpu_device *adev)
 {
+	uint32_t hw_supported, supported;
+
+	amdgpu_ras_check_supported(adev, &hw_supported, &supported);
+	if (!hw_supported)
+		return;
+
 	if (atomic_cmpxchg(&amdgpu_ras_in_intr, 0, 1) == 0) {
 		DRM_WARN("RAS event of type ERREVENT_ATHUB_INTERRUPT detected!\n");
 

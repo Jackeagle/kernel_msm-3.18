@@ -184,6 +184,21 @@ struct clk_mgr_registers {
 	uint32_t MP1_SMN_C2PMSG_91;
 };
 
+enum clock_type {
+	clock_type_dispclk = 1,
+	clock_type_dcfclk,
+	clock_type_socclk,
+	clock_type_pixelclk,
+	clock_type_phyclk,
+	clock_type_dppclk,
+	clock_type_fclk,
+	clock_type_dcfdsclk,
+	clock_type_dscclk,
+	clock_type_uclk,
+	clock_type_dramclk,
+};
+
+
 struct state_dependent_clocks {
 	int display_clk_khz;
 	int pixel_clk_khz;
@@ -210,8 +225,6 @@ struct clk_mgr_internal {
 	struct state_dependent_clocks max_clks_by_state[DM_PP_CLOCKS_MAX_STATES];
 
 	/*TODO: figure out which of the below fields should be here vs in asic specific portion */
-	int dentist_vco_freq_khz;
-
 	/* Cache the status of DFS-bypass feature*/
 	bool dfs_bypass_enabled;
 	/* True if the DFS-bypass feature is enabled and active. */
@@ -281,8 +294,14 @@ static inline bool should_set_clock(bool safe_to_lower, int calc_clk, int cur_cl
 
 static inline bool should_update_pstate_support(bool safe_to_lower, bool calc_support, bool cur_support)
 {
-	// Whenever we are transitioning pstate support, we always want to notify prior to committing state
-	return (calc_support != cur_support) ? !safe_to_lower : false;
+	if (cur_support != calc_support) {
+		if (calc_support == true && safe_to_lower)
+			return true;
+		else if (calc_support == false && !safe_to_lower)
+			return true;
+	}
+
+	return false;
 }
 
 int clk_mgr_helper_get_active_display_cnt(
