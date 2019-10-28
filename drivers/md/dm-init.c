@@ -308,6 +308,11 @@ MODULE_PARM_DESC(create, "Create a mapped device in early boot");
  */
 
 struct dm_chrome_target {
+	/*
+	 * The first three fields match the new DM format.
+	 * The list of options needs to be converted.
+	 * The result of the conversion is stored in fields[3].
+	 */
 	char *field[4];
 };
 
@@ -317,19 +322,87 @@ struct dm_chrome_dev {
 	struct dm_chrome_target targets[DM_MAX_TARGETS];
 };
 
+static void splitarg(char **arg, char **key, char **val)
+{
+	*key = strsep(arg, "=");
+	*val = strsep(arg, " ");
+}
+
 static char __init *dm_chrome_parse_target(char *str, struct dm_chrome_target *tgt)
 {
 	unsigned int i;
+	char *options;
+	char *key, *val;
+	char *data_device = NULL;
+	char *hash_device = NULL;
+	char *digest = NULL;
+	char *algorithm = NULL;
+	char *hashstart = NULL;
+	char *salt = NULL;
+	char *error_behavior = NULL;
+	char *next;
+	int length;
 
 	tgt->field[0] = str;
+	tgt->field[3] = "";
 	/* Delimit first 3 fields that are separated by space */
 	for (i = 0; i < ARRAY_SIZE(tgt->field) - 1; i++) {
 		tgt->field[i + 1] = str_field_delimit(&tgt->field[i], ' ');
 		if (!tgt->field[i + 1])
 			return NULL;
 	}
+	options = tgt->field[i];
+
 	/* Delimit last field that can be terminated by comma */
-	return str_field_delimit(&tgt->field[i], ',');
+	next = str_field_delimit(&options, ',');
+
+	/* Decode Chrome OS options and convert to dm-mod format */
+	while (options && *options) {
+		splitarg(&options, &key, &val);
+		if (!key || !val) {
+			DMWARN("Bad key/value pair in %s\n", options);
+			return ERR_PTR(-EINVAL);
+		}
+		if (!strcmp(key, "alg"))
+			algorithm = val;
+		else if (!strcmp(key, "payload"))
+			data_device = val;
+		else if (!strcmp(key, "hashtree"))
+			hash_device = val;
+		else if (!strcmp(key, "root_hexdigest"))
+			digest = val;
+		else if (!strcmp(key, "hashstart"))
+			hashstart = val;
+		else if (!strcmp(key, "salt"))
+			salt = val;
+		else if (!strcmp(key, "error_behavior"))
+			error_behavior = val;
+	}
+	if (!data_device || !hash_device || !digest || !algorithm ||
+	    !hashstart || !salt) {
+		DMWARN("Mandatory parameter missing\n");
+		return NULL;
+	}
+	length = strlen(data_device) + strlen(hash_device) + strlen(digest) +
+		 strlen(algorithm) + strlen(hashstart) + strlen(salt) + 24;
+	if (error_behavior)
+		length += strlen(error_behavior) + 20;
+
+	tgt->field[3] = kzalloc(length, GFP_KERNEL);
+	if (!tgt->field[3])
+		return ERR_PTR(-ENOMEM);
+
+	snprintf(tgt->field[3], length, "0 %s %s 4096 4096 %s %s %s %s %s",
+		 data_device, hash_device, hashstart, hashstart, algorithm,
+		 digest, salt);
+	if (error_behavior) {
+		strncat(tgt->field[3], " error_behavior=",
+			length - strlen(tgt->field[3]))
+		strncat(tgt->field[3], error_behavior,
+			length - strlen(tgt->field[3]),
+	}
+
+	return next;
 }
 
 static char __init *dm_chrome_parse_dev(char *str, struct dm_chrome_dev *dev)
@@ -374,6 +447,8 @@ static char __init *dm_chrome_parse_dev(char *str, struct dm_chrome_dev *dev)
 
 	for (i = 0; i < dev->num_targets - 1; i++) {
 		target = dm_chrome_parse_target(target, &dev->targets[i]);
+		if (IS_ERR(target))
+			return target;
 		if (!target)
 			return ERR_PTR(-EINVAL);
 	}
