@@ -24,43 +24,57 @@
  * Returns:
  *	x0 - dest
  */
-	.macro ldrb1 ptr, regB, val
-	ldrb  \ptr, [\regB], \val
+
+ #define L(l) .L ## l
+
+	.macro ldrb1 reg, ptr, offset=0
+	ldrb \reg, [\ptr, \offset]
 	.endm
 
-	.macro strb1 ptr, regB, val
-	strb \ptr, [\regB], \val
+	.macro strb1 reg, ptr, offset=0
+	strb \reg, [\ptr, \offset]
 	.endm
 
-	.macro ldrh1 ptr, regB, val
-	ldrh  \ptr, [\regB], \val
+	.macro ldr1 reg, ptr, offset=0
+	ldr \reg, [\ptr, \offset]
 	.endm
 
-	.macro strh1 ptr, regB, val
-	strh \ptr, [\regB], \val
+	.macro str1 reg, ptr, offset=0
+	str \reg, [\ptr, \offset]
 	.endm
 
-	.macro ldr1 ptr, regB, val
-	ldr \ptr, [\regB], \val
+	.macro ldp1 regA, regB, ptr, offset=0
+	ldp \regA, \regB, [\ptr, \offset]
 	.endm
 
-	.macro str1 ptr, regB, val
-	str \ptr, [\regB], \val
+	.macro stp1 regA, regB, ptr, offset=0
+	stp \regA, \regB, [\ptr, \offset]
 	.endm
 
-	.macro ldp1 ptr, regB, regC, val
-	ldp \ptr, \regB, [\regC], \val
+	.macro ldrb1_reg reg, ptr, offset
+	ldrb1 \reg, \ptr, \offset
 	.endm
 
-	.macro stp1 ptr, regB, regC, val
-	stp \ptr, \regB, [\regC], \val
+	.macro strb1_reg reg, ptr, offset
+	strb1 \reg, \ptr, \offset
+	.endm
+
+	.macro ldp1_pre regA, regB, ptr, offset
+	ldp \regA, \regB, [\ptr, \offset]!
+	.endm
+
+	.macro stp1_pre regA, regB, ptr, offset
+	stp \regA, \regB, [\ptr, \offset]!
+	.endm
+
+	.macro copy_exit
+	ret
 	.endm
 
 	.weak memcpy
 ENTRY(__memcpy)
 ENTRY(memcpy)
 #include "copy_template.S"
-	ret
 ENDPIPROC(memcpy)
 EXPORT_SYMBOL(memcpy)
 ENDPROC(__memcpy)

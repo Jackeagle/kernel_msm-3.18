@@ -334,13 +334,6 @@ int __kprobes kprobe_fault_handler(struct pt_regs *regs, unsigned int fsr)
 		 */
 		if (cur->fault_handler && cur->fault_handler(cur, regs, fsr))
 			return 1;
-
-		/*
-		 * In case the user-specified fault handler returned
-		 * zero, try to fix up.
-		 */
-		if (fixup_exception(regs))
-			return 1;
 	}
 	return 0;
 }
@@ -453,10 +446,6 @@ int __init arch_populate_kprobe_blacklist(void)
 		return ret;
 	ret = kprobe_add_area_blacklist((unsigned long)__irqentry_text_start,
 					(unsigned long)__irqentry_text_end);
-	if (ret)
-		return ret;
-	ret = kprobe_add_area_blacklist((unsigned long)__exception_text_start,
-					(unsigned long)__exception_text_end);
 	if (ret)
 		return ret;
 	ret = kprobe_add_area_blacklist((unsigned long)__idmap_text_start,
