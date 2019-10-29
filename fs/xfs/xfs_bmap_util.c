@@ -53,15 +53,16 @@ xfs_fsb_to_db(struct xfs_inode *ip, xfs_fsblock_t fsb)
  */
 int
 xfs_zero_extent(
-	struct xfs_inode *ip,
-	xfs_fsblock_t	start_fsb,
-	xfs_off_t	count_fsb)
+	struct xfs_inode	*ip,
+	xfs_fsblock_t		start_fsb,
+	xfs_off_t		count_fsb)
 {
-	struct xfs_mount *mp = ip->i_mount;
-	xfs_daddr_t	sector = xfs_fsb_to_db(ip, start_fsb);
-	sector_t	block = XFS_BB_TO_FSBT(mp, sector);
+	struct xfs_mount	*mp = ip->i_mount;
+	struct xfs_buftarg	*target = xfs_inode_buftarg(ip);
+	xfs_daddr_t		sector = xfs_fsb_to_db(ip, start_fsb);
+	sector_t		block = XFS_BB_TO_FSBT(mp, sector);
 
-	return blkdev_issue_zeroout(xfs_find_bdev_for_inode(VFS_I(ip)),
+	return blkdev_issue_zeroout(target->bt_bdev,
 		block << (mp->m_super->s_blocksize_bits - 9),
 		count_fsb << (mp->m_super->s_blocksize_bits - 9),
 		GFP_NOFS, 0);
@@ -964,8 +965,8 @@ xfs_alloc_file_space(
 		xfs_trans_ijoin(tp, ip, 0);
 
 		error = xfs_bmapi_write(tp, ip, startoffset_fsb,
-					allocatesize_fsb, alloc_type, resblks,
-					imapp, &nimaps);
+					allocatesize_fsb, alloc_type, 0, imapp,
+					&nimaps);
 		if (error)
 			goto error0;
 
@@ -1113,7 +1114,8 @@ xfs_free_file_space(
 		return 0;
 	if (offset + len > XFS_ISIZE(ip))
 		len = XFS_ISIZE(ip) - offset;
-	error = iomap_zero_range(VFS_I(ip), offset, len, NULL, &xfs_iomap_ops);
+	error = iomap_zero_range(VFS_I(ip), offset, len, NULL,
+			&xfs_buffered_write_iomap_ops);
 	if (error)
 		return error;
 
@@ -1129,43 +1131,6 @@ xfs_free_file_space(
 	}
 
 	return error;
-}
-
-/*
- * Preallocate and zero a range of a file. This mechanism has the allocation
- * semantics of fallocate and in addition converts data in the range to zeroes.
- */
-int
-xfs_zero_file_space(
-	struct xfs_inode	*ip,
-	xfs_off_t		offset,
-	xfs_off_t		len)
-{
-	struct xfs_mount	*mp = ip->i_mount;
-	uint			blksize;
-	int			error;
-
-	trace_xfs_zero_file_space(ip);
-
-	blksize = 1 << mp->m_sb.sb_blocklog;
-
-	/*
-	 * Punch a hole and prealloc the range. We use hole punch rather than
-	 * unwritten extent conversion for two reasons:
-	 *
-	 * 1.) Hole punch handles partial block zeroing for us.
-	 *
-	 * 2.) If prealloc returns ENOSPC, the file range is still zero-valued
-	 * by virtue of the hole punch.
-	 */
-	error = xfs_free_file_space(ip, offset, len);
-	if (error || xfs_is_always_cow_inode(ip))
-		return error;
-
-	return xfs_alloc_file_space(ip, round_down(offset, blksize),
-				     round_up(offset + len, blksize) -
-				     round_down(offset, blksize),
-				     XFS_BMAPI_PREALLOC);
 }
 
 static int
