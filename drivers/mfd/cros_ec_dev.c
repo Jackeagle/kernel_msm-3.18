@@ -113,7 +113,7 @@ static const struct mfd_cell cros_ec_vbc_cells[] = {
 	{ .name = "cros-ec-vbc", }
 };
 
-static int cros_ec_check_features(struct cros_ec_dev *ec, int feature)
+int cros_ec_check_features(struct cros_ec_dev *ec, int feature)
 {
 	struct cros_ec_command *msg;
 	int ret;
@@ -142,8 +142,9 @@ static int cros_ec_check_features(struct cros_ec_dev *ec, int feature)
 		kfree(msg);
 	}
 
-	return ec->features[feature / 32] & EC_FEATURE_MASK_0(feature);
+	return !!(ec->features[feature / 32] & EC_FEATURE_MASK_0(feature));
 }
+EXPORT_SYMBOL_GPL(cros_ec_check_features);
 
 static void cros_ec_class_release(struct device *dev)
 {
@@ -268,6 +269,9 @@ static void cros_ec_sensors_register(struct cros_ec_dev *ec)
 		case MOTIONSENSE_TYPE_LIGHT:
 			sensor_cells[id].name = "cros-ec-light";
 			break;
+		case MOTIONSENSE_TYPE_LIGHT_RGB:
+			/* Processed with cros-ec-light. */
+			continue;
 		case MOTIONSENSE_TYPE_ACTIVITY:
 			sensor_cells[id].name = "cros-ec-activity";
 			break;
