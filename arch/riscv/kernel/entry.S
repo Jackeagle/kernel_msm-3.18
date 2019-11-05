@@ -214,6 +214,10 @@ ENTRY(handle_exception)
 handle_syscall:
 	 /* save the initial A0 value (needed in signal handlers) */
 	REG_S a0, PT_ORIG_A0(sp)
+#ifdef CONFIG_RSEQ_DEBUG
+	move a0, sp
+	call rseq_syscall
+#endif
 	/*
 	 * Advance SEPC to avoid executing the original
 	 * scall instruction on sret
