@@ -22,6 +22,8 @@
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_vblank.h>
 
+#include <drm/mediatek_drm.h>
+
 #include "mtk_drm_crtc.h"
 #include "mtk_drm_ddp.h"
 #include "mtk_drm_ddp.h"
@@ -36,17 +38,156 @@
 #define DRIVER_MAJOR 1
 #define DRIVER_MINOR 0
 
-static void mtk_atomic_schedule(struct mtk_drm_private *private,
-				struct drm_atomic_state *state)
+struct mtk_atomic_state {
+	struct drm_atomic_state base;
+	struct list_head list;
+	struct work_struct work;
+};
+
+static inline struct mtk_atomic_state *to_mtk_state(struct drm_atomic_state *s)
 {
-	private->commit.state = state;
-	schedule_work(&private->commit.work);
+	return container_of(s, struct mtk_atomic_state, base);
 }
 
-static void mtk_atomic_complete(struct mtk_drm_private *private,
+void mtk_atomic_state_put_queue(struct drm_atomic_state *state)
+{
+	struct drm_device *drm = state->dev;
+	struct mtk_drm_private *mtk_drm = drm->dev_private;
+	struct mtk_atomic_state *mtk_state = to_mtk_state(state);
+	unsigned long flags;
+
+	spin_lock_irqsave(&mtk_drm->unreference.lock, flags);
+	list_add_tail(&mtk_state->list, &mtk_drm->unreference.list);
+	spin_unlock_irqrestore(&mtk_drm->unreference.lock, flags);
+
+	schedule_work(&mtk_drm->unreference.work);
+}
+
+static uint32_t mtk_atomic_crtc_mask(struct drm_device *drm,
+				     struct drm_atomic_state *state)
+{
+	uint32_t crtc_mask;
+	int i;
+
+	for (i = 0, crtc_mask = 0; i < drm->mode_config.num_crtc; i++) {
+		struct drm_crtc *crtc = state->crtcs[i].ptr;
+
+		if (crtc)
+			crtc_mask |= (1 << drm_crtc_index(crtc));
+	}
+
+	return crtc_mask;
+}
+
+/*
+ * Block until specified crtcs are no longer pending update, and atomically
+ * mark them as pending update.
+ */
+static int mtk_atomic_get_crtcs(struct drm_device *drm,
 				struct drm_atomic_state *state)
 {
-	struct drm_device *drm = private->drm;
+	struct mtk_drm_private *private = drm->dev_private;
+	uint32_t crtc_mask, needs_modeset, has_cursor_plane;
+	struct drm_plane *plane;
+	struct drm_plane_state *plane_state;
+	struct drm_crtc *crtc;
+	struct drm_crtc_state *crtc_state;
+	int i;
+	int ret;
+
+	crtc_mask = mtk_atomic_crtc_mask(drm, state);
+
+	/*
+	 * Allow cursor updates unless there is a pending modeset or cursor
+	 * plane update.
+	 */
+	needs_modeset = 0;
+	for_each_new_crtc_in_state(state, crtc, crtc_state, i) {
+		if (drm_atomic_crtc_needs_modeset(crtc_state)) {
+			needs_modeset |= (1 << drm_crtc_index(crtc));
+			break;
+		}
+	}
+
+	has_cursor_plane = 0;
+	for_each_new_plane_in_state(state, plane, plane_state, i) {
+		if (plane_state->crtc && plane == plane_state->crtc->cursor) {
+			has_cursor_plane |=
+				(1 << drm_crtc_index(plane_state->crtc));
+			break;
+		}
+	}
+
+	/*
+	 * Wait for all pending updates to complete for the set of crtcs being
+	 * changed in this atomic commit
+	 */
+	spin_lock(&private->commit.crtcs_event.lock);
+	ret = wait_event_interruptible_locked(private->commit.crtcs_event,
+			!(private->commit.crtcs & crtc_mask));
+	if (ret == 0)
+		private->commit.crtcs |= crtc_mask;
+
+	private->commit.flush_for_cursor |= needs_modeset | has_cursor_plane;
+	spin_unlock(&private->commit.crtcs_event.lock);
+
+	return ret;
+}
+
+/*
+ * Mark specified crtcs as no longer pending update.
+ */
+static void mtk_atomic_put_crtcs(struct drm_device *drm,
+				 struct drm_atomic_state *state)
+{
+	struct mtk_drm_private *private = drm->dev_private;
+	uint32_t crtc_mask;
+
+	crtc_mask = mtk_atomic_crtc_mask(drm, state);
+
+	spin_lock(&private->commit.crtcs_event.lock);
+	private->commit.crtcs &= ~crtc_mask;
+	private->commit.flush_for_cursor &= ~crtc_mask;
+	wake_up_all_locked(&private->commit.crtcs_event);
+	spin_unlock(&private->commit.crtcs_event.lock);
+}
+
+static void mtk_unreference_work(struct work_struct *work)
+{
+	struct mtk_drm_private *mtk_drm = container_of(work,
+			struct mtk_drm_private, unreference.work);
+	unsigned long flags;
+	struct mtk_atomic_state *state, *tmp;
+
+	/*
+	 * framebuffers cannot be unreferenced in atomic context.
+	 * Therefore, only hold the spinlock when iterating unreference_list,
+	 * and drop it when doing the unreference.
+	 */
+	spin_lock_irqsave(&mtk_drm->unreference.lock, flags);
+	list_for_each_entry_safe(state, tmp, &mtk_drm->unreference.list, list) {
+		list_del(&state->list);
+		spin_unlock_irqrestore(&mtk_drm->unreference.lock, flags);
+		drm_atomic_state_put(&state->base);
+		spin_lock_irqsave(&mtk_drm->unreference.lock, flags);
+	}
+	spin_unlock_irqrestore(&mtk_drm->unreference.lock, flags);
+}
+
+
+static void mtk_atomic_schedule(struct drm_device *drm,
+				struct drm_atomic_state *state)
+{
+	struct mtk_atomic_state *mtk_state = to_mtk_state(state);
+
+	schedule_work(&mtk_state->work);
+}
+
+
+static void mtk_atomic_complete(struct drm_device *drm,
+				struct drm_atomic_state *state)
+{
+	struct mtk_drm_private *private = drm->dev_private;
 
 	drm_atomic_helper_wait_for_fences(drm, state, false);
 
@@ -64,61 +205,96 @@ static void mtk_atomic_complete(struct mtk_drm_private *private,
 	 *
 	 * See the kerneldoc entries for these three functions for more details.
 	 */
+	mutex_lock(&private->hw_lock);
 	drm_atomic_helper_commit_modeset_disables(drm, state);
 	drm_atomic_helper_commit_modeset_enables(drm, state);
 	drm_atomic_helper_commit_planes(drm, state,
 					DRM_PLANE_COMMIT_ACTIVE_ONLY);
+	mutex_unlock(&private->hw_lock);
 
 	drm_atomic_helper_wait_for_vblanks(drm, state);
 
 	drm_atomic_helper_cleanup_planes(drm, state);
+	mtk_atomic_put_crtcs(drm, state);
+
 	drm_atomic_state_put(state);
 }
 
 static void mtk_atomic_work(struct work_struct *work)
 {
-	struct mtk_drm_private *private = container_of(work,
-			struct mtk_drm_private, commit.work);
+	struct mtk_atomic_state *mtk_state = container_of(work,
+			struct mtk_atomic_state, work);
+	struct drm_atomic_state *state = &mtk_state->base;
+	struct drm_device *drm = state->dev;
 
-	mtk_atomic_complete(private, private->commit.state);
+	mtk_atomic_complete(drm, state);
 }
 
 static int mtk_atomic_commit(struct drm_device *drm,
 			     struct drm_atomic_state *state,
 			     bool async)
 {
-	struct mtk_drm_private *private = drm->dev_private;
 	int ret;
 
 	ret = drm_atomic_helper_prepare_planes(drm, state);
 	if (ret)
 		return ret;
 
-	mutex_lock(&private->commit.lock);
-	flush_work(&private->commit.work);
+	ret = mtk_atomic_get_crtcs(drm, state);
+	if (ret) {
+		drm_atomic_helper_cleanup_planes(drm, state);
+		return ret;
+	}
 
 	ret = drm_atomic_helper_swap_state(state, true);
 	if (ret) {
-		mutex_unlock(&private->commit.lock);
 		drm_atomic_helper_cleanup_planes(drm, state);
 		return ret;
 	}
 
 	drm_atomic_state_get(state);
 	if (async)
-		mtk_atomic_schedule(private, state);
+		mtk_atomic_schedule(drm, state);
 	else
-		mtk_atomic_complete(private, state);
-
-	mutex_unlock(&private->commit.lock);
+		mtk_atomic_complete(drm, state);
 
 	return 0;
+}
+
+static struct drm_atomic_state *mtk_drm_atomic_state_alloc(
+		struct drm_device *dev)
+{
+	struct mtk_atomic_state *mtk_state;
+
+	mtk_state = kzalloc(sizeof(*mtk_state), GFP_KERNEL);
+	if (!mtk_state)
+		return NULL;
+
+	if (drm_atomic_state_init(dev, &mtk_state->base) < 0) {
+		kfree(mtk_state);
+		return NULL;
+	}
+
+	INIT_LIST_HEAD(&mtk_state->list);
+	INIT_WORK(&mtk_state->work, mtk_atomic_work);
+
+	return &mtk_state->base;
+}
+
+static void mtk_drm_atomic_state_free(struct drm_atomic_state *state)
+{
+	struct mtk_atomic_state *mtk_state = to_mtk_state(state);
+
+	drm_atomic_state_default_release(state);
+	kfree(mtk_state);
 }
 
 static const struct drm_mode_config_funcs mtk_drm_mode_config_funcs = {
 	.fb_create = mtk_drm_mode_fb_create,
 	.atomic_check = drm_atomic_helper_check,
 	.atomic_commit = mtk_atomic_commit,
+	.atomic_state_alloc = mtk_drm_atomic_state_alloc,
+	.atomic_state_free = mtk_drm_atomic_state_free
 };
 
 static const enum mtk_ddp_comp_id mt2701_mtk_ddp_main[] = {
@@ -179,11 +355,30 @@ static const enum mtk_ddp_comp_id mt8173_mtk_ddp_ext[] = {
 	DDP_COMPONENT_DPI0,
 };
 
+static const enum mtk_ddp_comp_id mt8183_mtk_ddp_main[] = {
+	DDP_COMPONENT_OVL0,
+	DDP_COMPONENT_OVL_2L0,
+	DDP_COMPONENT_RDMA0,
+	DDP_COMPONENT_COLOR0,
+	DDP_COMPONENT_CCORR,
+	DDP_COMPONENT_AAL0,
+	DDP_COMPONENT_GAMMA,
+	DDP_COMPONENT_DITHER,
+	DDP_COMPONENT_DSI0,
+};
+
+static const enum mtk_ddp_comp_id mt8183_mtk_ddp_ext[] = {
+	DDP_COMPONENT_OVL_2L1,
+	DDP_COMPONENT_RDMA1,
+	DDP_COMPONENT_DPI0,
+};
+
 static const struct mtk_mmsys_driver_data mt2701_mmsys_driver_data = {
 	.main_path = mt2701_mtk_ddp_main,
 	.main_len = ARRAY_SIZE(mt2701_mtk_ddp_main),
 	.ext_path = mt2701_mtk_ddp_ext,
 	.ext_len = ARRAY_SIZE(mt2701_mtk_ddp_ext),
+	.reg_data = &mt2701_mmsys_reg_data,
 	.shadow_register = true,
 };
 
@@ -194,6 +389,7 @@ static const struct mtk_mmsys_driver_data mt2712_mmsys_driver_data = {
 	.ext_len = ARRAY_SIZE(mt2712_mtk_ddp_ext),
 	.third_path = mt2712_mtk_ddp_third,
 	.third_len = ARRAY_SIZE(mt2712_mtk_ddp_third),
+	.reg_data = &mt8173_mmsys_reg_data,
 };
 
 static const struct mtk_mmsys_driver_data mt8173_mmsys_driver_data = {
@@ -201,6 +397,15 @@ static const struct mtk_mmsys_driver_data mt8173_mmsys_driver_data = {
 	.main_len = ARRAY_SIZE(mt8173_mtk_ddp_main),
 	.ext_path = mt8173_mtk_ddp_ext,
 	.ext_len = ARRAY_SIZE(mt8173_mtk_ddp_ext),
+	.reg_data = &mt8173_mmsys_reg_data,
+};
+
+static const struct mtk_mmsys_driver_data mt8183_mmsys_driver_data = {
+	.main_path = mt8183_mtk_ddp_main,
+	.main_len = ARRAY_SIZE(mt8183_mtk_ddp_main),
+	.ext_path = mt8183_mtk_ddp_ext,
+	.ext_len = ARRAY_SIZE(mt8183_mtk_ddp_ext),
+	.reg_data = &mt8183_mmsys_reg_data,
 };
 
 static int mtk_drm_kms_init(struct drm_device *drm)
@@ -308,6 +513,12 @@ static int mtk_drm_kms_init(struct drm_device *drm)
 	drm_kms_helper_poll_init(drm);
 	drm_mode_config_reset(drm);
 
+	INIT_WORK(&private->unreference.work, mtk_unreference_work);
+	INIT_LIST_HEAD(&private->unreference.list);
+	spin_lock_init(&private->unreference.lock);
+	init_waitqueue_head(&private->commit.crtcs_event);
+	mutex_init(&private->hw_lock);
+
 	return 0;
 
 err_unset_dma_parms:
@@ -335,6 +546,14 @@ static void mtk_drm_kms_deinit(struct drm_device *drm)
 	drm_mode_config_cleanup(drm);
 }
 
+static const struct drm_ioctl_desc mtk_ioctls[] = {
+	DRM_IOCTL_DEF_DRV(MTK_GEM_CREATE, mtk_gem_create_ioctl,
+			  DRM_UNLOCKED | DRM_AUTH | DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(MTK_GEM_MAP_OFFSET,
+			  mtk_gem_map_offset_ioctl,
+			  DRM_UNLOCKED | DRM_AUTH | DRM_RENDER_ALLOW),
+};
+
 static const struct file_operations mtk_drm_fops = {
 	.owner = THIS_MODULE,
 	.open = drm_open,
@@ -359,7 +578,8 @@ struct drm_gem_object *mtk_drm_gem_prime_import(struct drm_device *dev,
 }
 
 static struct drm_driver mtk_drm_driver = {
-	.driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_ATOMIC,
+	.driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_ATOMIC |
+			   DRIVER_RENDER,
 
 	.gem_free_object_unlocked = mtk_drm_gem_free_object,
 	.gem_vm_ops = &drm_gem_cma_vm_ops,
@@ -373,6 +593,10 @@ static struct drm_driver mtk_drm_driver = {
 	.gem_prime_mmap = mtk_drm_gem_mmap_buf,
 	.gem_prime_vmap = mtk_drm_gem_prime_vmap,
 	.gem_prime_vunmap = mtk_drm_gem_prime_vunmap,
+
+	.ioctls = mtk_ioctls,
+	.num_ioctls = ARRAY_SIZE(mtk_ioctls),
+
 	.fops = &mtk_drm_fops,
 
 	.name = DRIVER_NAME,
@@ -442,12 +666,20 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
 	  .data = (void *)MTK_DISP_OVL },
 	{ .compatible = "mediatek,mt8173-disp-ovl",
 	  .data = (void *)MTK_DISP_OVL },
+	{ .compatible = "mediatek,mt8183-disp-ovl",
+	  .data = (void *)MTK_DISP_OVL },
+	{ .compatible = "mediatek,mt8183-disp-ovl-2l",
+	  .data = (void *)MTK_DISP_OVL_2L },
 	{ .compatible = "mediatek,mt2701-disp-rdma",
 	  .data = (void *)MTK_DISP_RDMA },
 	{ .compatible = "mediatek,mt8173-disp-rdma",
 	  .data = (void *)MTK_DISP_RDMA },
+	{ .compatible = "mediatek,mt8183-disp-rdma",
+	  .data = (void *)MTK_DISP_RDMA },
 	{ .compatible = "mediatek,mt8173-disp-wdma",
 	  .data = (void *)MTK_DISP_WDMA },
+	{ .compatible = "mediatek,mt8183-disp-ccorr",
+	  .data = (void *)MTK_DISP_CCORR },
 	{ .compatible = "mediatek,mt2701-disp-color",
 	  .data = (void *)MTK_DISP_COLOR },
 	{ .compatible = "mediatek,mt8173-disp-color",
@@ -456,21 +688,29 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
 	  .data = (void *)MTK_DISP_AAL},
 	{ .compatible = "mediatek,mt8173-disp-gamma",
 	  .data = (void *)MTK_DISP_GAMMA, },
+	{ .compatible = "mediatek,mt8183-disp-dither",
+	  .data = (void *)MTK_DISP_DITHER },
 	{ .compatible = "mediatek,mt8173-disp-ufoe",
 	  .data = (void *)MTK_DISP_UFOE },
 	{ .compatible = "mediatek,mt2701-dsi",
 	  .data = (void *)MTK_DSI },
 	{ .compatible = "mediatek,mt8173-dsi",
 	  .data = (void *)MTK_DSI },
+	{ .compatible = "mediatek,mt8183-dsi",
+	  .data = (void *)MTK_DSI },
 	{ .compatible = "mediatek,mt2701-dpi",
 	  .data = (void *)MTK_DPI },
 	{ .compatible = "mediatek,mt8173-dpi",
+	  .data = (void *)MTK_DPI },
+	{ .compatible = "mediatek,mt8183-dpi",
 	  .data = (void *)MTK_DPI },
 	{ .compatible = "mediatek,mt2701-disp-mutex",
 	  .data = (void *)MTK_DISP_MUTEX },
 	{ .compatible = "mediatek,mt2712-disp-mutex",
 	  .data = (void *)MTK_DISP_MUTEX },
 	{ .compatible = "mediatek,mt8173-disp-mutex",
+	  .data = (void *)MTK_DISP_MUTEX },
+	{ .compatible = "mediatek,mt8183-disp-mutex",
 	  .data = (void *)MTK_DISP_MUTEX },
 	{ .compatible = "mediatek,mt2701-disp-pwm",
 	  .data = (void *)MTK_DISP_BLS },
@@ -495,8 +735,6 @@ static int mtk_drm_probe(struct platform_device *pdev)
 	if (!private)
 		return -ENOMEM;
 
-	mutex_init(&private->commit.lock);
-	INIT_WORK(&private->commit.work, mtk_atomic_work);
 	private->data = of_device_get_match_data(dev);
 
 	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -547,6 +785,7 @@ static int mtk_drm_probe(struct platform_device *pdev)
 		 */
 		if (comp_type == MTK_DISP_COLOR ||
 		    comp_type == MTK_DISP_OVL ||
+		    comp_type == MTK_DISP_OVL_2L ||
 		    comp_type == MTK_DISP_RDMA ||
 		    comp_type == MTK_DSI ||
 		    comp_type == MTK_DPI) {
@@ -649,6 +888,8 @@ static const struct of_device_id mtk_drm_of_ids[] = {
 	  .data = &mt2712_mmsys_driver_data},
 	{ .compatible = "mediatek,mt8173-mmsys",
 	  .data = &mt8173_mmsys_driver_data},
+	{ .compatible = "mediatek,mt8183-display",
+	  .data = &mt8183_mmsys_driver_data},
 	{ }
 };
 
@@ -669,8 +910,8 @@ static struct platform_driver * const mtk_drm_drivers[] = {
 	&mtk_disp_rdma_driver,
 	&mtk_dpi_driver,
 	&mtk_drm_platform_driver,
-	&mtk_dsi_driver,
 	&mtk_mipi_tx_driver,
+	&mtk_dsi_driver,
 };
 
 static int __init mtk_drm_init(void)
