@@ -1394,8 +1394,8 @@ static void pagetypeinfo_showfree_print(struct seq_file *m,
 				 * so a long time spent here could trigger a
 				 * hard lockup detector. Anyway this is a
 				 * debugging tool so knowing there is a handful
-				 * of pages in this order should be more than
-				 * sufficient
+				 * of pages of this order should be more than
+				 * sufficient.
 				 */
 				if (++freecount >= 100000) {
 					overflow = true;
