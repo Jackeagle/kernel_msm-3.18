@@ -1057,6 +1057,12 @@ static void gfx_v9_0_check_if_need_gfxoff(struct amdgpu_device *adev)
 				AMD_PG_SUPPORT_CP |
 				AMD_PG_SUPPORT_RLC_SMU_HS;
 		break;
+	case CHIP_RENOIR:
+		if (adev->pm.pp_feature & PP_GFXOFF_MASK)
+			adev->pg_flags |= AMD_PG_SUPPORT_GFX_PG |
+				AMD_PG_SUPPORT_CP |
+				AMD_PG_SUPPORT_RLC_SMU_HS;
+		break;
 	default:
 		break;
 	}
@@ -5050,20 +5056,28 @@ static void gfx_v9_0_ring_emit_de_meta(struct amdgpu_ring *ring)
 	amdgpu_ring_write_multiple(ring, (void *)&de_payload, sizeof(de_payload) >> 2);
 }
 
-static void gfx_v9_0_ring_emit_tmz(struct amdgpu_ring *ring, bool start)
+static void gfx_v9_0_ring_emit_tmz(struct amdgpu_ring *ring, bool start,
+				   bool trusted)
 {
 	amdgpu_ring_write(ring, PACKET3(PACKET3_FRAME_CONTROL, 0));
-	amdgpu_ring_write(ring, FRAME_CMD(start ? 0 : 1)); /* frame_end */
+	/*
+	 * cmd = 0: frame begin
+	 * cmd = 1: frame end
+	 */
+	amdgpu_ring_write(ring,
+			  ((ring->adev->tmz.enabled && trusted) ? FRAME_TMZ : 0)
+			  | FRAME_CMD(start ? 0 : 1));
 }
 
-static void gfx_v9_ring_emit_cntxcntl(struct amdgpu_ring *ring, uint32_t flags)
+static void gfx_v9_ring_emit_cntxcntl(struct amdgpu_ring *ring, uint32_t flags,
+				      bool trusted)
 {
 	uint32_t dw2 = 0;
 
 	if (amdgpu_sriov_vf(ring->adev))
 		gfx_v9_0_ring_emit_ce_meta(ring);
 
-	gfx_v9_0_ring_emit_tmz(ring, true);
+	gfx_v9_0_ring_emit_tmz(ring, true, trusted);
 
 	dw2 |= 0x80000000; /* set load_enable otherwise this package is just NOPs */
 	if (flags & AMDGPU_HAVE_CTX_SWITCH) {
