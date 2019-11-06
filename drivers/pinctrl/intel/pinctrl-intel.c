@@ -1181,7 +1181,7 @@ static int intel_gpio_add_pin_ranges(struct intel_pinctrl *pctrl,
 	return ret;
 }
 
-static unsigned intel_gpio_ngpio(const struct intel_pinctrl *pctrl)
+static unsigned int intel_gpio_ngpio(const struct intel_pinctrl *pctrl)
 {
 	const struct intel_community *community;
 	unsigned int ngpio = 0;
