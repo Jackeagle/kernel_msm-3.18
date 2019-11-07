@@ -2454,7 +2454,7 @@ static int fetch_indirect_descs(struct vhost_virtqueue *vq,
 	return 0;
 }
 
-static int fetch_buf(struct vhost_virtqueue *vq)
+static int fetch_buf_split(struct vhost_virtqueue *vq)
 {
 	unsigned int i, head, found = 0;
 	struct vhost_desc *last;
@@ -2562,6 +2562,12 @@ static int fetch_buf(struct vhost_virtqueue *vq)
 	return 0;
 }
 
+static int fetch_buf_packed(struct vhost_virtqueue *vq)
+{
+	/* TODO */
+}
+
+
 static int fetch_descs(struct vhost_virtqueue *vq)
 {
 	int ret = 0;
@@ -2575,7 +2581,10 @@ static int fetch_descs(struct vhost_virtqueue *vq)
 		return 0;
 
 	while (!ret && vq->ndescs <= vq->batch_descs)
-		ret = fetch_buf(vq);
+		if (vhost_has_feature(vq, VIRTIO_F_RING_PACKED))
+			ret = fetch_buf_packed(vq);
+		else
+			ret = fetch_buf_split(vq);
 
 	return vq->ndescs ? 0 : ret;
 }
