@@ -84,6 +84,8 @@ long ksys_ioperm(unsigned long from, unsigned long num, int turn_on)
 	memcpy(tss->io_bitmap, t->io_bitmap_ptr, bytes_updated);
 	/* Store the new end of the zero bits */
 	tss->io_bitmap_prev_max = bytes;
+	/* Make the bitmap base in the TSS valid */
+	tss->x86_tss.io_bitmap_base = IO_BITMAP_OFFSET_VALID;
 	/* Make sure the TSS limit covers the I/O bitmap. */
 	refresh_tss_limit();
 
