@@ -229,8 +229,7 @@ static u64 __calc_delta(u64 delta_exec, unsigned long weight, struct load_weight
 		}
 	}
 
-	/* hint to use a 32x32->64 mul */
-	fact = (u64)(u32)fact * lw->inv_weight;
+	fact = mul_u32_u32(fact, lw->inv_weight);
 
 	while (fact >> 32) {
 		fact >>= 1;
@@ -6611,7 +6610,7 @@ preempt:
 		set_last_buddy(se);
 }
 
-static struct task_struct *
+struct task_struct *
 pick_next_task_fair(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 {
 	struct cfs_rq *cfs_rq = &rq->cfs;
@@ -6753,6 +6752,11 @@ idle:
 	update_idle_rq_clock_pelt(rq);
 
 	return NULL;
+}
+
+static struct task_struct *__pick_next_task_fair(struct rq *rq)
+{
+	return pick_next_task_fair(rq, NULL, NULL);
 }
 
 /*
@@ -9941,6 +9945,11 @@ static inline void nohz_newidle_balance(struct rq *this_rq) { }
 /*
  * idle_balance is called by schedule() if this_cpu is about to become
  * idle. Attempts to pull tasks from other CPUs.
+ *
+ * Returns:
+ *   < 0 - we released the lock and there are !fair tasks present
+ *     0 - failed, no new tasks
+ *   > 0 - success, new (fair) tasks present
  */
 int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 {
@@ -10335,7 +10344,7 @@ static void switched_to_fair(struct rq *rq, struct task_struct *p)
  * This routine is mostly called to set cfs_rq->curr field when a task
  * migrates between groups/classes.
  */
-static void set_next_task_fair(struct rq *rq, struct task_struct *p)
+static void set_next_task_fair(struct rq *rq, struct task_struct *p, bool first)
 {
 	struct sched_entity *se = &p->se;
 
@@ -10617,7 +10626,7 @@ const struct sched_class fair_sched_class = {
 
 	.check_preempt_curr	= check_preempt_wakeup,
 
-	.pick_next_task		= pick_next_task_fair,
+	.pick_next_task		= __pick_next_task_fair,
 	.put_prev_task		= put_prev_task_fair,
 	.set_next_task          = set_next_task_fair,
 
