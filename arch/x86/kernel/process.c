@@ -316,6 +316,7 @@ void arch_setup_new_exec(void)
 	}
 }
 
+#ifdef CONFIG_X86_IOPL_IOPERM
 static inline void tss_invalidate_io_bitmap(struct tss_struct *tss)
 {
 	/*
@@ -403,6 +404,9 @@ void tss_update_io_bitmap(void)
 		tss_invalidate_io_bitmap(tss);
 	}
 }
+#else /* CONFIG_X86_IOPL_IOPERM */
+static inline void switch_to_bitmap(unsigned long tifp) { }
+#endif
 
 #ifdef CONFIG_SMP
 
