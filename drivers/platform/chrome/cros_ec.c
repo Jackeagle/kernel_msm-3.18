@@ -31,17 +31,27 @@ static struct cros_ec_platform pd_p = {
 	.cmd_offset = EC_CMD_PASSTHRU_OFFSET(CROS_EC_DEV_PD_INDEX),
 };
 
-static bool cros_ec_handle_event(struct cros_ec_device *ec_dev)
+s64 cros_ec_get_time_ns(void)
 {
-	bool wake_event = true;
-	bool ec_has_more_events = false;
-	int ret = cros_ec_get_next_event(ec_dev, &wake_event);
+	return ktime_get_boottime_ns();
+}
+EXPORT_SYMBOL(cros_ec_get_time_ns);
 
-	if (ec_dev->mkbp_event_supported) {
-		ec_has_more_events = (ret > 0) &&
-			(ec_dev->event_data.event_type &
-				EC_MKBP_HAS_MORE_EVENTS);
-	}
+static irqreturn_t ec_irq_handler(int irq, void *data) {
+	struct cros_ec_device *ec_dev = data;
+
+	ec_dev->last_event_time = cros_ec_get_time_ns();
+
+	return IRQ_WAKE_THREAD;
+}
+
+bool cros_ec_handle_event(struct cros_ec_device *ec_dev)
+{
+	bool wake_event;
+	bool ec_has_more_events;
+	int ret = cros_ec_get_next_event(ec_dev,
+			&wake_event,
+			&ec_has_more_events);
 
 	if (device_may_wakeup(ec_dev->dev) && wake_event)
 		pm_wakeup_event(ec_dev->dev, 0);
@@ -52,6 +62,7 @@ static bool cros_ec_handle_event(struct cros_ec_device *ec_dev)
 
 	return ec_has_more_events;
 }
+EXPORT_SYMBOL(cros_ec_handle_event);
 
 static irqreturn_t ec_irq_thread(int irq, void *data)
 {
@@ -144,8 +155,9 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 	}
 
 	if (ec_dev->irq > 0) {
-		err = devm_request_threaded_irq(dev, ec_dev->irq, NULL,
-				ec_irq_thread, IRQF_TRIGGER_LOW | IRQF_ONESHOT,
+		err = devm_request_threaded_irq(dev, ec_dev->irq,
+				ec_irq_handler, ec_irq_thread,
+				IRQF_TRIGGER_LOW | IRQF_ONESHOT,
 				"chromeos-ec", ec_dev);
 		if (err) {
 			dev_err(dev, "Failed to request IRQ %d: %d",
@@ -250,7 +262,7 @@ EXPORT_SYMBOL(cros_ec_suspend);
 static void cros_ec_report_events_during_suspend(struct cros_ec_device *ec_dev)
 {
 	while (ec_dev->mkbp_event_supported &&
-	       cros_ec_get_next_event(ec_dev, NULL) > 0)
+	       cros_ec_get_next_event(ec_dev, NULL, NULL) > 0)
 		blocking_notifier_call_chain(&ec_dev->event_notifier,
 					     1, ec_dev);
 }
