@@ -73,12 +73,13 @@ static void hns_roce_ib_cq_event(struct hns_roce_cq *hr_cq,
 	}
 }
 
-static int hns_roce_sw2hw_cq(struct hns_roce_dev *dev,
-			     struct hns_roce_cmd_mailbox *mailbox,
-			     unsigned long cq_num)
+static int hns_roce_hw_create_cq(struct hns_roce_dev *dev,
+				 struct hns_roce_cmd_mailbox *mailbox,
+				 unsigned long cq_num)
 {
 	return hns_roce_cmd_mbox(dev, mailbox->dma, 0, cq_num, 0,
-			    HNS_ROCE_CMD_SW2HW_CQ, HNS_ROCE_CMD_TIMEOUT_MSECS);
+				 HNS_ROCE_CMD_CREATE_CQ,
+				 HNS_ROCE_CMD_TIMEOUT_MSECS);
 }
 
 static int hns_roce_cq_alloc(struct hns_roce_dev *hr_dev, int nent,
@@ -104,32 +105,34 @@ static int hns_roce_cq_alloc(struct hns_roce_dev *hr_dev, int nent,
 	mtts = hns_roce_table_find(hr_dev, mtt_table,
 				   hr_mtt->first_seg, &dma_handle);
 	if (!mtts) {
-		dev_err(dev, "CQ alloc.Failed to find cq buf addr.\n");
+		dev_err(dev, "Failed to find mtt for CQ buf.\n");
 		return -EINVAL;
 	}
 
 	if (vector >= hr_dev->caps.num_comp_vectors) {
-		dev_err(dev, "CQ alloc.Invalid vector.\n");
+		dev_err(dev, "Invalid vector(0x%x) for CQ alloc.\n", vector);
 		return -EINVAL;
 	}
 	hr_cq->vector = vector;
 
 	ret = hns_roce_bitmap_alloc(&cq_table->bitmap, &hr_cq->cqn);
-	if (ret == -1) {
-		dev_err(dev, "CQ alloc.Failed to alloc index.\n");
-		return -ENOMEM;
+	if (ret) {
+		dev_err(dev, "Num of CQ out of range.\n");
+		return ret;
 	}
 
 	/* Get CQC memory HEM(Hardware Entry Memory) table */
 	ret = hns_roce_table_get(hr_dev, &cq_table->table, hr_cq->cqn);
 	if (ret) {
-		dev_err(dev, "CQ alloc.Failed to get context mem.\n");
+		dev_err(dev,
+			"Get context mem failed(%d) when CQ(0x%lx) alloc.\n",
+			ret, hr_cq->cqn);
 		goto err_out;
 	}
 
 	ret = xa_err(xa_store(&cq_table->array, hr_cq->cqn, hr_cq, GFP_KERNEL));
 	if (ret) {
-		dev_err(dev, "CQ alloc failed xa_store.\n");
+		dev_err(dev, "Failed to xa_store CQ.\n");
 		goto err_put;
 	}
 
@@ -144,10 +147,12 @@ static int hns_roce_cq_alloc(struct hns_roce_dev *hr_dev, int nent,
 			      nent, vector);
 
 	/* Send mailbox to hw */
-	ret = hns_roce_sw2hw_cq(hr_dev, mailbox, hr_cq->cqn);
+	ret = hns_roce_hw_create_cq(hr_dev, mailbox, hr_cq->cqn);
 	hns_roce_free_cmd_mailbox(hr_dev, mailbox);
 	if (ret) {
-		dev_err(dev, "CQ alloc.Failed to cmd mailbox.\n");
+		dev_err(dev,
+			"Send cmd mailbox failed(%d) when CQ(0x%lx) alloc.\n",
+			ret, hr_cq->cqn);
 		goto err_xa;
 	}
 
@@ -170,12 +175,12 @@ err_out:
 	return ret;
 }
 
-static int hns_roce_hw2sw_cq(struct hns_roce_dev *dev,
-			     struct hns_roce_cmd_mailbox *mailbox,
-			     unsigned long cq_num)
+static int hns_roce_hw_destroy_cq(struct hns_roce_dev *dev,
+				  struct hns_roce_cmd_mailbox *mailbox,
+				  unsigned long cq_num)
 {
 	return hns_roce_cmd_mbox(dev, 0, mailbox ? mailbox->dma : 0, cq_num,
-				 mailbox ? 0 : 1, HNS_ROCE_CMD_HW2SW_CQ,
+				 mailbox ? 0 : 1, HNS_ROCE_CMD_DESTROY_CQ,
 				 HNS_ROCE_CMD_TIMEOUT_MSECS);
 }
 
@@ -185,9 +190,9 @@ void hns_roce_free_cq(struct hns_roce_dev *hr_dev, struct hns_roce_cq *hr_cq)
 	struct device *dev = hr_dev->dev;
 	int ret;
 
-	ret = hns_roce_hw2sw_cq(hr_dev, NULL, hr_cq->cqn);
+	ret = hns_roce_hw_destroy_cq(hr_dev, NULL, hr_cq->cqn);
 	if (ret)
-		dev_err(dev, "HW2SW_CQ failed (%d) for CQN %06lx\n", ret,
+		dev_err(dev, "DESTROY_CQ failed (%d) for CQN %06lx\n", ret,
 			hr_cq->cqn);
 
 	xa_erase(&cq_table->array, hr_cq->cqn);
@@ -347,7 +352,6 @@ static int create_kernel_cq(struct hns_roce_dev *hr_dev,
 			    struct hns_roce_cq *hr_cq, int cq_entries)
 {
 	struct device *dev = hr_dev->dev;
-	struct hns_roce_uar *uar;
 	int ret;
 
 	if (hr_dev->caps.flags & HNS_ROCE_CAP_FLAG_RECORD_DB) {
@@ -367,9 +371,8 @@ static int create_kernel_cq(struct hns_roce_dev *hr_dev,
 		goto err_db;
 	}
 
-	uar = &hr_dev->priv_uar;
 	hr_cq->cq_db_l = hr_dev->reg_base + hr_dev->odb_offset +
-			 DB_REG_OFFSET * uar->index;
+			 DB_REG_OFFSET * hr_dev->priv_uar.index;
 
 	return 0;
 
@@ -419,7 +422,7 @@ int hns_roce_ib_create_cq(struct ib_cq *ib_cq,
 	int ret;
 
 	if (cq_entries < 1 || cq_entries > hr_dev->caps.max_cqes) {
-		dev_err(dev, "Creat CQ failed. entries=%d, max=%d\n",
+		dev_err(dev, "Create CQ failed. entries=%d, max=%d\n",
 			cq_entries, hr_dev->caps.max_cqes);
 		return -EINVAL;
 	}
@@ -449,7 +452,7 @@ int hns_roce_ib_create_cq(struct ib_cq *ib_cq,
 	ret = hns_roce_cq_alloc(hr_dev, cq_entries, &hr_cq->hr_buf.hr_mtt,
 				hr_cq, vector);
 	if (ret) {
-		dev_err(dev, "Creat CQ .Failed to cq_alloc.\n");
+		dev_err(dev, "Alloc CQ failed(%d).\n", ret);
 		goto err_dbmap;
 	}
 
