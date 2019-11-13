@@ -24,6 +24,8 @@
 #include <linux/module.h>
 #include <linux/pci.h>
 
+#define SMU_11_0_PARTIAL_PPTABLE
+
 #include "pp_debug.h"
 #include "amdgpu.h"
 #include "amdgpu_smu.h"
@@ -31,6 +33,7 @@
 #include "atomfirmware.h"
 #include "amdgpu_atomfirmware.h"
 #include "smu_v11_0.h"
+#include "smu_v11_0_pptable.h"
 #include "soc15_common.h"
 #include "atom.h"
 #include "amd_pcie.h"
@@ -368,6 +371,7 @@ int smu_v11_0_setup_pptable(struct smu_context *smu)
 	version_major = le16_to_cpu(hdr->header.header_version_major);
 	version_minor = le16_to_cpu(hdr->header.header_version_minor);
 	if (version_major == 2 && smu->smu_table.boot_values.pp_table_id > 0) {
+		pr_info("use driver provided pptable %d\n", smu->smu_table.boot_values.pp_table_id);
 		switch (version_minor) {
 		case 0:
 			ret = smu_v11_0_set_pptable_v2_0(smu, &table, &size);
@@ -384,6 +388,7 @@ int smu_v11_0_setup_pptable(struct smu_context *smu)
 			return ret;
 
 	} else {
+		pr_info("use vbios provided pptable\n");
 		index = get_index_into_master_table(atom_master_list_of_data_tables_v2_1,
 						    powerplayinfo);
 
@@ -1043,13 +1048,44 @@ int smu_v11_0_init_max_sustainable_clocks(struct smu_context *smu)
 	return 0;
 }
 
+uint32_t smu_v11_0_get_max_power_limit(struct smu_context *smu) {
+	uint32_t od_limit, max_power_limit;
+	struct smu_11_0_powerplay_table *powerplay_table = NULL;
+	struct smu_table_context *table_context = &smu->smu_table;
+	powerplay_table = table_context->power_play_table;
+
+	max_power_limit = smu_get_pptable_power_limit(smu);
+
+	if (!max_power_limit) {
+		// If we couldn't get the table limit, fall back on first-read value
+		if (!smu->default_power_limit)
+			smu->default_power_limit = smu->power_limit;
+		max_power_limit = smu->default_power_limit;
+	}
+
+	if (smu->od_enabled) {
+		od_limit = le32_to_cpu(powerplay_table->overdrive_table.max[SMU_11_0_ODSETTING_POWERPERCENTAGE]);
+
+		pr_debug("ODSETTING_POWERPERCENTAGE: %d (default: %d)\n", od_limit, smu->default_power_limit);
+
+		max_power_limit *= (100 + od_limit);
+		max_power_limit /= 100;
+	}
+
+	return max_power_limit;
+}
+
 int smu_v11_0_set_power_limit(struct smu_context *smu, uint32_t n)
 {
 	int ret = 0;
+	uint32_t max_power_limit;
 
-	if (n > smu->default_power_limit) {
-		pr_err("New power limit is over the max allowed %d\n",
-				smu->default_power_limit);
+	max_power_limit = smu_v11_0_get_max_power_limit(smu);
+
+	if (n > max_power_limit) {
+		pr_err("New power limit (%d) is over the max allowed %d\n",
+				n,
+				max_power_limit);
 		return -EINVAL;
 	}
 
@@ -1463,16 +1499,13 @@ int smu_v11_0_set_fan_speed_rpm(struct smu_context *smu,
 	return ret;
 }
 
-#define XGMI_STATE_D0 1
-#define XGMI_STATE_D3 0
-
 int smu_v11_0_set_xgmi_pstate(struct smu_context *smu,
 				     uint32_t pstate)
 {
 	int ret = 0;
 	ret = smu_send_smc_msg_with_param(smu,
 					  SMU_MSG_SetXgmiMode,
-					  pstate ? XGMI_STATE_D0 : XGMI_STATE_D3);
+					  pstate ? XGMI_MODE_PSTATE_D0 : XGMI_MODE_PSTATE_D3);
 	return ret;
 }
 
@@ -1779,4 +1812,31 @@ int smu_v11_0_override_pcie_parameters(struct smu_context *smu)
 
 	return ret;
 
+}
+
+int smu_v11_0_set_default_od_settings(struct smu_context *smu, bool initialize, size_t overdrive_table_size)
+{
+	struct smu_table_context *table_context = &smu->smu_table;
+	int ret = 0;
+
+	if (initialize) {
+		if (table_context->overdrive_table) {
+			return -EINVAL;
+		}
+		table_context->overdrive_table = kzalloc(overdrive_table_size, GFP_KERNEL);
+		if (!table_context->overdrive_table) {
+			return -ENOMEM;
+		}
+		ret = smu_update_table(smu, SMU_TABLE_OVERDRIVE, 0, table_context->overdrive_table, false);
+		if (ret) {
+			pr_err("Failed to export overdrive table!\n");
+			return ret;
+		}
+	}
+	ret = smu_update_table(smu, SMU_TABLE_OVERDRIVE, 0, table_context->overdrive_table, true);
+	if (ret) {
+		pr_err("Failed to import overdrive table!\n");
+		return ret;
+	}
+	return ret;
 }

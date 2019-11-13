@@ -27,7 +27,7 @@
 
 #define SMU11_DRIVER_IF_VERSION_INV 0xFFFFFFFF
 #define SMU11_DRIVER_IF_VERSION_VG20 0x13
-#define SMU11_DRIVER_IF_VERSION_ARCT 0x0F
+#define SMU11_DRIVER_IF_VERSION_ARCT 0x10
 #define SMU11_DRIVER_IF_VERSION_NV10 0x33
 #define SMU11_DRIVER_IF_VERSION_NV14 0x34
 
@@ -249,5 +249,9 @@ int smu_v11_0_set_soft_freq_limited_range(struct smu_context *smu, enum smu_clk_
 			    uint32_t min, uint32_t max);
 
 int smu_v11_0_override_pcie_parameters(struct smu_context *smu);
+
+int smu_v11_0_set_default_od_settings(struct smu_context *smu, bool initialize, size_t overdrive_table_size);
+
+uint32_t smu_v11_0_get_max_power_limit(struct smu_context *smu);
 
 #endif
