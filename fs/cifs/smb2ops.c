@@ -1335,7 +1335,16 @@ static void
 smb2_close_file(const unsigned int xid, struct cifs_tcon *tcon,
 		struct cifs_fid *fid)
 {
-	SMB2_close(xid, tcon, fid->persistent_fid, fid->volatile_fid);
+	int rc;
+
+	rc = SMB2_close(xid, tcon, fid->persistent_fid, fid->volatile_fid);
+	if (is_interrupt_error(rc)) {
+		rc = smb2_handle_cancelled_close(tcon, fid->persistent_fid,
+						 fid->volatile_fid);
+		if (rc)
+			cifs_dbg(VFS, "close handle 0x%llx returned error %d\n",
+				 fid->persistent_fid, rc);
+	}
 }
 
 static int
