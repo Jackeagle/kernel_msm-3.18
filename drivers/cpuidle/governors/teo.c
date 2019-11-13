@@ -360,7 +360,14 @@ static int teo_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 
 		if (max_early_idx >= 0) {
 			idx = max_early_idx;
-			duration_ns = drv->states[idx].target_residency_ns;
+			/*
+			 * Expect the idle duration to fall in the middle of the
+			 * "bin" corresponding to idx (note that the maximum
+			 * state index is guaranteed to be greater than idx at
+			 * this point).
+			 */
+			duration_ns = (drv->states[idx].target_residency_ns +
+				drv->states[idx+1].target_residency_ns) / 2;
 		}
 	}
 
