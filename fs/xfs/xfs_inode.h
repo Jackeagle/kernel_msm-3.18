@@ -37,9 +37,6 @@ typedef struct xfs_inode {
 	struct xfs_ifork	*i_cowfp;	/* copy on write extents */
 	struct xfs_ifork	i_df;		/* data fork */
 
-	/* operations vectors */
-	const struct xfs_dir_ops *d_ops;		/* directory ops vector */
-
 	/* Transaction and locking information. */
 	struct xfs_inode_log_item *i_itemp;	/* logging information */
 	mrlock_t		i_lock;		/* inode lock */
@@ -218,6 +215,13 @@ static inline bool xfs_inode_has_cow_data(struct xfs_inode *ip)
 {
 	return ip->i_cowfp && ip->i_cowfp->if_bytes;
 }
+
+/*
+ * Return the buftarg used for data allocations on a given inode.
+ */
+#define xfs_inode_buftarg(ip) \
+	(XFS_IS_REALTIME_INODE(ip) ? \
+		(ip)->i_mount->m_rtdev_targp : (ip)->i_mount->m_ddev_targp)
 
 /*
  * In-core inode flags.
