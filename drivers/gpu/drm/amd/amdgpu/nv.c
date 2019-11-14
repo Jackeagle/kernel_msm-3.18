@@ -40,6 +40,7 @@
 #include "gc/gc_10_1_0_sh_mask.h"
 #include "hdp/hdp_5_0_0_offset.h"
 #include "hdp/hdp_5_0_0_sh_mask.h"
+#include "smuio/smuio_11_0_0_offset.h"
 
 #include "soc15.h"
 #include "soc15_common.h"
@@ -156,8 +157,27 @@ static bool nv_read_disabled_bios(struct amdgpu_device *adev)
 static bool nv_read_bios_from_rom(struct amdgpu_device *adev,
 				  u8 *bios, u32 length_bytes)
 {
-	/* TODO: will implement it when SMU header is available */
-	return false;
+	u32 *dw_ptr;
+	u32 i, length_dw;
+
+	if (bios == NULL)
+		return false;
+	if (length_bytes == 0)
+		return false;
+	/* APU vbios image is part of sbios image */
+	if (adev->flags & AMD_IS_APU)
+		return false;
+
+	dw_ptr = (u32 *)bios;
+	length_dw = ALIGN(length_bytes, 4) / 4;
+
+	/* set rom index to 0 */
+	WREG32(SOC15_REG_OFFSET(SMUIO, 0, mmROM_INDEX), 0);
+	/* read out the rom data */
+	for (i = 0; i < length_dw; i++)
+		dw_ptr[i] = RREG32(SOC15_REG_OFFSET(SMUIO, 0, mmROM_DATA));
+
+	return true;
 }
 
 static struct soc15_allowed_register_entry nv_allowed_read_registers[] = {
@@ -201,17 +221,25 @@ static uint32_t nv_read_indexed_register(struct amdgpu_device *adev, u32 se_num,
 	return val;
 }
 
-static uint32_t nv_get_register_value(struct amdgpu_device *adev,
+static int nv_get_register_value(struct amdgpu_device *adev,
 				      bool indexed, u32 se_num,
-				      u32 sh_num, u32 reg_offset)
+				      u32 sh_num, u32 reg_offset,
+				      u32 *value)
 {
 	if (indexed) {
-		return nv_read_indexed_register(adev, se_num, sh_num, reg_offset);
+		if (adev->pm.pp_feature & PP_GFXOFF_MASK)
+			return -EINVAL;
+		*value = nv_read_indexed_register(adev, se_num, sh_num, reg_offset);
 	} else {
-		if (reg_offset == SOC15_REG_OFFSET(GC, 0, mmGB_ADDR_CONFIG))
-			return adev->gfx.config.gb_addr_config;
-		return RREG32(reg_offset);
+		if (reg_offset == SOC15_REG_OFFSET(GC, 0, mmGB_ADDR_CONFIG)) {
+			*value = adev->gfx.config.gb_addr_config;
+		} else {
+			if (adev->pm.pp_feature & PP_GFXOFF_MASK)
+				return -EINVAL;
+			*value = RREG32(reg_offset);
+		}
 	}
+	return 0;
 }
 
 static int nv_read_register(struct amdgpu_device *adev, u32 se_num,
@@ -227,10 +255,9 @@ static int nv_read_register(struct amdgpu_device *adev, u32 se_num,
 		    (adev->reg_offset[en->hwip][en->inst][en->seg] + en->reg_offset))
 			continue;
 
-		*value = nv_get_register_value(adev,
-					       nv_allowed_read_registers[i].grbm_indexed,
-					       se_num, sh_num, reg_offset);
-		return 0;
+		return nv_get_register_value(adev,
+					     nv_allowed_read_registers[i].grbm_indexed,
+					     se_num, sh_num, reg_offset, value);
 	}
 	return -EINVAL;
 }

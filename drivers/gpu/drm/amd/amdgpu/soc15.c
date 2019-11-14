@@ -363,19 +363,27 @@ static uint32_t soc15_read_indexed_register(struct amdgpu_device *adev, u32 se_n
 	return val;
 }
 
-static uint32_t soc15_get_register_value(struct amdgpu_device *adev,
+static int soc15_get_register_value(struct amdgpu_device *adev,
 					 bool indexed, u32 se_num,
-					 u32 sh_num, u32 reg_offset)
+					 u32 sh_num, u32 reg_offset,
+					 u32 *value)
 {
 	if (indexed) {
-		return soc15_read_indexed_register(adev, se_num, sh_num, reg_offset);
+		if (adev->pm.pp_feature & PP_GFXOFF_MASK)
+			return -EINVAL;
+	        *value = soc15_read_indexed_register(adev, se_num, sh_num, reg_offset);
 	} else {
-		if (reg_offset == SOC15_REG_OFFSET(GC, 0, mmGB_ADDR_CONFIG))
-			return adev->gfx.config.gb_addr_config;
-		else if (reg_offset == SOC15_REG_OFFSET(GC, 0, mmDB_DEBUG2))
-			return adev->gfx.config.db_debug2;
-		return RREG32(reg_offset);
+		if (reg_offset == SOC15_REG_OFFSET(GC, 0, mmGB_ADDR_CONFIG)) {
+			*value = adev->gfx.config.gb_addr_config;
+		} else if (reg_offset == SOC15_REG_OFFSET(GC, 0, mmDB_DEBUG2)) {
+			*value = adev->gfx.config.db_debug2;
+		} else {
+			if (adev->pm.pp_feature & PP_GFXOFF_MASK)
+				return -EINVAL;
+			*value = RREG32(reg_offset);
+		}
 	}
+	return 0;
 }
 
 static int soc15_read_register(struct amdgpu_device *adev, u32 se_num,
@@ -391,10 +399,9 @@ static int soc15_read_register(struct amdgpu_device *adev, u32 se_num,
 					+ en->reg_offset))
 			continue;
 
-		*value = soc15_get_register_value(adev,
-						  soc15_allowed_read_registers[i].grbm_indexed,
-						  se_num, sh_num, reg_offset);
-		return 0;
+		return soc15_get_register_value(adev,
+						soc15_allowed_read_registers[i].grbm_indexed,
+						se_num, sh_num, reg_offset, value);
 	}
 	return -EINVAL;
 }
@@ -1007,6 +1014,7 @@ static const struct amdgpu_asic_funcs vega20_asic_funcs =
 	.read_bios_from_rom = &soc15_read_bios_from_rom,
 	.read_register = &soc15_read_register,
 	.reset = &soc15_asic_reset,
+	.reset_method = &soc15_asic_reset_method,
 	.set_vga_state = &soc15_vga_set_state,
 	.get_xclk = &soc15_get_xclk,
 	.set_uvd_clocks = &soc15_set_uvd_clocks,
@@ -1019,7 +1027,6 @@ static const struct amdgpu_asic_funcs vega20_asic_funcs =
 	.get_pcie_usage = &vega20_get_pcie_usage,
 	.need_reset_on_init = &soc15_need_reset_on_init,
 	.get_pcie_replay_count = &soc15_get_pcie_replay_count,
-	.reset_method = &soc15_asic_reset_method
 };
 
 static int soc15_common_early_init(void *handle)
