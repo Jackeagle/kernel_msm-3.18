@@ -38,8 +38,6 @@ static int sec_mismatch_count = 0;
 static int sec_mismatch_fatal = 0;
 /* ignore missing files */
 static int ignore_missing_files;
-/* write namespace dependencies */
-static int write_namespace_deps;
 
 enum export {
 	export_plain,      export_unused,     export_gpl,
@@ -241,10 +239,8 @@ static struct symbol *find_symbol(const char *name)
 static bool contains_namespace(struct namespace_list *list,
 			       const char *namespace)
 {
-	struct namespace_list *ns_entry;
-
-	for (ns_entry = list; ns_entry != NULL; ns_entry = ns_entry->next)
-		if (strcmp(ns_entry->namespace, namespace) == 0)
+	for (; list; list = list->next)
+		if (!strcmp(list->namespace, namespace))
 			return true;
 
 	return false;
@@ -2217,15 +2213,11 @@ static int check_exports(struct module *mod)
 		else
 			basename = mod->name;
 
-		if (exp->namespace) {
-			add_namespace(&mod->required_namespaces,
-				      exp->namespace);
-
-			if (!write_namespace_deps &&
-			    !module_imports_namespace(mod, exp->namespace)) {
-				warn("module %s uses symbol %s from namespace %s, but does not import it.\n",
-				     basename, exp->name, exp->namespace);
-			}
+		if (exp->namespace &&
+		    !module_imports_namespace(mod, exp->namespace)) {
+			warn("module %s uses symbol %s from namespace %s, but does not import it.\n",
+			     basename, exp->name, exp->namespace);
+			add_namespace(&mod->missing_namespaces, exp->namespace);
 		}
 
 		if (!mod->gpl_compatible)
@@ -2527,29 +2519,27 @@ static void write_dump(const char *fname)
 	free(buf.p);
 }
 
-static void write_namespace_deps_files(void)
+static void write_namespace_deps_files(const char *fname)
 {
 	struct module *mod;
 	struct namespace_list *ns;
 	struct buffer ns_deps_buf = {};
 
 	for (mod = modules; mod; mod = mod->next) {
-		char fname[PATH_MAX];
 
-		if (mod->skip)
+		if (mod->skip || !mod->missing_namespaces)
 			continue;
 
-		ns_deps_buf.pos = 0;
+		buf_printf(&ns_deps_buf, "%s.ko:", mod->name);
 
-		for (ns = mod->required_namespaces; ns; ns = ns->next)
-			buf_printf(&ns_deps_buf, "%s\n", ns->namespace);
+		for (ns = mod->missing_namespaces; ns; ns = ns->next)
+			buf_printf(&ns_deps_buf, " %s", ns->namespace);
 
-		if (ns_deps_buf.pos == 0)
-			continue;
-
-		sprintf(fname, "%s.ns_deps", mod->name);
-		write_if_changed(&ns_deps_buf, fname);
+		buf_printf(&ns_deps_buf, "\n");
 	}
+
+	write_if_changed(&ns_deps_buf, fname);
+	free(ns_deps_buf.p);
 }
 
 struct ext_sym_list {
@@ -2561,7 +2551,8 @@ int main(int argc, char **argv)
 {
 	struct module *mod;
 	struct buffer buf = { };
-	char *kernel_read = NULL, *module_read = NULL;
+	char *kernel_read = NULL;
+	char *missing_namespace_deps = NULL;
 	char *dump_write = NULL, *files_source = NULL;
 	int opt;
 	int err;
@@ -2569,13 +2560,10 @@ int main(int argc, char **argv)
 	struct ext_sym_list *extsym_iter;
 	struct ext_sym_list *extsym_start = NULL;
 
-	while ((opt = getopt(argc, argv, "i:I:e:mnsT:o:awEd")) != -1) {
+	while ((opt = getopt(argc, argv, "i:e:mnsT:o:awEd:")) != -1) {
 		switch (opt) {
 		case 'i':
 			kernel_read = optarg;
-			break;
-		case 'I':
-			module_read = optarg;
 			external_module = 1;
 			break;
 		case 'e':
@@ -2611,7 +2599,7 @@ int main(int argc, char **argv)
 			sec_mismatch_fatal = 1;
 			break;
 		case 'd':
-			write_namespace_deps = 1;
+			missing_namespace_deps = optarg;
 			break;
 		default:
 			exit(1);
@@ -2620,8 +2608,6 @@ int main(int argc, char **argv)
 
 	if (kernel_read)
 		read_dump(kernel_read, 1);
-	if (module_read)
-		read_dump(module_read, 0);
 	while (extsym_start) {
 		read_dump(extsym_start->file, 0);
 		extsym_iter = extsym_start->next;
@@ -2647,8 +2633,6 @@ int main(int argc, char **argv)
 
 		err |= check_modname_len(mod);
 		err |= check_exports(mod);
-		if (write_namespace_deps)
-			continue;
 
 		add_header(&buf, mod);
 		add_intree_flag(&buf, !external_module);
@@ -2663,10 +2647,8 @@ int main(int argc, char **argv)
 		write_if_changed(&buf, fname);
 	}
 
-	if (write_namespace_deps) {
-		write_namespace_deps_files();
-		return 0;
-	}
+	if (missing_namespace_deps)
+		write_namespace_deps_files(missing_namespace_deps);
 
 	if (dump_write)
 		write_dump(dump_write);
