@@ -105,8 +105,11 @@ static void clk_periph_restore_context(struct clk_hw *hw)
 	struct tegra_clk_periph *periph = to_clk_periph(hw);
 	const struct clk_ops *div_ops = periph->div_ops;
 	struct clk_hw *div_hw = &periph->divider.hw;
-	struct clk_hw *parent = clk_hw_get_parent(hw);
-	int parent_id = clk_hw_get_parent_index(hw, parent);
+	int parent_id;
+
+	parent_id = clk_hw_get_parent_index(hw);
+	if (WARN_ON(parent_id < 0))
+		return;
 
 	if (!(periph->gate.flags & TEGRA_PERIPH_NO_DIV))
 		div_ops->restore_context(div_hw);

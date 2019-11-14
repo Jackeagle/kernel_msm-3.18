@@ -199,7 +199,11 @@ static void clk_sdmmc_mux_restore_context(struct clk_hw *hw)
 	struct clk_hw *parent = clk_hw_get_parent(hw);
 	unsigned long parent_rate = clk_hw_get_rate(parent);
 	unsigned long rate = clk_hw_get_rate(hw);
-	int parent_id = clk_hw_get_parent_index(hw, parent);
+	int parent_id;
+
+	parent_id = clk_hw_get_parent_index(hw);
+	if (WARN_ON(parent_id < 0))
+		return;
 
 	clk_sdmmc_mux_set_parent(hw, parent_id);
 	clk_sdmmc_mux_set_rate(hw, rate, parent_rate);

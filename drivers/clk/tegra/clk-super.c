@@ -126,8 +126,11 @@ out:
 
 static void clk_super_mux_restore_context(struct clk_hw *hw)
 {
-	struct clk_hw *parent = clk_hw_get_parent(hw);
-	int parent_id = clk_hw_get_parent_index(hw, parent);
+	int parent_id;
+
+	parent_id = clk_hw_get_parent_index(hw);
+	if (WARN_ON(parent_id < 0))
+		return;
 
 	clk_super_set_parent(hw, parent_id);
 }
@@ -175,8 +178,11 @@ static void clk_super_restore_context(struct clk_hw *hw)
 {
 	struct tegra_clk_super_mux *super = to_clk_super_mux(hw);
 	struct clk_hw *div_hw = &super->frac_div.hw;
-	struct clk_hw *parent = clk_hw_get_parent(hw);
-	int parent_id = clk_hw_get_parent_index(hw, parent);
+	int parent_id;
+
+	parent_id = clk_hw_get_parent_index(hw);
+	if (WARN_ON(parent_id < 0))
+		return;
 
 	super->div_ops->restore_context(div_hw);
 	clk_super_set_parent(hw, parent_id);
