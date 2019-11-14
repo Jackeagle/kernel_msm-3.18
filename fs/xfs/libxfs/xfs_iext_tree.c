@@ -734,7 +734,7 @@ xfs_iext_remove_node(
 again:
 	ASSERT(node->ptrs[pos]);
 	ASSERT(node->ptrs[pos] == victim);
-	kmem_free(victim);
+	kfree(victim);
 
 	nr_entries = xfs_iext_node_nr_entries(node, pos) - 1;
 	offset = node->keys[0];
@@ -780,7 +780,7 @@ again:
 		ASSERT(node == ifp->if_u1.if_root);
 		ifp->if_u1.if_root = node->ptrs[0];
 		ifp->if_height--;
-		kmem_free(node);
+		kfree(node);
 	}
 }
 
@@ -854,7 +854,7 @@ xfs_iext_free_last_leaf(
 	struct xfs_ifork	*ifp)
 {
 	ifp->if_height--;
-	kmem_free(ifp->if_u1.if_root);
+	kfree(ifp->if_u1.if_root);
 	ifp->if_u1.if_root = NULL;
 }
 
@@ -1035,7 +1035,7 @@ xfs_iext_destroy_node(
 		}
 	}
 
-	kmem_free(node);
+	kfree(node);
 }
 
 void

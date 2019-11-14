@@ -119,7 +119,7 @@ xfs_fstrm_free_func(
 	xfs_filestream_put_ag(mp, item->ag);
 	trace_xfs_filestream_free(mp, mru->key, item->ag);
 
-	kmem_free(item);
+	kfree(item);
 }
 
 /*
@@ -264,7 +264,7 @@ next_ag:
 	return 0;
 
 out_free_item:
-	kmem_free(item);
+	kfree(item);
 out_put_ag:
 	xfs_filestream_put_ag(mp, *agp);
 	return err;

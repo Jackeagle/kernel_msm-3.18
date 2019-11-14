@@ -32,7 +32,7 @@ xfs_rui_item_free(
 	struct xfs_rui_log_item	*ruip)
 {
 	if (ruip->rui_format.rui_nextents > XFS_RUI_MAX_FAST_EXTENTS)
-		kmem_free(ruip);
+		kfree(ruip);
 	else
 		kmem_cache_free(xfs_rui_zone, ruip);
 }
@@ -436,7 +436,7 @@ xfs_rmap_update_finish_item(
 			rmap->ri_bmap.br_blockcount,
 			rmap->ri_bmap.br_state,
 			(struct xfs_btree_cur **)state);
-	kmem_free(rmap);
+	kfree(rmap);
 	return error;
 }
 
@@ -468,7 +468,7 @@ xfs_rmap_update_cancel_item(
 	struct xfs_rmap_intent		*rmap;
 
 	rmap = container_of(item, struct xfs_rmap_intent, ri_list);
-	kmem_free(rmap);
+	kfree(rmap);
 }
 
 const struct xfs_defer_op_type xfs_rmap_update_defer_type = {

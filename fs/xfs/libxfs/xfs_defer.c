@@ -341,7 +341,7 @@ xfs_defer_cancel_list(
 			ops->cancel_item(pwi);
 		}
 		ASSERT(dfp->dfp_count == 0);
-		kmem_free(dfp);
+		kfree(dfp);
 	}
 }
 
@@ -433,7 +433,7 @@ xfs_defer_finish_noroll(
 		} else {
 			/* Done with the dfp, free it. */
 			list_del(&dfp->dfp_list);
-			kmem_free(dfp);
+			kfree(dfp);
 		}
 
 		if (ops->finish_cleanup)

@@ -184,7 +184,7 @@ xlog_cil_alloc_shadow_bufs(
 			 * the buffer, only the log vector header and the iovec
 			 * storage.
 			 */
-			kmem_free(lip->li_lv_shadow);
+			kfree(lip->li_lv_shadow);
 
 			lv = kmem_alloc_large(buf_size, KM_NOFS);
 			memset(lv, 0, xlog_cil_iovec_space(niovecs));
@@ -492,7 +492,7 @@ xlog_cil_free_logvec(
 
 	for (lv = log_vector; lv; ) {
 		struct xfs_log_vec *next = lv->lv_next;
-		kmem_free(lv);
+		kvfree(lv);
 		lv = next;
 	}
 }
@@ -506,7 +506,7 @@ xlog_discard_endio_work(
 	struct xfs_mount	*mp = ctx->cil->xc_log->l_mp;
 
 	xfs_extent_busy_clear(mp, &ctx->busy_extents, false);
-	kmem_free(ctx);
+	kfree(ctx);
 }
 
 /*
@@ -608,7 +608,7 @@ xlog_cil_committed(
 	if (!list_empty(&ctx->busy_extents))
 		xlog_discard_busy_extents(mp, ctx);
 	else
-		kmem_free(ctx);
+		kfree(ctx);
 }
 
 void
@@ -872,7 +872,7 @@ restart:
 out_skip:
 	up_write(&cil->xc_ctx_lock);
 	xfs_log_ticket_put(new_ctx->ticket);
-	kmem_free(new_ctx);
+	kfree(new_ctx);
 	return 0;
 
 out_abort_free_ticket:
@@ -1185,7 +1185,7 @@ xlog_cil_init(
 
 	ctx = kmem_zalloc(sizeof(*ctx), KM_MAYFAIL);
 	if (!ctx) {
-		kmem_free(cil);
+		kfree(cil);
 		return -ENOMEM;
 	}
 
@@ -1216,10 +1216,10 @@ xlog_cil_destroy(
 	if (log->l_cilp->xc_ctx) {
 		if (log->l_cilp->xc_ctx->ticket)
 			xfs_log_ticket_put(log->l_cilp->xc_ctx->ticket);
-		kmem_free(log->l_cilp->xc_ctx);
+		kfree(log->l_cilp->xc_ctx);
 	}
 
 	ASSERT(list_empty(&log->l_cilp->xc_cil));
-	kmem_free(log->l_cilp);
+	kfree(log->l_cilp);
 }
 

@@ -35,9 +35,9 @@ void
 xfs_efi_item_free(
 	struct xfs_efi_log_item	*efip)
 {
-	kmem_free(efip->efi_item.li_lv_shadow);
+	kfree(efip->efi_item.li_lv_shadow);
 	if (efip->efi_format.efi_nextents > XFS_EFI_MAX_FAST_EXTENTS)
-		kmem_free(efip);
+		kfree(efip);
 	else
 		kmem_cache_free(xfs_efi_zone, efip);
 }
@@ -240,9 +240,9 @@ static inline struct xfs_efd_log_item *EFD_ITEM(struct xfs_log_item *lip)
 STATIC void
 xfs_efd_item_free(struct xfs_efd_log_item *efdp)
 {
-	kmem_free(efdp->efd_item.li_lv_shadow);
+	kfree(efdp->efd_item.li_lv_shadow);
 	if (efdp->efd_format.efd_nextents > XFS_EFD_MAX_FAST_EXTENTS)
-		kmem_free(efdp);
+		kfree(efdp);
 	else
 		kmem_cache_free(xfs_efd_zone, efdp);
 }
@@ -488,7 +488,7 @@ xfs_extent_free_finish_item(
 			free->xefi_startblock,
 			free->xefi_blockcount,
 			&free->xefi_oinfo, free->xefi_skip_discard);
-	kmem_free(free);
+	kfree(free);
 	return error;
 }
 
@@ -508,7 +508,7 @@ xfs_extent_free_cancel_item(
 	struct xfs_extent_free_item	*free;
 
 	free = container_of(item, struct xfs_extent_free_item, xefi_list);
-	kmem_free(free);
+	kfree(free);
 }
 
 const struct xfs_defer_op_type xfs_extent_free_defer_type = {
@@ -572,7 +572,7 @@ xfs_agfl_free_finish_item(
 	extp->ext_len = free->xefi_blockcount;
 	efdp->efd_next_extent++;
 
-	kmem_free(free);
+	kfree(free);
 	return error;
 }
 

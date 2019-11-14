@@ -400,7 +400,7 @@ xfs_compat_attrlist_by_handle(
 		error = -EFAULT;
 
 out_kfree:
-	kmem_free(kbuf);
+	kvfree(kbuf);
 out_dput:
 	dput(dentry);
 	return error;

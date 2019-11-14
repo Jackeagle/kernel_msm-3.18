@@ -708,7 +708,7 @@ xfs_lookup(
 
 out_free_name:
 	if (ci_name)
-		kmem_free(ci_name->name);
+		kfree(ci_name->name);
 out_unlock:
 	*ipp = NULL;
 	return error;
@@ -2000,7 +2000,7 @@ xfs_iunlink_insert_backref(
 	 */
 	if (error) {
 		WARN(error != -ENOMEM, "iunlink cache insert error %d", error);
-		kmem_free(iu);
+		kfree(iu);
 	}
 	/*
 	 * Absorb any runtime errors that aren't a result of corruption because
@@ -2065,7 +2065,7 @@ xfs_iunlink_change_backref(
 
 	/* If there is no new next entry just free our item and return. */
 	if (next_unlinked == NULLAGINO) {
-		kmem_free(iu);
+		kfree(iu);
 		return 0;
 	}
 
@@ -2093,7 +2093,7 @@ xfs_iunlink_free_item(
 	bool			*freed_anything = arg;
 
 	*freed_anything = true;
-	kmem_free(iu);
+	kfree(iu);
 }
 
 void
@@ -3614,7 +3614,7 @@ xfs_iflush_cluster(
 
 out_free:
 	rcu_read_unlock();
-	kmem_free(cilist);
+	kfree(cilist);
 out_put:
 	xfs_perag_put(pag);
 	return 0;
@@ -3645,7 +3645,7 @@ cluster_corrupt_out:
 
 	/* abort the corrupt inode, as it was not attached to the buffer */
 	xfs_iflush_abort(cip, false);
-	kmem_free(cilist);
+	kfree(cilist);
 	xfs_perag_put(pag);
 	return -EFSCORRUPTED;
 }

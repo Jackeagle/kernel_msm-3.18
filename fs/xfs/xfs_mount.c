@@ -42,7 +42,7 @@ xfs_uuid_table_free(void)
 {
 	if (xfs_uuid_table_size == 0)
 		return;
-	kmem_free(xfs_uuid_table);
+	kfree(xfs_uuid_table);
 	xfs_uuid_table = NULL;
 	xfs_uuid_table_size = 0;
 }
@@ -127,7 +127,7 @@ __xfs_free_perag(
 	struct xfs_perag *pag = container_of(head, struct xfs_perag, rcu_head);
 
 	ASSERT(atomic_read(&pag->pag_ref) == 0);
-	kmem_free(pag);
+	kfree(pag);
 }
 
 /*
@@ -243,7 +243,7 @@ out_hash_destroy:
 	xfs_buf_hash_destroy(pag);
 out_free_pag:
 	mutex_destroy(&pag->pag_ici_reclaim_lock);
-	kmem_free(pag);
+	kfree(pag);
 out_unwind_new_pags:
 	/* unwind any prior newly initialized pags */
 	for (index = first_initialised; index < agcount; index++) {
@@ -253,7 +253,7 @@ out_unwind_new_pags:
 		xfs_buf_hash_destroy(pag);
 		xfs_iunlink_destroy(pag);
 		mutex_destroy(&pag->pag_ici_reclaim_lock);
-		kmem_free(pag);
+		kfree(pag);
 	}
 	return error;
 }

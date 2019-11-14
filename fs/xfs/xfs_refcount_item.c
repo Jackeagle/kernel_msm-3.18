@@ -32,7 +32,7 @@ xfs_cui_item_free(
 	struct xfs_cui_log_item	*cuip)
 {
 	if (cuip->cui_format.cui_nextents > XFS_CUI_MAX_FAST_EXTENTS)
-		kmem_free(cuip);
+		kfree(cuip);
 	else
 		kmem_cache_free(xfs_cui_zone, cuip);
 }
@@ -392,7 +392,7 @@ xfs_refcount_update_finish_item(
 		refc->ri_blockcount = new_aglen;
 		return -EAGAIN;
 	}
-	kmem_free(refc);
+	kfree(refc);
 	return error;
 }
 
@@ -424,7 +424,7 @@ xfs_refcount_update_cancel_item(
 	struct xfs_refcount_intent	*refc;
 
 	refc = container_of(item, struct xfs_refcount_intent, ri_list);
-	kmem_free(refc);
+	kfree(refc);
 }
 
 const struct xfs_defer_op_type xfs_refcount_update_defer_type = {

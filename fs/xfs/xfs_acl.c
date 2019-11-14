@@ -157,7 +157,7 @@ xfs_get_acl(struct inode *inode, int type)
 	} else  {
 		acl = xfs_acl_from_disk(ip->i_mount, xfs_acl, len,
 					XFS_ACL_MAX_ENTRIES(ip->i_mount));
-		kmem_free(xfs_acl);
+		kvfree(xfs_acl);
 	}
 	return acl;
 }
@@ -199,7 +199,7 @@ __xfs_set_acl(struct inode *inode, struct posix_acl *acl, int type)
 		error = xfs_attr_set(ip, ea_name, (unsigned char *)xfs_acl,
 				len, ATTR_ROOT);
 
-		kmem_free(xfs_acl);
+		kvfree(xfs_acl);
 	} else {
 		/*
 		 * A NULL ACL argument means we want to remove the ACL.

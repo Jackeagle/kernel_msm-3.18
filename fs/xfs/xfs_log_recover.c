@@ -413,7 +413,7 @@ xlog_find_verify_cycle(
 	*new_blk = -1;
 
 out:
-	kmem_free(buffer);
+	kvfree(buffer);
 	return error;
 }
 
@@ -524,7 +524,7 @@ xlog_find_verify_log_record(
 		*last_blk = i;
 
 out:
-	kmem_free(buffer);
+	kvfree(buffer);
 	return error;
 }
 
@@ -778,7 +778,7 @@ validate_head:
 			goto out_free_buffer;
 	}
 
-	kmem_free(buffer);
+	kvfree(buffer);
 	if (head_blk == log_bbnum)
 		*return_head_blk = 0;
 	else
@@ -792,7 +792,7 @@ validate_head:
 	return 0;
 
 out_free_buffer:
-	kmem_free(buffer);
+	kvfree(buffer);
 	if (error)
 		xfs_warn(log->l_mp, "failed to find log head");
 	return error;
@@ -1046,7 +1046,7 @@ xlog_verify_tail(
 		"Tail block (0x%llx) overwrite detected. Updated to 0x%llx",
 			 orig_tail, *tail_blk);
 out:
-	kmem_free(buffer);
+	kvfree(buffer);
 	return error;
 }
 
@@ -1093,7 +1093,7 @@ xlog_verify_head(
 	error = xlog_rseek_logrec_hdr(log, *head_blk, *tail_blk,
 				      XLOG_MAX_ICLOGS, tmp_buffer,
 				      &tmp_rhead_blk, &tmp_rhead, &tmp_wrapped);
-	kmem_free(tmp_buffer);
+	kvfree(tmp_buffer);
 	if (error < 0)
 		return error;
 
@@ -1427,7 +1427,7 @@ xlog_find_tail(
 		error = xlog_clear_stale_blocks(log, tail_lsn);
 
 done:
-	kmem_free(buffer);
+	kvfree(buffer);
 
 	if (error)
 		xfs_warn(log->l_mp, "failed to locate log tail");
@@ -1475,7 +1475,7 @@ xlog_find_zeroed(
 	first_cycle = xlog_get_cycle(offset);
 	if (first_cycle == 0) {		/* completely zeroed log */
 		*blk_no = 0;
-		kmem_free(buffer);
+		kvfree(buffer);
 		return 1;
 	}
 
@@ -1486,7 +1486,7 @@ xlog_find_zeroed(
 
 	last_cycle = xlog_get_cycle(offset);
 	if (last_cycle != 0) {		/* log completely written to */
-		kmem_free(buffer);
+		kvfree(buffer);
 		return 0;
 	}
 
@@ -1533,7 +1533,7 @@ xlog_find_zeroed(
 
 	*blk_no = last_blk;
 out_free_buffer:
-	kmem_free(buffer);
+	kvfree(buffer);
 	if (error)
 		return error;
 	return 1;
@@ -1645,7 +1645,7 @@ xlog_write_log_records(
 	}
 
 out_free_buffer:
-	kmem_free(buffer);
+	kvfree(buffer);
 	return error;
 }
 
@@ -2033,7 +2033,7 @@ xlog_check_buffer_cancelled(
 	if (flags & XFS_BLF_CANCEL) {
 		if (--bcp->bc_refcount == 0) {
 			list_del(&bcp->bc_list);
-			kmem_free(bcp);
+			kfree(bcp);
 		}
 	}
 	return 1;
@@ -3177,7 +3177,7 @@ out_release:
 	xfs_buf_relse(bp);
 error:
 	if (need_free)
-		kmem_free(in_f);
+		kfree(in_f);
 	return error;
 }
 
@@ -4281,7 +4281,7 @@ xlog_recover_add_to_trans(
 		"bad number of regions (%d) in inode log format",
 				  in_f->ilf_size);
 			ASSERT(0);
-			kmem_free(ptr);
+			kfree(ptr);
 			return -EFSCORRUPTED;
 		}
 
@@ -4296,7 +4296,7 @@ xlog_recover_add_to_trans(
 	"log item region count (%d) overflowed size (%d)",
 				item->ri_cnt, item->ri_total);
 		ASSERT(0);
-		kmem_free(ptr);
+		kfree(ptr);
 		return -EFSCORRUPTED;
 	}
 
@@ -4326,13 +4326,13 @@ xlog_recover_free_trans(
 		/* Free the regions in the item. */
 		list_del(&item->ri_list);
 		for (i = 0; i < item->ri_cnt; i++)
-			kmem_free(item->ri_buf[i].i_addr);
+			kfree(item->ri_buf[i].i_addr);
 		/* Free the item itself */
-		kmem_free(item->ri_buf);
-		kmem_free(item);
+		kfree(item->ri_buf);
+		kfree(item);
 	}
 	/* Free the transaction recover structure */
-	kmem_free(trans);
+	kfree(trans);
 }
 
 /*
@@ -5311,7 +5311,7 @@ xlog_do_recovery_pass(
 			hblks = h_size / XLOG_HEADER_CYCLE_SIZE;
 			if (h_size % XLOG_HEADER_CYCLE_SIZE)
 				hblks++;
-			kmem_free(hbp);
+			kvfree(hbp);
 			hbp = xlog_alloc_buffer(log, hblks);
 		} else {
 			hblks = 1;
@@ -5327,7 +5327,7 @@ xlog_do_recovery_pass(
 		return -ENOMEM;
 	dbp = xlog_alloc_buffer(log, BTOBB(h_size));
 	if (!dbp) {
-		kmem_free(hbp);
+		kvfree(hbp);
 		return -ENOMEM;
 	}
 
@@ -5488,9 +5488,9 @@ xlog_do_recovery_pass(
 	}
 
  bread_err2:
-	kmem_free(dbp);
+	kvfree(dbp);
  bread_err1:
-	kmem_free(hbp);
+	kvfree(hbp);
 
 	/*
 	 * Submit buffers that have been added from the last record processed,
@@ -5554,7 +5554,7 @@ xlog_do_log_recovery(
 	error = xlog_do_recovery_pass(log, head_blk, tail_blk,
 				      XLOG_RECOVER_PASS1, NULL);
 	if (error != 0) {
-		kmem_free(log->l_buf_cancel_table);
+		kfree(log->l_buf_cancel_table);
 		log->l_buf_cancel_table = NULL;
 		return error;
 	}
@@ -5573,7 +5573,7 @@ xlog_do_log_recovery(
 	}
 #endif	/* DEBUG */
 
-	kmem_free(log->l_buf_cancel_table);
+	kfree(log->l_buf_cancel_table);
 	log->l_buf_cancel_table = NULL;
 
 	return error;

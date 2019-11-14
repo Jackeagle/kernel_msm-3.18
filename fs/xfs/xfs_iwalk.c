@@ -164,7 +164,7 @@ STATIC void
 xfs_iwalk_free(
 	struct xfs_iwalk_ag	*iwag)
 {
-	kmem_free(iwag->recs);
+	kfree(iwag->recs);
 	iwag->recs = NULL;
 }
 
@@ -579,7 +579,7 @@ xfs_iwalk_ag_work(
 	error = xfs_iwalk_ag(iwag);
 	xfs_iwalk_free(iwag);
 out:
-	kmem_free(iwag);
+	kfree(iwag);
 	return error;
 }
 

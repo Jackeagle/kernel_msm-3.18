@@ -104,8 +104,8 @@ xfs_da_mount(
 	mp->m_attr_geo = kmem_zalloc(sizeof(struct xfs_da_geometry),
 				     KM_MAYFAIL);
 	if (!mp->m_dir_geo || !mp->m_attr_geo) {
-		kmem_free(mp->m_dir_geo);
-		kmem_free(mp->m_attr_geo);
+		kfree(mp->m_dir_geo);
+		kfree(mp->m_attr_geo);
 		return -ENOMEM;
 	}
 
@@ -165,8 +165,8 @@ void
 xfs_da_unmount(
 	struct xfs_mount	*mp)
 {
-	kmem_free(mp->m_dir_geo);
-	kmem_free(mp->m_attr_geo);
+	kfree(mp->m_dir_geo);
+	kfree(mp->m_attr_geo);
 }
 
 /*
@@ -231,7 +231,7 @@ xfs_dir_init(
 	args->dp = dp;
 	args->trans = tp;
 	error = xfs_dir2_sf_create(args, pdp->i_ino);
-	kmem_free(args);
+	kfree(args);
 	return error;
 }
 
@@ -300,7 +300,7 @@ xfs_dir_createname(
 		rval = xfs_dir2_node_addname(args);
 
 out_free:
-	kmem_free(args);
+	kfree(args);
 	return rval;
 }
 
@@ -406,7 +406,7 @@ out_check_rval:
 	}
 out_free:
 	xfs_iunlock(dp, lock_mode);
-	kmem_free(args);
+	kfree(args);
 	return rval;
 }
 
@@ -464,7 +464,7 @@ xfs_dir_removename(
 	else
 		rval = xfs_dir2_node_removename(args);
 out_free:
-	kmem_free(args);
+	kfree(args);
 	return rval;
 }
 
@@ -525,7 +525,7 @@ xfs_dir_replace(
 	else
 		rval = xfs_dir2_node_replace(args);
 out_free:
-	kmem_free(args);
+	kfree(args);
 	return rval;
 }
 

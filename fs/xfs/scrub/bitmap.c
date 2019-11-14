@@ -47,7 +47,7 @@ xfs_bitmap_destroy(
 
 	for_each_xfs_bitmap_extent(bmr, n, bitmap) {
 		list_del(&bmr->list);
-		kmem_free(bmr);
+		kfree(bmr);
 	}
 }
 
@@ -174,7 +174,7 @@ xfs_bitmap_disunion(
 			/* Total overlap, just delete ex. */
 			lp = lp->next;
 			list_del(&br->list);
-			kmem_free(br);
+			kfree(br);
 			break;
 		case 0:
 			/*

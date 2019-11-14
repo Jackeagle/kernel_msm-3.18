@@ -215,7 +215,7 @@ xchk_refcountbt_process_rmap_fragments(
 				continue;
 			}
 			list_del(&frag->list);
-			kmem_free(frag);
+			kfree(frag);
 			nr++;
 		}
 
@@ -257,11 +257,11 @@ done:
 	/* Delete fragments and work list. */
 	list_for_each_entry_safe(frag, n, &worklist, list) {
 		list_del(&frag->list);
-		kmem_free(frag);
+		kfree(frag);
 	}
 	list_for_each_entry_safe(frag, n, &refchk->fragments, list) {
 		list_del(&frag->list);
-		kmem_free(frag);
+		kfree(frag);
 	}
 }
 
@@ -308,7 +308,7 @@ xchk_refcountbt_xref_rmap(
 out_free:
 	list_for_each_entry_safe(frag, n, &refchk.fragments, list) {
 		list_del(&frag->list);
-		kmem_free(frag);
+		kfree(frag);
 	}
 }
 

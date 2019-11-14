@@ -175,7 +175,7 @@ xchk_teardown(
 		sc->flags &= ~XCHK_HAS_QUOTAOFFLOCK;
 	}
 	if (sc->buf) {
-		kmem_free(sc->buf);
+		kvfree(sc->buf);
 		sc->buf = NULL;
 	}
 	return error;

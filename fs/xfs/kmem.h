@@ -56,11 +56,6 @@ extern void *kmem_alloc(size_t, xfs_km_flags_t);
 extern void *kmem_alloc_io(size_t size, int align_mask, xfs_km_flags_t flags);
 extern void *kmem_alloc_large(size_t size, xfs_km_flags_t);
 extern void *kmem_realloc(const void *, size_t, xfs_km_flags_t);
-static inline void  kmem_free(const void *ptr)
-{
-	kvfree(ptr);
-}
-
 
 static inline void *
 kmem_zalloc(size_t size, xfs_km_flags_t flags)

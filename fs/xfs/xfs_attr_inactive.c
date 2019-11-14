@@ -181,7 +181,7 @@ xfs_attr3_leaf_inactive(
 			error = tmp;	/* save only the 1st errno */
 	}
 
-	kmem_free(list);
+	kfree(list);
 	return error;
 }
 

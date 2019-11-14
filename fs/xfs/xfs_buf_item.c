@@ -713,7 +713,7 @@ xfs_buf_item_free_format(
 	struct xfs_buf_log_item	*bip)
 {
 	if (bip->bli_formats != &bip->__bli_format) {
-		kmem_free(bip->bli_formats);
+		kfree(bip->bli_formats);
 		bip->bli_formats = NULL;
 	}
 }
@@ -938,7 +938,7 @@ xfs_buf_item_free(
 	struct xfs_buf_log_item	*bip)
 {
 	xfs_buf_item_free_format(bip);
-	kmem_free(bip->bli_item.li_lv_shadow);
+	kfree(bip->bli_item.li_lv_shadow);
 	kmem_cache_free(xfs_buf_item_zone, bip);
 }
 

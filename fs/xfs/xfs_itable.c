@@ -175,7 +175,7 @@ xfs_bulkstat_one(
 
 	error = xfs_bulkstat_one_int(breq->mp, NULL, breq->startino, &bc);
 
-	kmem_free(bc.buf);
+	kfree(bc.buf);
 
 	/*
 	 * If we reported one inode to userspace then we abort because we hit
@@ -250,7 +250,7 @@ xfs_bulkstat(
 	error = xfs_iwalk(breq->mp, NULL, breq->startino, breq->flags,
 			xfs_bulkstat_iwalk, breq->icount, &bc);
 
-	kmem_free(bc.buf);
+	kfree(bc.buf);
 
 	/*
 	 * We found some inodes, so clear the error status and return them.

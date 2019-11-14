@@ -698,7 +698,7 @@ out:
 			error = xchk_btree_check_block_owner(&bs,
 					co->level, co->daddr);
 		list_del(&co->list);
-		kmem_free(co);
+		kfree(co);
 	}
 
 	return error;

@@ -341,7 +341,7 @@ xfs_attrlist_by_handle(
 		error = -EFAULT;
 
 out_kfree:
-	kmem_free(kbuf);
+	kvfree(kbuf);
 out_dput:
 	dput(dentry);
 	return error;
@@ -372,7 +372,7 @@ xfs_attrmulti_attr_get(
 		error = -EFAULT;
 
 out_kfree:
-	kmem_free(kbuf);
+	kvfree(kbuf);
 	return error;
 }
 
@@ -1701,7 +1701,7 @@ xfs_ioc_getbmap(
 
 	error = 0;
 out_free_buf:
-	kmem_free(buf);
+	kvfree(buf);
 	return error;
 }
 

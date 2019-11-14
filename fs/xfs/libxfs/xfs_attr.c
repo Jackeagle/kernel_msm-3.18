@@ -174,7 +174,7 @@ xfs_attr_get(
 	/* on error, we have to clean up allocated value buffers */
 	if (error) {
 		if (flags & ATTR_ALLOC) {
-			kmem_free(args.value);
+			kvfree(args.value);
 			*value = NULL;
 		}
 		return error;

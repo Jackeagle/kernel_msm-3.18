@@ -753,7 +753,7 @@ xchk_agfl(
 	}
 
 out_free:
-	kmem_free(sai.entries);
+	kfree(sai.entries);
 out:
 	return error;
 }

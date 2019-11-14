@@ -445,7 +445,7 @@ xfs_iroot_realloc(
 						     (int)new_size);
 		memcpy(np, op, new_max * (uint)sizeof(xfs_fsblock_t));
 	}
-	kmem_free(ifp->if_broot);
+	kfree(ifp->if_broot);
 	ifp->if_broot = new_broot;
 	ifp->if_broot_bytes = (int)new_size;
 	if (ifp->if_broot)
@@ -486,7 +486,7 @@ xfs_idata_realloc(
 		return;
 
 	if (new_size == 0) {
-		kmem_free(ifp->if_u1.if_data);
+		kfree(ifp->if_u1.if_data);
 		ifp->if_u1.if_data = NULL;
 		ifp->if_bytes = 0;
 		return;
@@ -511,7 +511,7 @@ xfs_idestroy_fork(
 
 	ifp = XFS_IFORK_PTR(ip, whichfork);
 	if (ifp->if_broot != NULL) {
-		kmem_free(ifp->if_broot);
+		kfree(ifp->if_broot);
 		ifp->if_broot = NULL;
 	}
 
@@ -523,7 +523,7 @@ xfs_idestroy_fork(
 	 */
 	if (XFS_IFORK_FORMAT(ip, whichfork) == XFS_DINODE_FMT_LOCAL) {
 		if (ifp->if_u1.if_data != NULL) {
-			kmem_free(ifp->if_u1.if_data);
+			kfree(ifp->if_u1.if_data);
 			ifp->if_u1.if_data = NULL;
 		}
 	} else if ((ifp->if_flags & XFS_IFEXTENTS) && ifp->if_height) {

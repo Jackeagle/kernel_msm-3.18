@@ -930,7 +930,7 @@ xfs_attr_shortform_to_leaf(
 	error = 0;
 	*leaf_bp = bp;
 out:
-	kmem_free(tmpbuffer);
+	kfree(tmpbuffer);
 	return error;
 }
 
@@ -1130,7 +1130,7 @@ xfs_attr3_leaf_to_shortform(
 	error = 0;
 
 out:
-	kmem_free(tmpbuffer);
+	kfree(tmpbuffer);
 	return error;
 }
 
@@ -1573,7 +1573,7 @@ xfs_attr3_leaf_compact(
 	 */
 	xfs_trans_log_buf(trans, bp, 0, args->geo->blksize - 1);
 
-	kmem_free(tmpbuffer);
+	kfree(tmpbuffer);
 }
 
 /*
@@ -2294,7 +2294,7 @@ xfs_attr3_leaf_unbalance(
 		}
 		memcpy(save_leaf, tmp_leaf, state->args->geo->blksize);
 		savehdr = tmphdr; /* struct copy */
-		kmem_free(tmp_leaf);
+		kfree(tmp_leaf);
 	}
 
 	xfs_attr3_leaf_hdr_to_disk(state->args->geo, save_leaf, &savehdr);

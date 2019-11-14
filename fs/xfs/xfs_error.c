@@ -226,7 +226,7 @@ xfs_errortag_del(
 	struct xfs_mount	*mp)
 {
 	xfs_sysfs_del(&mp->m_errortag_kobj);
-	kmem_free(mp->m_errortag);
+	kfree(mp->m_errortag);
 }
 
 bool
