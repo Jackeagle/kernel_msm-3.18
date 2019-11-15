@@ -1255,11 +1255,17 @@ static bool __purge_vmap_area_lazy(unsigned long start, unsigned long end)
 	if (unlikely(valist == NULL))
 		return false;
 
+#if defined(CONFIG_X86_32) && defined(CONFIG_X86_PAE)
 	/*
 	 * First make sure the mappings are removed from all page-tables
 	 * before they are freed.
+	 *
+	 * This is only needed on x86-32 with !SHARED_KERNEL_PMD, which is
+	 * the case on a PAE kernel with PTI enabled.
 	 */
-	vmalloc_sync_all();
+	if (!SHARED_KERNEL_PMD && boot_cpu_has(X86_FEATURE_PTI))
+		vmalloc_sync_all();
+#endif
 
 	/*
 	 * TODO: to calculate a flush range without looping.
