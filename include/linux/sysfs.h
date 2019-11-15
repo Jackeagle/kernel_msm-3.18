@@ -265,7 +265,6 @@ int __must_check sysfs_create_link_nowarn(struct kobject *kobj,
 					  struct kobject *target,
 					  const char *name);
 void sysfs_remove_link(struct kobject *kobj, const char *name);
-bool sysfs_link_exists(struct kobject *kobj, const char *name);
 
 int sysfs_rename_link_ns(struct kobject *kobj, struct kobject *target,
 			 const char *old_name, const char *new_name,
@@ -419,11 +418,6 @@ static inline int sysfs_create_link_nowarn(struct kobject *kobj,
 
 static inline void sysfs_remove_link(struct kobject *kobj, const char *name)
 {
-}
-
-static inline bool sysfs_link_exists(struct kobject *kobj, const char *name)
-{
-	return true;
 }
 
 static inline int sysfs_rename_link_ns(struct kobject *k, struct kobject *t,

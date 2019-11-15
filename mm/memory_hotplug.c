@@ -1646,13 +1646,16 @@ static int check_cpu_on_node(pg_data_t *pgdat)
 	return 0;
 }
 
-static int check_no_memblock_registered_under_node_cb(struct memory_block *mem,
-						      void *arg)
+static int check_no_memblock_for_node_cb(struct memory_block *mem, void *arg)
 {
+	int nid = *(int *)arg;
 
-	const int nid = *(int *)arg;
-
-	return memory_block_registered_under_node(mem, nid) ? -EEXIST : 0;
+	/*
+	 * If a memory block belongs to multiple nodes, the stored nid is not
+	 * reliable. However, such blocks are always online (e.g., cannot get
+	 * offlined) and, therefore, are still spanned by the node.
+	 */
+	return mem->nid == nid ? -EEXIST : 0;
 }
 
 /**
@@ -1666,7 +1669,6 @@ static int check_no_memblock_registered_under_node_cb(struct memory_block *mem,
  */
 void try_offline_node(int nid)
 {
-	unsigned long end_pfn = section_nr_to_pfn(__highest_present_section_nr);
 	pg_data_t *pgdat = NODE_DATA(nid);
 	int rc;
 
@@ -1683,8 +1685,7 @@ void try_offline_node(int nid)
 	 * node. They will get spanned by the node once they get onlined.
 	 * However, they link to the node in sysfs and can get onlined later.
 	 */
-	rc = walk_memory_blocks(0, PFN_PHYS(end_pfn), &nid,
-				check_no_memblock_registered_under_node_cb);
+	rc = for_each_memory_block(&nid, check_no_memblock_for_node_cb);
 	if (rc)
 		return;
 
