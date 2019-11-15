@@ -3106,7 +3106,7 @@ prepare_lock_switch(struct rq *rq, struct task_struct *next, struct rq_flags *rf
 	 * do an early lockdep release here:
 	 */
 	rq_unpin_lock(rq, rf);
-	spin_release(&rq->lock.dep_map, 1, _THIS_IP_);
+	spin_release(&rq->lock.dep_map, _THIS_IP_);
 #ifdef CONFIG_DEBUG_SPINLOCK
 	/* this is a valid case when another task releases the spinlock */
 	rq->lock.owner = next;
@@ -3918,13 +3918,15 @@ pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 		    prev->sched_class == &fair_sched_class) &&
 		   rq->nr_running == rq->cfs.h_nr_running)) {
 
-		p = fair_sched_class.pick_next_task(rq, prev, rf);
+		p = pick_next_task_fair(rq, prev, rf);
 		if (unlikely(p == RETRY_TASK))
 			goto restart;
 
 		/* Assumes fair_sched_class->next == idle_sched_class */
-		if (unlikely(!p))
-			p = idle_sched_class.pick_next_task(rq, prev, rf);
+		if (!p) {
+			put_prev_task(rq, prev);
+			p = pick_next_task_idle(rq);
+		}
 
 		return p;
 	}
@@ -3948,7 +3950,7 @@ restart:
 	put_prev_task(rq, prev);
 
 	for_each_class(class) {
-		p = class->pick_next_task(rq, NULL, NULL);
+		p = class->pick_next_task(rq);
 		if (p)
 			return p;
 	}
@@ -6027,10 +6029,11 @@ void init_idle(struct task_struct *idle, int cpu)
 	struct rq *rq = cpu_rq(cpu);
 	unsigned long flags;
 
+	__sched_fork(0, idle);
+
 	raw_spin_lock_irqsave(&idle->pi_lock, flags);
 	raw_spin_lock(&rq->lock);
 
-	__sched_fork(0, idle);
 	idle->state = TASK_RUNNING;
 	idle->se.exec_start = sched_clock();
 	idle->flags |= PF_IDLE;
@@ -6216,7 +6219,7 @@ static struct task_struct *__pick_migrate_task(struct rq *rq)
 	struct task_struct *next;
 
 	for_each_class(class) {
-		next = class->pick_next_task(rq, NULL, NULL);
+		next = class->pick_next_task(rq);
 		if (next) {
 			next->sched_class->put_prev_task(rq, next);
 			return next;
