@@ -23,6 +23,7 @@
 #include <linux/filter.h>
 #include <linux/init.h>
 #include <linux/bpf.h>
+#include <linux/mm.h>
 #include <asm/cacheflush.h>
 #include <asm/dis.h>
 #include <asm/facility.h>
@@ -41,7 +42,6 @@ struct bpf_jit {
 	int lit_start;		/* Start of literal pool */
 	int lit;		/* Current position in literal pool */
 	int base_ip;		/* Base address for literal pool */
-	int ret0_ip;		/* Address of return 0 */
 	int exit_ip;		/* Address of exit */
 	int r1_thunk_ip;	/* Address of expoline thunk for 'br %r1' */
 	int r14_thunk_ip;	/* Address of expoline thunk for 'br %r14' */
@@ -51,12 +51,10 @@ struct bpf_jit {
 
 #define BPF_SIZE_MAX	0xffff	/* Max size for program (16 bit branches) */
 
-#define SEEN_MEM	(1 << 0)	/* use mem[] for temporary storage */
-#define SEEN_RET0	(1 << 1)	/* ret0_ip points to a valid return 0 */
-#define SEEN_LITERAL	(1 << 2)	/* code uses literals */
-#define SEEN_FUNC	(1 << 3)	/* calls C functions */
-#define SEEN_TAIL_CALL	(1 << 4)	/* code uses tail calls */
-#define SEEN_REG_AX	(1 << 5)	/* code uses constant blinding */
+#define SEEN_MEM	BIT(0)		/* use mem[] for temporary storage */
+#define SEEN_LITERAL	BIT(1)		/* code uses literals */
+#define SEEN_FUNC	BIT(2)		/* calls C functions */
+#define SEEN_TAIL_CALL	BIT(3)		/* code uses tail calls */
 #define SEEN_STACK	(SEEN_FUNC | SEEN_MEM)
 
 /*
@@ -131,13 +129,13 @@ static inline void reg_set_seen(struct bpf_jit *jit, u32 b1)
 #define _EMIT2(op)						\
 ({								\
 	if (jit->prg_buf)					\
-		*(u16 *) (jit->prg_buf + jit->prg) = op;	\
+		*(u16 *) (jit->prg_buf + jit->prg) = (op);	\
 	jit->prg += 2;						\
 })
 
 #define EMIT2(op, b1, b2)					\
 ({								\
-	_EMIT2(op | reg(b1, b2));				\
+	_EMIT2((op) | reg(b1, b2));				\
 	REG_SET_SEEN(b1);					\
 	REG_SET_SEEN(b2);					\
 })
@@ -145,20 +143,20 @@ static inline void reg_set_seen(struct bpf_jit *jit, u32 b1)
 #define _EMIT4(op)						\
 ({								\
 	if (jit->prg_buf)					\
-		*(u32 *) (jit->prg_buf + jit->prg) = op;	\
+		*(u32 *) (jit->prg_buf + jit->prg) = (op);	\
 	jit->prg += 4;						\
 })
 
 #define EMIT4(op, b1, b2)					\
 ({								\
-	_EMIT4(op | reg(b1, b2));				\
+	_EMIT4((op) | reg(b1, b2));				\
 	REG_SET_SEEN(b1);					\
 	REG_SET_SEEN(b2);					\
 })
 
 #define EMIT4_RRF(op, b1, b2, b3)				\
 ({								\
-	_EMIT4(op | reg_high(b3) << 8 | reg(b1, b2));		\
+	_EMIT4((op) | reg_high(b3) << 8 | reg(b1, b2));		\
 	REG_SET_SEEN(b1);					\
 	REG_SET_SEEN(b2);					\
 	REG_SET_SEEN(b3);					\
@@ -167,13 +165,13 @@ static inline void reg_set_seen(struct bpf_jit *jit, u32 b1)
 #define _EMIT4_DISP(op, disp)					\
 ({								\
 	unsigned int __disp = (disp) & 0xfff;			\
-	_EMIT4(op | __disp);					\
+	_EMIT4((op) | __disp);					\
 })
 
 #define EMIT4_DISP(op, b1, b2, disp)				\
 ({								\
-	_EMIT4_DISP(op | reg_high(b1) << 16 |			\
-		    reg_high(b2) << 8, disp);			\
+	_EMIT4_DISP((op) | reg_high(b1) << 16 |			\
+		    reg_high(b2) << 8, (disp));			\
 	REG_SET_SEEN(b1);					\
 	REG_SET_SEEN(b2);					\
 })
@@ -181,21 +179,21 @@ static inline void reg_set_seen(struct bpf_jit *jit, u32 b1)
 #define EMIT4_IMM(op, b1, imm)					\
 ({								\
 	unsigned int __imm = (imm) & 0xffff;			\
-	_EMIT4(op | reg_high(b1) << 16 | __imm);		\
+	_EMIT4((op) | reg_high(b1) << 16 | __imm);		\
 	REG_SET_SEEN(b1);					\
 })
 
 #define EMIT4_PCREL(op, pcrel)					\
 ({								\
 	long __pcrel = ((pcrel) >> 1) & 0xffff;			\
-	_EMIT4(op | __pcrel);					\
+	_EMIT4((op) | __pcrel);					\
 })
 
 #define _EMIT6(op1, op2)					\
 ({								\
 	if (jit->prg_buf) {					\
-		*(u32 *) (jit->prg_buf + jit->prg) = op1;	\
-		*(u16 *) (jit->prg_buf + jit->prg + 4) = op2;	\
+		*(u32 *) (jit->prg_buf + jit->prg) = (op1);	\
+		*(u16 *) (jit->prg_buf + jit->prg + 4) = (op2);	\
 	}							\
 	jit->prg += 6;						\
 })
@@ -203,20 +201,20 @@ static inline void reg_set_seen(struct bpf_jit *jit, u32 b1)
 #define _EMIT6_DISP(op1, op2, disp)				\
 ({								\
 	unsigned int __disp = (disp) & 0xfff;			\
-	_EMIT6(op1 | __disp, op2);				\
+	_EMIT6((op1) | __disp, op2);				\
 })
 
 #define _EMIT6_DISP_LH(op1, op2, disp)				\
 ({								\
-	u32 _disp = (u32) disp;					\
+	u32 _disp = (u32) (disp);				\
 	unsigned int __disp_h = _disp & 0xff000;		\
 	unsigned int __disp_l = _disp & 0x00fff;		\
-	_EMIT6(op1 | __disp_l, op2 | __disp_h >> 4);		\
+	_EMIT6((op1) | __disp_l, (op2) | __disp_h >> 4);	\
 })
 
 #define EMIT6_DISP_LH(op1, op2, b1, b2, b3, disp)		\
 ({								\
-	_EMIT6_DISP_LH(op1 | reg(b1, b2) << 16 |		\
+	_EMIT6_DISP_LH((op1) | reg(b1, b2) << 16 |		\
 		       reg_high(b3) << 8, op2, disp);		\
 	REG_SET_SEEN(b1);					\
 	REG_SET_SEEN(b2);					\
@@ -226,8 +224,8 @@ static inline void reg_set_seen(struct bpf_jit *jit, u32 b1)
 #define EMIT6_PCREL_LABEL(op1, op2, b1, b2, label, mask)	\
 ({								\
 	int rel = (jit->labels[label] - jit->prg) >> 1;		\
-	_EMIT6(op1 | reg(b1, b2) << 16 | (rel & 0xffff),	\
-	       op2 | mask << 12);				\
+	_EMIT6((op1) | reg(b1, b2) << 16 | (rel & 0xffff),	\
+	       (op2) | (mask) << 12);				\
 	REG_SET_SEEN(b1);					\
 	REG_SET_SEEN(b2);					\
 })
@@ -235,43 +233,43 @@ static inline void reg_set_seen(struct bpf_jit *jit, u32 b1)
 #define EMIT6_PCREL_IMM_LABEL(op1, op2, b1, imm, label, mask)	\
 ({								\
 	int rel = (jit->labels[label] - jit->prg) >> 1;		\
-	_EMIT6(op1 | (reg_high(b1) | mask) << 16 |		\
-		(rel & 0xffff), op2 | (imm & 0xff) << 8);	\
+	_EMIT6((op1) | (reg_high(b1) | (mask)) << 16 |		\
+		(rel & 0xffff), (op2) | ((imm) & 0xff) << 8);	\
 	REG_SET_SEEN(b1);					\
-	BUILD_BUG_ON(((unsigned long) imm) > 0xff);		\
+	BUILD_BUG_ON(((unsigned long) (imm)) > 0xff);		\
 })
 
 #define EMIT6_PCREL(op1, op2, b1, b2, i, off, mask)		\
 ({								\
 	/* Branch instruction needs 6 bytes */			\
-	int rel = (addrs[i + off + 1] - (addrs[i + 1] - 6)) / 2;\
-	_EMIT6(op1 | reg(b1, b2) << 16 | (rel & 0xffff), op2 | mask);	\
+	int rel = (addrs[(i) + (off) + 1] - (addrs[(i) + 1] - 6)) / 2;\
+	_EMIT6((op1) | reg(b1, b2) << 16 | (rel & 0xffff), (op2) | (mask));\
 	REG_SET_SEEN(b1);					\
 	REG_SET_SEEN(b2);					\
 })
 
 #define EMIT6_PCREL_RILB(op, b, target)				\
 ({								\
-	int rel = (target - jit->prg) / 2;			\
-	_EMIT6(op | reg_high(b) << 16 | rel >> 16, rel & 0xffff);	\
+	int rel = ((target) - jit->prg) / 2;			\
+	_EMIT6((op) | reg_high(b) << 16 | rel >> 16, rel & 0xffff);\
 	REG_SET_SEEN(b);					\
 })
 
 #define EMIT6_PCREL_RIL(op, target)				\
 ({								\
-	int rel = (target - jit->prg) / 2;			\
-	_EMIT6(op | rel >> 16, rel & 0xffff);			\
+	int rel = ((target) - jit->prg) / 2;			\
+	_EMIT6((op) | rel >> 16, rel & 0xffff);			\
 })
 
 #define _EMIT6_IMM(op, imm)					\
 ({								\
 	unsigned int __imm = (imm);				\
-	_EMIT6(op | (__imm >> 16), __imm & 0xffff);		\
+	_EMIT6((op) | (__imm >> 16), __imm & 0xffff);		\
 })
 
 #define EMIT6_IMM(op, b1, imm)					\
 ({								\
-	_EMIT6_IMM(op | reg_high(b1) << 16, imm);		\
+	_EMIT6_IMM((op) | reg_high(b1) << 16, imm);		\
 	REG_SET_SEEN(b1);					\
 })
 
@@ -281,7 +279,7 @@ static inline void reg_set_seen(struct bpf_jit *jit, u32 b1)
 	ret = jit->lit - jit->base_ip;				\
 	jit->seen |= SEEN_LITERAL;				\
 	if (jit->prg_buf)					\
-		*(u32 *) (jit->prg_buf + jit->lit) = (u32) val;	\
+		*(u32 *) (jit->prg_buf + jit->lit) = (u32) (val);\
 	jit->lit += 4;						\
 	ret;							\
 })
@@ -292,7 +290,7 @@ static inline void reg_set_seen(struct bpf_jit *jit, u32 b1)
 	ret = jit->lit - jit->base_ip;				\
 	jit->seen |= SEEN_LITERAL;				\
 	if (jit->prg_buf)					\
-		*(u64 *) (jit->prg_buf + jit->lit) = (u64) val;	\
+		*(u64 *) (jit->prg_buf + jit->lit) = (u64) (val);\
 	jit->lit += 8;						\
 	ret;							\
 })
@@ -305,6 +303,24 @@ static inline void reg_set_seen(struct bpf_jit *jit, u32 b1)
 		REG_SET_SEEN(b1);				\
 	}							\
 })
+
+/*
+ * Return whether this is the first pass. The first pass is special, since we
+ * don't know any sizes yet, and thus must be conservative.
+ */
+static bool is_first_pass(struct bpf_jit *jit)
+{
+	return jit->size == 0;
+}
+
+/*
+ * Return whether this is the code generation pass. The code generation pass is
+ * special, since we should change as little as possible.
+ */
+static bool is_codegen_pass(struct bpf_jit *jit)
+{
+	return jit->prg_buf;
+}
 
 /*
  * Fill whole space with illegal instructions
@@ -383,8 +399,17 @@ static int get_end(struct bpf_jit *jit, int start)
  */
 static void save_restore_regs(struct bpf_jit *jit, int op, u32 stack_depth)
 {
-
+	const int last = 15, save_restore_size = 6;
 	int re = 6, rs;
+
+	if (is_first_pass(jit)) {
+		/*
+		 * We don't know yet which registers are used. Reserve space
+		 * conservatively.
+		 */
+		jit->prg += (last - re + 1) * save_restore_size;
+		return;
+	}
 
 	do {
 		rs = get_start(jit, re);
@@ -396,7 +421,7 @@ static void save_restore_regs(struct bpf_jit *jit, int op, u32 stack_depth)
 		else
 			restore_regs(jit, rs, re, stack_depth);
 		re++;
-	} while (re <= 15);
+	} while (re <= last);
 }
 
 /*
@@ -420,21 +445,21 @@ static void bpf_jit_prologue(struct bpf_jit *jit, u32 stack_depth)
 	/* Save registers */
 	save_restore_regs(jit, REGS_SAVE, stack_depth);
 	/* Setup literal pool */
-	if (jit->seen & SEEN_LITERAL) {
+	if (is_first_pass(jit) || (jit->seen & SEEN_LITERAL)) {
 		/* basr %r13,0 */
 		EMIT2(0x0d00, REG_L, REG_0);
 		jit->base_ip = jit->prg;
 	}
 	/* Setup stack and backchain */
-	if (jit->seen & SEEN_STACK) {
-		if (jit->seen & SEEN_FUNC)
+	if (is_first_pass(jit) || (jit->seen & SEEN_STACK)) {
+		if (is_first_pass(jit) || (jit->seen & SEEN_FUNC))
 			/* lgr %w1,%r15 (backchain) */
 			EMIT4(0xb9040000, REG_W1, REG_15);
 		/* la %bfp,STK_160_UNUSED(%r15) (BPF frame pointer) */
 		EMIT4_DISP(0x41000000, BPF_REG_FP, REG_15, STK_160_UNUSED);
 		/* aghi %r15,-STK_OFF */
 		EMIT4_IMM(0xa70b0000, REG_15, -(STK_OFF + stack_depth));
-		if (jit->seen & SEEN_FUNC)
+		if (is_first_pass(jit) || (jit->seen & SEEN_FUNC))
 			/* stg %w1,152(%r15) (backchain) */
 			EMIT6_DISP_LH(0xe3000000, 0x0024, REG_W1, REG_0,
 				      REG_15, 152);
@@ -446,12 +471,6 @@ static void bpf_jit_prologue(struct bpf_jit *jit, u32 stack_depth)
  */
 static void bpf_jit_epilogue(struct bpf_jit *jit, u32 stack_depth)
 {
-	/* Return 0 */
-	if (jit->seen & SEEN_RET0) {
-		jit->ret0_ip = jit->prg;
-		/* lghi %b0,0 */
-		EMIT4_IMM(0xa7090000, BPF_REG_0, 0);
-	}
 	jit->exit_ip = jit->prg;
 	/* Load exit code: lgr %r2,%b0 */
 	EMIT4(0xb9040000, REG_2, BPF_REG_0);
@@ -476,7 +495,7 @@ static void bpf_jit_epilogue(struct bpf_jit *jit, u32 stack_depth)
 	_EMIT2(0x07fe);
 
 	if (__is_defined(CC_USING_EXPOLINE) && !nospec_disable &&
-	    (jit->seen & SEEN_FUNC)) {
+	    (is_first_pass(jit) || (jit->seen & SEEN_FUNC))) {
 		jit->r1_thunk_ip = jit->prg;
 		/* Generate __s390_indirect_jump_r1 thunk */
 		if (test_facility(35)) {
@@ -514,8 +533,6 @@ static noinline int bpf_jit_insn(struct bpf_jit *jit, struct bpf_prog *fp,
 	s16 off = insn->off;
 	unsigned int mask;
 
-	if (dst_reg == BPF_REG_AX || src_reg == BPF_REG_AX)
-		jit->seen |= SEEN_REG_AX;
 	switch (insn->code) {
 	/*
 	 * BPF_MOV
@@ -1110,7 +1127,7 @@ static noinline int bpf_jit_insn(struct bpf_jit *jit, struct bpf_prog *fp,
 		break;
 	case BPF_JMP | BPF_EXIT: /* return b0 */
 		last = (i == fp->len - 1) ? 1 : 0;
-		if (last && !(jit->seen & SEEN_RET0))
+		if (last)
 			break;
 		/* j <exit> */
 		EMIT4_PCREL(0xa7f40000, jit->exit_ip - jit->prg);
@@ -1286,6 +1303,34 @@ branch_oc:
 }
 
 /*
+ * Return whether new i-th instruction address does not violate any invariant
+ */
+static bool bpf_is_new_addr_sane(struct bpf_jit *jit, int i)
+{
+	/* On the first pass anything goes */
+	if (is_first_pass(jit))
+		return true;
+
+	/* The codegen pass must not change anything */
+	if (is_codegen_pass(jit))
+		return jit->addrs[i] == jit->prg;
+
+	/* Passes in between must not increase code size */
+	return jit->addrs[i] >= jit->prg;
+}
+
+/*
+ * Update the address of i-th instruction
+ */
+static int bpf_set_addr(struct bpf_jit *jit, int i)
+{
+	if (!bpf_is_new_addr_sane(jit, i))
+		return -1;
+	jit->addrs[i] = jit->prg;
+	return 0;
+}
+
+/*
  * Compile eBPF program into s390x code
  */
 static int bpf_jit_prog(struct bpf_jit *jit, struct bpf_prog *fp,
@@ -1297,12 +1342,15 @@ static int bpf_jit_prog(struct bpf_jit *jit, struct bpf_prog *fp,
 	jit->prg = 0;
 
 	bpf_jit_prologue(jit, fp->aux->stack_depth);
+	if (bpf_set_addr(jit, 0) < 0)
+		return -1;
 	for (i = 0; i < fp->len; i += insn_count) {
 		insn_count = bpf_jit_insn(jit, fp, i, extra_pass);
 		if (insn_count < 0)
 			return -1;
 		/* Next instruction address */
-		jit->addrs[i + insn_count] = jit->prg;
+		if (bpf_set_addr(jit, i + insn_count) < 0)
+			return -1;
 	}
 	bpf_jit_epilogue(jit, fp->aux->stack_depth);
 
@@ -1369,7 +1417,7 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *fp)
 	}
 
 	memset(&jit, 0, sizeof(jit));
-	jit.addrs = kcalloc(fp->len + 1, sizeof(*jit.addrs), GFP_KERNEL);
+	jit.addrs = kvcalloc(fp->len + 1, sizeof(*jit.addrs), GFP_KERNEL);
 	if (jit.addrs == NULL) {
 		fp = orig_fp;
 		goto out;
@@ -1422,7 +1470,7 @@ skip_init_ctx:
 	if (!fp->is_func || extra_pass) {
 		bpf_prog_fill_jited_linfo(fp, jit.addrs + 1);
 free_addrs:
-		kfree(jit.addrs);
+		kvfree(jit.addrs);
 		kfree(jit_data);
 		fp->aux->jit_data = NULL;
 	}
