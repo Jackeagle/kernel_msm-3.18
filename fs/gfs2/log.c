@@ -31,6 +31,8 @@
 #include "dir.h"
 #include "trace_gfs2.h"
 
+static void gfs2_log_shutdown(struct gfs2_sbd *sdp);
+
 /**
  * gfs2_struct2blk - compute stuff
  * @sdp: the filesystem
@@ -159,7 +161,8 @@ restart:
 	list_for_each_entry_reverse(tr, head, tr_list) {
 		if (wbc->nr_to_write <= 0)
 			break;
-		if (gfs2_ail1_start_one(sdp, wbc, tr, &withdraw))
+		if (gfs2_ail1_start_one(sdp, wbc, tr, &withdraw) &&
+		    !gfs2_withdrawn(sdp))
 			goto restart;
 	}
 	spin_unlock(&sdp->sd_ail_lock);
@@ -609,6 +612,14 @@ void gfs2_add_revoke(struct gfs2_sbd *sdp, struct gfs2_bufdata *bd)
 	list_add(&bd->bd_list, &sdp->sd_log_revokes);
 }
 
+void gfs2_glock_remove_revoke(struct gfs2_glock *gl)
+{
+	if (atomic_dec_return(&gl->gl_revokes) == 0) {
+		clear_bit(GLF_LFLUSH, &gl->gl_flags);
+		gfs2_glock_queue_put(gl);
+	}
+}
+
 void gfs2_write_revokes(struct gfs2_sbd *sdp)
 {
 	struct gfs2_trans *tr;
@@ -707,7 +718,7 @@ void gfs2_write_log_header(struct gfs2_sbd *sdp, struct gfs2_jdesc *jd,
 	lh->lh_nsec = cpu_to_be32(tv.tv_nsec);
 	lh->lh_sec = cpu_to_be64(tv.tv_sec);
 	if (!list_empty(&jd->extent_list))
-		dblock = gfs2_log_bmap(sdp);
+		dblock = gfs2_log_bmap(jd, lblock);
 	else {
 		int ret = gfs2_lblk_to_dblk(jd->jd_inode, lblock, &dblock);
 		if (gfs2_assert_withdraw(sdp, ret == 0))
@@ -768,6 +779,7 @@ static void log_write_header(struct gfs2_sbd *sdp, u32 flags)
 	sdp->sd_log_idle = (tail == sdp->sd_log_flush_head);
 	gfs2_write_log_header(sdp, sdp->sd_jdesc, sdp->sd_log_sequence++, tail,
 			      sdp->sd_log_flush_head, flags, op_flags);
+	gfs2_log_incr_head(sdp);
 
 	if (sdp->sd_log_tail != tail)
 		log_pull_tail(sdp, tail);
@@ -948,7 +960,7 @@ void gfs2_log_commit(struct gfs2_sbd *sdp, struct gfs2_trans *tr)
  *
  */
 
-void gfs2_log_shutdown(struct gfs2_sbd *sdp)
+static void gfs2_log_shutdown(struct gfs2_sbd *sdp)
 {
 	gfs2_assert_withdraw(sdp, !sdp->sd_log_blks_reserved);
 	gfs2_assert_withdraw(sdp, !sdp->sd_log_num_revoke);
