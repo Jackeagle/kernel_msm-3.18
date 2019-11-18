@@ -140,7 +140,6 @@ void map__init(struct map *map, u64 start, u64 end, u64 pgoff, struct dso *dso)
 	map->map_ip   = map__map_ip;
 	map->unmap_ip = map__unmap_ip;
 	RB_CLEAR_NODE(&map->rb_node);
-	map->groups   = NULL;
 	map->erange_warned = false;
 	refcount_set(&map->refcnt, 1);
 }
@@ -244,18 +243,11 @@ struct map *map__new2(u64 start, struct dso *dso)
 	return map;
 }
 
-/*
- * Use this and __map__is_kmodule() for map instances that are in
- * machine->kmaps, and thus have map->groups->machine all properly set, to
- * disambiguate between the kernel and modules.
- *
- * When the need arises, introduce map__is_{kernel,kmodule)() that
- * checks (map->groups != NULL && map->groups->machine != NULL &&
- * map->dso->kernel) before calling __map__is_{kernel,kmodule}())
- */
 bool __map__is_kernel(const struct map *map)
 {
-	return machine__kernel_map(map->groups->machine) == map;
+	if (!map->dso->kernel)
+		return false;
+	return machine__kernel_map(map__kmaps((struct map *)map)->machine) == map;
 }
 
 bool __map__is_extra_kernel_map(const struct map *map)
@@ -288,7 +280,7 @@ bool map__has_symbols(const struct map *map)
 
 static void map__exit(struct map *map)
 {
-	BUG_ON(!RB_EMPTY_NODE(&map->rb_node));
+	BUG_ON(refcount_read(&map->refcnt) != 0);
 	dso__zput(map->dso);
 }
 
@@ -395,7 +387,6 @@ struct map *map__clone(struct map *from)
 		refcount_set(&map->refcnt, 1);
 		RB_CLEAR_NODE(&map->rb_node);
 		dso__get(map->dso);
-		map->groups = NULL;
 	}
 
 	return map;
@@ -589,33 +580,24 @@ void map_groups__init(struct map_groups *mg, struct machine *machine)
 void map_groups__insert(struct map_groups *mg, struct map *map)
 {
 	maps__insert(&mg->maps, map);
-	map->groups = mg;
 }
 
 static void __maps__purge(struct maps *maps)
 {
-	struct rb_root *root = &maps->entries;
-	struct rb_node *next = rb_first(root);
+	struct map *pos, *next;
 
-	while (next) {
-		struct map *pos = rb_entry(next, struct map, rb_node);
-
-		next = rb_next(&pos->rb_node);
-		rb_erase_init(&pos->rb_node, root);
+	maps__for_each_entry_safe(maps, pos, next) {
+		rb_erase_init(&pos->rb_node,  &maps->entries);
 		map__put(pos);
 	}
 }
 
 static void __maps__purge_names(struct maps *maps)
 {
-	struct rb_root *root = &maps->names;
-	struct rb_node *next = rb_first(root);
+	struct map *pos, *next;
 
-	while (next) {
-		struct map *pos = rb_entry(next, struct map, rb_node_name);
-
-		next = rb_next(&pos->rb_node_name);
-		rb_erase_init(&pos->rb_node_name, root);
+	maps__for_each_entry_by_name_safe(maps, pos, next) {
+		rb_erase_init(&pos->rb_node_name,  &maps->names);
 		map__put(pos);
 	}
 }
@@ -687,13 +669,11 @@ struct symbol *maps__find_symbol_by_name(struct maps *maps, const char *name,
 					 struct map **mapp)
 {
 	struct symbol *sym;
-	struct rb_node *nd;
+	struct map *pos;
 
 	down_read(&maps->lock);
 
-	for (nd = rb_first(&maps->entries); nd; nd = rb_next(nd)) {
-		struct map *pos = rb_entry(nd, struct map, rb_node);
-
+	maps__for_each_entry(maps, pos) {
 		sym = map__find_symbol_by_name(pos, name);
 
 		if (sym == NULL)
@@ -720,31 +700,30 @@ struct symbol *map_groups__find_symbol_by_name(struct map_groups *mg,
 	return maps__find_symbol_by_name(&mg->maps, name, mapp);
 }
 
-int map_groups__find_ams(struct addr_map_symbol *ams)
+int map_groups__find_ams(struct map_groups *mg, struct addr_map_symbol *ams)
 {
-	if (ams->addr < ams->map->start || ams->addr >= ams->map->end) {
-		if (ams->map->groups == NULL)
+	if (ams->addr < ams->ms.map->start || ams->addr >= ams->ms.map->end) {
+		if (mg == NULL)
 			return -1;
-		ams->map = map_groups__find(ams->map->groups, ams->addr);
-		if (ams->map == NULL)
+		ams->ms.map = map_groups__find(mg, ams->addr);
+		if (ams->ms.map == NULL)
 			return -1;
 	}
 
-	ams->al_addr = ams->map->map_ip(ams->map, ams->addr);
-	ams->sym = map__find_symbol(ams->map, ams->al_addr);
+	ams->al_addr = ams->ms.map->map_ip(ams->ms.map, ams->addr);
+	ams->ms.sym = map__find_symbol(ams->ms.map, ams->al_addr);
 
-	return ams->sym ? 0 : -1;
+	return ams->ms.sym ? 0 : -1;
 }
 
 static size_t maps__fprintf(struct maps *maps, FILE *fp)
 {
 	size_t printed = 0;
-	struct rb_node *nd;
+	struct map *pos;
 
 	down_read(&maps->lock);
 
-	for (nd = rb_first(&maps->entries); nd; nd = rb_next(nd)) {
-		struct map *pos = rb_entry(nd, struct map, rb_node);
+	maps__for_each_entry(maps, pos) {
 		printed += fprintf(fp, "Map:");
 		printed += map__fprintf(pos, fp);
 		if (verbose > 2) {
@@ -767,11 +746,11 @@ static void __map_groups__insert(struct map_groups *mg, struct map *map)
 {
 	__maps__insert(&mg->maps, map);
 	__maps__insert_name(&mg->maps, map);
-	map->groups = mg;
 }
 
-static int maps__fixup_overlappings(struct maps *maps, struct map *map, FILE *fp)
+int map_groups__fixup_overlappings(struct map_groups *mg, struct map *map, FILE *fp)
 {
+	struct maps *maps = &mg->maps;
 	struct rb_root *root;
 	struct rb_node *next, *first;
 	int err = 0;
@@ -836,7 +815,7 @@ static int maps__fixup_overlappings(struct maps *maps, struct map *map, FILE *fp
 			}
 
 			before->end = map->start;
-			__map_groups__insert(pos->groups, before);
+			__map_groups__insert(mg, before);
 			if (verbose >= 2 && !use_browser)
 				map__fprintf(before, fp);
 			map__put(before);
@@ -853,7 +832,7 @@ static int maps__fixup_overlappings(struct maps *maps, struct map *map, FILE *fp
 			after->start = map->end;
 			after->pgoff += map->end - pos->start;
 			assert(pos->map_ip(pos, map->end) == after->map_ip(after, map->end));
-			__map_groups__insert(pos->groups, after);
+			__map_groups__insert(mg, after);
 			if (verbose >= 2 && !use_browser)
 				map__fprintf(after, fp);
 			map__put(after);
@@ -871,12 +850,6 @@ out:
 	return err;
 }
 
-int map_groups__fixup_overlappings(struct map_groups *mg, struct map *map,
-				   FILE *fp)
-{
-	return maps__fixup_overlappings(&mg->maps, map, fp);
-}
-
 /*
  * XXX This should not really _copy_ te maps, but refcount them.
  */
@@ -889,7 +862,7 @@ int map_groups__clone(struct thread *thread, struct map_groups *parent)
 
 	down_read(&maps->lock);
 
-	for (map = maps__first(maps); map; map = map__next(map)) {
+	maps__for_each_entry(maps, map) {
 		struct map *new = map__clone(map);
 		if (new == NULL)
 			goto out_unlock;
@@ -1007,13 +980,41 @@ struct map *maps__first(struct maps *maps)
 	return NULL;
 }
 
-struct map *map__next(struct map *map)
+static struct map *__map__next(struct map *map)
 {
 	struct rb_node *next = rb_next(&map->rb_node);
 
 	if (next)
 		return rb_entry(next, struct map, rb_node);
 	return NULL;
+}
+
+struct map *map__next(struct map *map)
+{
+	return map ? __map__next(map) : NULL;
+}
+
+struct map *maps__first_by_name(struct maps *maps)
+{
+	struct rb_node *first = rb_first(&maps->names);
+
+	if (first)
+		return rb_entry(first, struct map, rb_node_name);
+	return NULL;
+}
+
+static struct map *__map__next_by_name(struct map *map)
+{
+	struct rb_node *next = rb_next(&map->rb_node_name);
+
+	if (next)
+		return rb_entry(next, struct map, rb_node_name);
+	return NULL;
+}
+
+struct map *map__next_by_name(struct map *map)
+{
+	return map ? __map__next_by_name(map) : NULL;
 }
 
 struct kmap *__map__kmap(struct map *map)
