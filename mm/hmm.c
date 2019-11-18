@@ -26,193 +26,6 @@
 #include <linux/mmu_notifier.h>
 #include <linux/memory_hotplug.h>
 
-static struct mmu_notifier *hmm_alloc_notifier(struct mm_struct *mm)
-{
-	struct hmm *hmm;
-
-	hmm = kzalloc(sizeof(*hmm), GFP_KERNEL);
-	if (!hmm)
-		return ERR_PTR(-ENOMEM);
-
-	init_waitqueue_head(&hmm->wq);
-	INIT_LIST_HEAD(&hmm->mirrors);
-	init_rwsem(&hmm->mirrors_sem);
-	INIT_LIST_HEAD(&hmm->ranges);
-	spin_lock_init(&hmm->ranges_lock);
-	hmm->notifiers = 0;
-	return &hmm->mmu_notifier;
-}
-
-static void hmm_free_notifier(struct mmu_notifier *mn)
-{
-	struct hmm *hmm = container_of(mn, struct hmm, mmu_notifier);
-
-	WARN_ON(!list_empty(&hmm->ranges));
-	WARN_ON(!list_empty(&hmm->mirrors));
-	kfree(hmm);
-}
-
-static void hmm_release(struct mmu_notifier *mn, struct mm_struct *mm)
-{
-	struct hmm *hmm = container_of(mn, struct hmm, mmu_notifier);
-	struct hmm_mirror *mirror;
-
-	/*
-	 * Since hmm_range_register() holds the mmget() lock hmm_release() is
-	 * prevented as long as a range exists.
-	 */
-	WARN_ON(!list_empty_careful(&hmm->ranges));
-
-	down_read(&hmm->mirrors_sem);
-	list_for_each_entry(mirror, &hmm->mirrors, list) {
-		/*
-		 * Note: The driver is not allowed to trigger
-		 * hmm_mirror_unregister() from this thread.
-		 */
-		if (mirror->ops->release)
-			mirror->ops->release(mirror);
-	}
-	up_read(&hmm->mirrors_sem);
-}
-
-static void notifiers_decrement(struct hmm *hmm)
-{
-	unsigned long flags;
-
-	spin_lock_irqsave(&hmm->ranges_lock, flags);
-	hmm->notifiers--;
-	if (!hmm->notifiers) {
-		struct hmm_range *range;
-
-		list_for_each_entry(range, &hmm->ranges, list) {
-			if (range->valid)
-				continue;
-			range->valid = true;
-		}
-		wake_up_all(&hmm->wq);
-	}
-	spin_unlock_irqrestore(&hmm->ranges_lock, flags);
-}
-
-static int hmm_invalidate_range_start(struct mmu_notifier *mn,
-			const struct mmu_notifier_range *nrange)
-{
-	struct hmm *hmm = container_of(mn, struct hmm, mmu_notifier);
-	struct hmm_mirror *mirror;
-	struct hmm_range *range;
-	unsigned long flags;
-	int ret = 0;
-
-	spin_lock_irqsave(&hmm->ranges_lock, flags);
-	hmm->notifiers++;
-	list_for_each_entry(range, &hmm->ranges, list) {
-		if (nrange->end < range->start || nrange->start >= range->end)
-			continue;
-
-		range->valid = false;
-	}
-	spin_unlock_irqrestore(&hmm->ranges_lock, flags);
-
-	if (mmu_notifier_range_blockable(nrange))
-		down_read(&hmm->mirrors_sem);
-	else if (!down_read_trylock(&hmm->mirrors_sem)) {
-		ret = -EAGAIN;
-		goto out;
-	}
-
-	list_for_each_entry(mirror, &hmm->mirrors, list) {
-		int rc;
-
-		rc = mirror->ops->sync_cpu_device_pagetables(mirror, nrange);
-		if (rc) {
-			if (WARN_ON(mmu_notifier_range_blockable(nrange) ||
-			    rc != -EAGAIN))
-				continue;
-			ret = -EAGAIN;
-			break;
-		}
-	}
-	up_read(&hmm->mirrors_sem);
-
-out:
-	if (ret)
-		notifiers_decrement(hmm);
-	return ret;
-}
-
-static void hmm_invalidate_range_end(struct mmu_notifier *mn,
-			const struct mmu_notifier_range *nrange)
-{
-	struct hmm *hmm = container_of(mn, struct hmm, mmu_notifier);
-
-	notifiers_decrement(hmm);
-}
-
-static const struct mmu_notifier_ops hmm_mmu_notifier_ops = {
-	.release		= hmm_release,
-	.invalidate_range_start	= hmm_invalidate_range_start,
-	.invalidate_range_end	= hmm_invalidate_range_end,
-	.alloc_notifier		= hmm_alloc_notifier,
-	.free_notifier		= hmm_free_notifier,
-};
-
-/*
- * hmm_mirror_register() - register a mirror against an mm
- *
- * @mirror: new mirror struct to register
- * @mm: mm to register against
- * Return: 0 on success, -ENOMEM if no memory, -EINVAL if invalid arguments
- *
- * To start mirroring a process address space, the device driver must register
- * an HMM mirror struct.
- *
- * The caller cannot unregister the hmm_mirror while any ranges are
- * registered.
- *
- * Callers using this function must put a call to mmu_notifier_synchronize()
- * in their module exit functions.
- */
-int hmm_mirror_register(struct hmm_mirror *mirror, struct mm_struct *mm)
-{
-	struct mmu_notifier *mn;
-
-	lockdep_assert_held_write(&mm->mmap_sem);
-
-	/* Sanity check */
-	if (!mm || !mirror || !mirror->ops)
-		return -EINVAL;
-
-	mn = mmu_notifier_get_locked(&hmm_mmu_notifier_ops, mm);
-	if (IS_ERR(mn))
-		return PTR_ERR(mn);
-	mirror->hmm = container_of(mn, struct hmm, mmu_notifier);
-
-	down_write(&mirror->hmm->mirrors_sem);
-	list_add(&mirror->list, &mirror->hmm->mirrors);
-	up_write(&mirror->hmm->mirrors_sem);
-
-	return 0;
-}
-EXPORT_SYMBOL(hmm_mirror_register);
-
-/*
- * hmm_mirror_unregister() - unregister a mirror
- *
- * @mirror: mirror struct to unregister
- *
- * Stop mirroring a process address space, and cleanup.
- */
-void hmm_mirror_unregister(struct hmm_mirror *mirror)
-{
-	struct hmm *hmm = mirror->hmm;
-
-	down_write(&hmm->mirrors_sem);
-	list_del(&mirror->list);
-	up_write(&hmm->mirrors_sem);
-	mmu_notifier_put(&hmm->mmu_notifier);
-}
-EXPORT_SYMBOL(hmm_mirror_unregister);
-
 struct hmm_vma_walk {
 	struct hmm_range	*range;
 	struct dev_pagemap	*pgmap;
@@ -252,18 +65,15 @@ err:
 	return -EFAULT;
 }
 
-static int hmm_pfns_bad(unsigned long addr,
-			unsigned long end,
-			struct mm_walk *walk)
+static int hmm_pfns_fill(unsigned long addr, unsigned long end,
+		struct hmm_range *range, enum hmm_pfn_value_e value)
 {
-	struct hmm_vma_walk *hmm_vma_walk = walk->private;
-	struct hmm_range *range = hmm_vma_walk->range;
 	uint64_t *pfns = range->pfns;
 	unsigned long i;
 
 	i = (addr - range->start) >> PAGE_SHIFT;
 	for (; addr < end; addr += PAGE_SIZE, i++)
-		pfns[i] = range->values[HMM_PFN_ERROR];
+		pfns[i] = range->values[value];
 
 	return 0;
 }
@@ -532,8 +342,14 @@ static int hmm_vma_handle_pte(struct mm_walk *walk, unsigned long addr,
 		if (unlikely(!hmm_vma_walk->pgmap))
 			return -EBUSY;
 	} else if (IS_ENABLED(CONFIG_ARCH_HAS_PTE_SPECIAL) && pte_special(pte)) {
-		*pfn = range->values[HMM_PFN_SPECIAL];
-		return -EFAULT;
+		if (!is_zero_pfn(pte_pfn(pte))) {
+			*pfn = range->values[HMM_PFN_SPECIAL];
+			return -EFAULT;
+		}
+		/*
+		 * Since each architecture defines a struct page for the zero
+		 * page, just fall through and treat it like a normal page.
+		 */
 	}
 
 	*pfn = hmm_device_entry_from_pfn(range, pte_pfn(pte)) | cpu_flags;
@@ -584,7 +400,7 @@ again:
 		}
 		return 0;
 	} else if (!pmd_present(pmd))
-		return hmm_pfns_bad(start, end, walk);
+		return hmm_pfns_fill(start, end, range, HMM_PFN_ERROR);
 
 	if (pmd_devmap(pmd) || pmd_trans_huge(pmd)) {
 		/*
@@ -612,7 +428,7 @@ again:
 	 * recover.
 	 */
 	if (pmd_bad(pmd))
-		return hmm_pfns_bad(start, end, walk);
+		return hmm_pfns_fill(start, end, range, HMM_PFN_ERROR);
 
 	ptep = pte_offset_map(pmdp, addr);
 	i = (addr - range->start) >> PAGE_SHIFT;
@@ -770,93 +586,55 @@ unlock:
 #define hmm_vma_walk_hugetlb_entry NULL
 #endif /* CONFIG_HUGETLB_PAGE */
 
-static void hmm_pfns_clear(struct hmm_range *range,
-			   uint64_t *pfns,
-			   unsigned long addr,
-			   unsigned long end)
+static int hmm_vma_walk_test(unsigned long start, unsigned long end,
+			     struct mm_walk *walk)
 {
-	for (; addr < end; addr += PAGE_SIZE, pfns++)
-		*pfns = range->values[HMM_PFN_NONE];
-}
-
-/*
- * hmm_range_register() - start tracking change to CPU page table over a range
- * @range: range
- * @mm: the mm struct for the range of virtual address
- *
- * Return: 0 on success, -EFAULT if the address space is no longer valid
- *
- * Track updates to the CPU page table see include/linux/hmm.h
- */
-int hmm_range_register(struct hmm_range *range, struct hmm_mirror *mirror)
-{
-	struct hmm *hmm = mirror->hmm;
-	unsigned long flags;
-
-	range->valid = false;
-	range->hmm = NULL;
-
-	if ((range->start & (PAGE_SIZE - 1)) || (range->end & (PAGE_SIZE - 1)))
-		return -EINVAL;
-	if (range->start >= range->end)
-		return -EINVAL;
-
-	/* Prevent hmm_release() from running while the range is valid */
-	if (!mmget_not_zero(hmm->mmu_notifier.mm))
-		return -EFAULT;
-
-	/* Initialize range to track CPU page table updates. */
-	spin_lock_irqsave(&hmm->ranges_lock, flags);
-
-	range->hmm = hmm;
-	list_add(&range->list, &hmm->ranges);
+	struct hmm_vma_walk *hmm_vma_walk = walk->private;
+	struct hmm_range *range = hmm_vma_walk->range;
+	struct vm_area_struct *vma = walk->vma;
 
 	/*
-	 * If there are any concurrent notifiers we have to wait for them for
-	 * the range to be valid (see hmm_range_wait_until_valid()).
+	 * Skip vma ranges that don't have struct page backing them or
+	 * map I/O devices directly.
 	 */
-	if (!hmm->notifiers)
-		range->valid = true;
-	spin_unlock_irqrestore(&hmm->ranges_lock, flags);
+	if (vma->vm_flags & (VM_IO | VM_PFNMAP | VM_MIXEDMAP))
+		return -EFAULT;
+
+	/*
+	 * If the vma does not allow read access, then assume that it does not
+	 * allow write access either. HMM does not support architectures
+	 * that allow write without read.
+	 */
+	if (!(vma->vm_flags & VM_READ)) {
+		bool fault, write_fault;
+
+		/*
+		 * Check to see if a fault is requested for any page in the
+		 * range.
+		 */
+		hmm_range_need_fault(hmm_vma_walk, range->pfns +
+					((start - range->start) >> PAGE_SHIFT),
+					(end - start) >> PAGE_SHIFT,
+					0, &fault, &write_fault);
+		if (fault || write_fault)
+			return -EFAULT;
+
+		hmm_pfns_fill(start, end, range, HMM_PFN_NONE);
+		hmm_vma_walk->last = end;
+
+		/* Skip this vma and continue processing the next vma. */
+		return 1;
+	}
 
 	return 0;
 }
-EXPORT_SYMBOL(hmm_range_register);
-
-/*
- * hmm_range_unregister() - stop tracking change to CPU page table over a range
- * @range: range
- *
- * Range struct is used to track updates to the CPU page table after a call to
- * hmm_range_register(). See include/linux/hmm.h for how to use it.
- */
-void hmm_range_unregister(struct hmm_range *range)
-{
-	struct hmm *hmm = range->hmm;
-	unsigned long flags;
-
-	spin_lock_irqsave(&hmm->ranges_lock, flags);
-	list_del_init(&range->list);
-	spin_unlock_irqrestore(&hmm->ranges_lock, flags);
-
-	/* Drop reference taken by hmm_range_register() */
-	mmput(hmm->mmu_notifier.mm);
-
-	/*
-	 * The range is now invalid and the ref on the hmm is dropped, so
-	 * poison the pointer.  Leave other fields in place, for the caller's
-	 * use.
-	 */
-	range->valid = false;
-	memset(&range->hmm, POISON_INUSE, sizeof(range->hmm));
-}
-EXPORT_SYMBOL(hmm_range_unregister);
 
 static const struct mm_walk_ops hmm_walk_ops = {
 	.pud_entry	= hmm_vma_walk_pud,
 	.pmd_entry	= hmm_vma_walk_pmd,
 	.pte_hole	= hmm_vma_walk_hole,
 	.hugetlb_entry	= hmm_vma_walk_hugetlb_entry,
+	.test_walk	= hmm_vma_walk_test,
 };
 
 /**
@@ -889,64 +667,27 @@ static const struct mm_walk_ops hmm_walk_ops = {
  */
 long hmm_range_fault(struct hmm_range *range, unsigned int flags)
 {
-	const unsigned long device_vma = VM_IO | VM_PFNMAP | VM_MIXEDMAP;
-	unsigned long start = range->start, end;
-	struct hmm_vma_walk hmm_vma_walk;
-	struct hmm *hmm = range->hmm;
-	struct vm_area_struct *vma;
+	struct hmm_vma_walk hmm_vma_walk = {
+		.range = range,
+		.last = range->start,
+		.flags = flags,
+	};
+	struct mm_struct *mm = range->notifier->mm;
 	int ret;
 
-	lockdep_assert_held(&hmm->mmu_notifier.mm->mmap_sem);
+	lockdep_assert_held(&mm->mmap_sem);
 
 	do {
 		/* If range is no longer valid force retry. */
-		if (!range->valid)
+		if (mmu_interval_check_retry(range->notifier,
+					     range->notifier_seq))
 			return -EBUSY;
+		ret = walk_page_range(mm, hmm_vma_walk.last, range->end,
+				      &hmm_walk_ops, &hmm_vma_walk);
+	} while (ret == -EBUSY);
 
-		vma = find_vma(hmm->mmu_notifier.mm, start);
-		if (vma == NULL || (vma->vm_flags & device_vma))
-			return -EFAULT;
-
-		if (!(vma->vm_flags & VM_READ)) {
-			/*
-			 * If vma do not allow read access, then assume that it
-			 * does not allow write access, either. HMM does not
-			 * support architecture that allow write without read.
-			 */
-			hmm_pfns_clear(range, range->pfns,
-				range->start, range->end);
-			return -EPERM;
-		}
-
-		hmm_vma_walk.pgmap = NULL;
-		hmm_vma_walk.last = start;
-		hmm_vma_walk.flags = flags;
-		hmm_vma_walk.range = range;
-		end = min(range->end, vma->vm_end);
-
-		walk_page_range(vma->vm_mm, start, end, &hmm_walk_ops,
-				&hmm_vma_walk);
-
-		do {
-			ret = walk_page_range(vma->vm_mm, start, end,
-					&hmm_walk_ops, &hmm_vma_walk);
-			start = hmm_vma_walk.last;
-
-			/* Keep trying while the range is valid. */
-		} while (ret == -EBUSY && range->valid);
-
-		if (ret) {
-			unsigned long i;
-
-			i = (hmm_vma_walk.last - range->start) >> PAGE_SHIFT;
-			hmm_pfns_clear(range, &range->pfns[i],
-				hmm_vma_walk.last, range->end);
-			return ret;
-		}
-		start = end;
-
-	} while (start < range->end);
-
+	if (ret)
+		return ret;
 	return (hmm_vma_walk.last - range->start) >> PAGE_SHIFT;
 }
 EXPORT_SYMBOL(hmm_range_fault);
@@ -991,7 +732,8 @@ long hmm_range_dma_map(struct hmm_range *range, struct device *device,
 			continue;
 
 		/* Check if range is being invalidated */
-		if (!range->valid) {
+		if (mmu_interval_check_retry(range->notifier,
+					     range->notifier_seq)) {
 			ret = -EBUSY;
 			goto unmap;
 		}
