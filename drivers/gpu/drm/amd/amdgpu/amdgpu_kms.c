@@ -293,6 +293,10 @@ static int amdgpu_firmware_info(struct drm_amdgpu_info_firmware *fw_info,
 		fw_info->ver = adev->dm.dmcu_fw_version;
 		fw_info->feature = 0;
 		break;
+	case AMDGPU_INFO_FW_DMCUB:
+		fw_info->ver = adev->dm.dmcub_fw_version;
+		fw_info->feature = 0;
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -655,15 +659,19 @@ static int amdgpu_info_ioctl(struct drm_device *dev, void *data, struct drm_file
 			return -ENOMEM;
 		alloc_size = info->read_mmr_reg.count * sizeof(*regs);
 
-		for (i = 0; i < info->read_mmr_reg.count; i++)
+		amdgpu_gfx_off_ctrl(adev, false);
+		for (i = 0; i < info->read_mmr_reg.count; i++) {
 			if (amdgpu_asic_read_register(adev, se_num, sh_num,
 						      info->read_mmr_reg.dword_offset + i,
 						      &regs[i])) {
 				DRM_DEBUG_KMS("unallowed offset %#x\n",
 					      info->read_mmr_reg.dword_offset + i);
 				kfree(regs);
+				amdgpu_gfx_off_ctrl(adev, true);
 				return -EFAULT;
 			}
+		}
+		amdgpu_gfx_off_ctrl(adev, true);
 		n = copy_to_user(out, regs, min(size, alloc_size));
 		kfree(regs);
 		return n ? -EFAULT : 0;
@@ -1388,6 +1396,14 @@ static int amdgpu_debugfs_firmware_info(struct seq_file *m, void *data)
 	if (ret)
 		return ret;
 	seq_printf(m, "DMCU feature version: %u, firmware version: 0x%08x\n",
+		   fw_info.feature, fw_info.ver);
+
+	/* DMCUB */
+	query_fw.fw_type = AMDGPU_INFO_FW_DMCUB;
+	ret = amdgpu_firmware_info(&fw_info, &query_fw, adev);
+	if (ret)
+		return ret;
+	seq_printf(m, "DMCUB feature version: %u, firmware version: 0x%08x\n",
 		   fw_info.feature, fw_info.ver);
 
 

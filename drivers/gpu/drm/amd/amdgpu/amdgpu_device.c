@@ -64,6 +64,7 @@
 #include "amdgpu_xgmi.h"
 #include "amdgpu_ras.h"
 #include "amdgpu_pmu.h"
+#include "amdgpu_tmz.h"
 
 #include <linux/suspend.h>
 
@@ -1057,6 +1058,8 @@ static int amdgpu_device_check_arguments(struct amdgpu_device *adev)
 
 	adev->firmware.load_type = amdgpu_ucode_get_load_type(adev, amdgpu_fw_load_type);
 
+	adev->tmz.enabled = amdgpu_is_tmz(adev);
+
 	return ret;
 }
 
@@ -1527,7 +1530,6 @@ static int amdgpu_device_parse_gpu_info_fw(struct amdgpu_device *adev)
 		}
 
 parse_soc_bounding_box:
-#ifdef CONFIG_DRM_AMD_DC_DCN2_0
 		/*
 		 * soc bounding box info is not integrated in disocovery table,
 		 * we always need to parse it from gpu info firmware.
@@ -1538,7 +1540,6 @@ parse_soc_bounding_box:
 									le32_to_cpu(hdr->header.ucode_array_offset_bytes));
 			adev->dm.soc_bounding_box = &gpu_info_fw->soc_bounding_box;
 		}
-#endif
 		break;
 	}
 	default:
@@ -1938,6 +1939,7 @@ static bool amdgpu_device_check_vram_lost(struct amdgpu_device *adev)
  * amdgpu_device_set_cg_state - set clockgating for amdgpu device
  *
  * @adev: amdgpu_device pointer
+ * @state: clockgating state (gate or ungate)
  *
  * The list of all the hardware IPs that make up the asic is walked and the
  * set_clockgating_state callbacks are run.
@@ -2600,15 +2602,11 @@ bool amdgpu_device_asic_has_dc_support(enum amd_asic_type asic_type)
 	case CHIP_VEGA10:
 	case CHIP_VEGA12:
 	case CHIP_VEGA20:
-#if defined(CONFIG_DRM_AMD_DC_DCN1_0)
+#if defined(CONFIG_DRM_AMD_DC_DCN)
 	case CHIP_RAVEN:
-#endif
-#if defined(CONFIG_DRM_AMD_DC_DCN2_0)
 	case CHIP_NAVI10:
 	case CHIP_NAVI14:
 	case CHIP_NAVI12:
-#endif
-#if defined(CONFIG_DRM_AMD_DC_DCN2_1)
 	case CHIP_RENOIR:
 #endif
 		return amdgpu_dc != 0;
@@ -3110,6 +3108,9 @@ void amdgpu_device_fini(struct amdgpu_device *adev)
 
 	DRM_INFO("amdgpu: finishing device.\n");
 	adev->shutdown = true;
+
+	flush_delayed_work(&adev->delayed_init_work);
+
 	/* disable all interrupts */
 	amdgpu_irq_disable_all(adev);
 	if (adev->mode_info.mode_config_initialized){
