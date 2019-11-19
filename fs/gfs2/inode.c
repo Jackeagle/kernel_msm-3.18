@@ -604,12 +604,12 @@ static int gfs2_create_inode(struct inode *dir, struct dentry *dentry,
 
 	error = gfs2_glock_nq_init(dip->i_gl, LM_ST_EXCLUSIVE, 0, ghs);
 	if (error)
-		goto fail;
+		return error;
 	gfs2_holder_mark_uninitialized(ghs + 1);
 
 	error = create_ok(dip, name, mode);
 	if (error)
-		goto fail_gunlock;
+		goto fail;
 
 	inode = gfs2_dir_search(dir, &dentry->d_name, !S_ISREG(mode) || excl);
 	error = PTR_ERR(inode);
@@ -617,7 +617,7 @@ static int gfs2_create_inode(struct inode *dir, struct dentry *dentry,
 		if (S_ISDIR(inode->i_mode)) {
 			iput(inode);
 			inode = ERR_PTR(-EISDIR);
-			goto fail_gunlock;
+			goto fail;
 		}
 		d_instantiate(dentry, inode);
 		error = 0;
@@ -630,33 +630,32 @@ static int gfs2_create_inode(struct inode *dir, struct dentry *dentry,
 		gfs2_glock_dq_uninit(ghs);
 		return error;
 	} else if (error != -ENOENT) {
-		goto fail_gunlock;
+		goto fail;
 	}
 
 	error = gfs2_diradd_alloc_required(dir, name, &da);
 	if (error < 0)
-		goto fail_gunlock;
+		goto fail;
 
 	inode = new_inode(sdp->sd_vfs);
 	error = -ENOMEM;
 	if (!inode)
-		goto fail_gunlock;
+		goto fail;
 
 	error = posix_acl_create(dir, &mode, &default_acl, &acl);
 	if (error)
-		goto fail_gunlock;
+		goto fail;
 
 	ip = GFS2_I(inode);
 	error = gfs2_rsqa_alloc(ip);
 	if (error)
-		goto fail_free_acls;
+		goto fail2;
 
 	inode->i_mode = mode;
 	set_nlink(inode, S_ISDIR(mode) ? 2 : 1);
 	inode->i_rdev = dev;
 	inode->i_size = size;
 	inode->i_atime = inode->i_mtime = inode->i_ctime = current_time(inode);
-	gfs2_set_inode_blocks(inode, 1);
 	munge_mode_uid_gid(dip, inode);
 	check_and_update_goal(dip);
 	ip->i_goal = dip->i_goal;
@@ -696,23 +695,23 @@ static int gfs2_create_inode(struct inode *dir, struct dentry *dentry,
 
 	error = alloc_dinode(ip, aflags, &blocks);
 	if (error)
-		goto fail_free_inode;
+		goto fail3;
 
 	gfs2_set_inode_blocks(inode, blocks);
 
 	error = gfs2_glock_get(sdp, ip->i_no_addr, &gfs2_inode_glops, CREATE, &ip->i_gl);
 	if (error)
-		goto fail_free_inode;
+		goto fail3;
 	flush_delayed_work(&ip->i_gl->gl_work);
 	glock_set_object(ip->i_gl, ip);
 
 	error = gfs2_glock_nq_init(ip->i_gl, LM_ST_EXCLUSIVE, GL_SKIP, ghs + 1);
 	if (error)
-		goto fail_free_inode;
+		goto fail3;
 
 	error = gfs2_trans_begin(sdp, blocks, 0);
 	if (error)
-		goto fail_free_inode;
+		goto fail3;
 
 	if (blocks > 1) {
 		ip->i_eattr = ip->i_no_addr + 1;
@@ -723,13 +722,13 @@ static int gfs2_create_inode(struct inode *dir, struct dentry *dentry,
 
 	error = gfs2_glock_get(sdp, ip->i_no_addr, &gfs2_iopen_glops, CREATE, &io_gl);
 	if (error)
-		goto fail_free_inode;
+		goto fail3;
 
 	BUG_ON(test_and_set_bit(GLF_INODE_CREATING, &io_gl->gl_flags));
 
 	error = gfs2_glock_nq_init(io_gl, LM_ST_SHARED, GL_EXACT, &ip->i_iopen_gh);
 	if (error)
-		goto fail_gunlock2;
+		goto fail4;
 
 	glock_set_object(ip->i_iopen_gh.gh_gl, ip);
 	gfs2_set_iop(inode);
@@ -741,14 +740,14 @@ static int gfs2_create_inode(struct inode *dir, struct dentry *dentry,
 	if (default_acl) {
 		error = __gfs2_set_acl(inode, default_acl, ACL_TYPE_DEFAULT);
 		if (error)
-			goto fail_gunlock3;
+			goto fail5;
 		posix_acl_release(default_acl);
 		default_acl = NULL;
 	}
 	if (acl) {
 		error = __gfs2_set_acl(inode, acl, ACL_TYPE_ACCESS);
 		if (error)
-			goto fail_gunlock3;
+			goto fail5;
 		posix_acl_release(acl);
 		acl = NULL;
 	}
@@ -756,11 +755,11 @@ static int gfs2_create_inode(struct inode *dir, struct dentry *dentry,
 	error = security_inode_init_security(&ip->i_inode, &dip->i_inode, name,
 					     &gfs2_initxattrs, NULL);
 	if (error)
-		goto fail_gunlock3;
+		goto fail5;
 
 	error = link_dinode(dip, name, ip, &da);
 	if (error)
-		goto fail_gunlock3;
+		goto fail5;
 
 	mark_inode_dirty(inode);
 	d_instantiate(dentry, inode);
@@ -776,22 +775,22 @@ static int gfs2_create_inode(struct inode *dir, struct dentry *dentry,
 	gfs2_glock_put(io_gl);
 	return error;
 
-fail_gunlock3:
+fail5:
 	glock_clear_object(io_gl, ip);
 	gfs2_glock_dq_uninit(&ip->i_iopen_gh);
-fail_gunlock2:
+fail4:
 	clear_bit(GLF_INODE_CREATING, &io_gl->gl_flags);
 	gfs2_glock_put(io_gl);
-fail_free_inode:
+fail3:
 	if (ip->i_gl) {
 		glock_clear_object(ip->i_gl, ip);
 		gfs2_glock_put(ip->i_gl);
 	}
 	gfs2_rsqa_delete(ip, NULL);
-fail_free_acls:
+fail2:
 	posix_acl_release(default_acl);
 	posix_acl_release(acl);
-fail_gunlock:
+fail:
 	gfs2_dir_no_add(&da);
 	gfs2_glock_dq_uninit(ghs);
 	if (!IS_ERR_OR_NULL(inode)) {
@@ -804,7 +803,6 @@ fail_gunlock:
 	}
 	if (gfs2_holder_initialized(ghs + 1))
 		gfs2_glock_dq_uninit(ghs + 1);
-fail:
 	return error;
 }
 
