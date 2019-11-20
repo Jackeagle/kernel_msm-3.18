@@ -2023,7 +2023,7 @@ xfs_iunlink_add_backref(
 	if (XFS_TEST_ERROR(false, pag->pag_mount, XFS_ERRTAG_IUNLINK_FALLBACK))
 		return 0;
 
-	iu = kmem_zalloc(sizeof(*iu), KM_NOFS);
+	iu = kzalloc(sizeof(*iu), GFP_NOFS | __GFP_NOFAIL);
 	iu->iu_agino = prev_agino;
 	iu->iu_next_unlinked = this_agino;
 

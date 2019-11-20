@@ -347,7 +347,8 @@ xfs_qm_qoff_logitem_init(
 {
 	struct xfs_qoff_logitem	*qf;
 
-	qf = kmem_zalloc(sizeof(struct xfs_qoff_logitem), 0);
+	qf = kzalloc(sizeof(struct xfs_qoff_logitem),
+		     GFP_KERNEL | __GFP_NOFAIL);
 
 	xfs_log_item_init(mp, &qf->qql_item, XFS_LI_QUOTAOFF, start ?
 			&xfs_qm_qoffend_logitem_ops : &xfs_qm_qoff_logitem_ops);

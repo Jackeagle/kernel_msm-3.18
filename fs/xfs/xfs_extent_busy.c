@@ -33,7 +33,8 @@ xfs_extent_busy_insert(
 	struct rb_node		**rbp;
 	struct rb_node		*parent = NULL;
 
-	new = kmem_zalloc(sizeof(struct xfs_extent_busy), 0);
+	new = kzalloc(sizeof(struct xfs_extent_busy),
+		      GFP_KERNEL | __GFP_NOFAIL);
 	new->agno = agno;
 	new->bno = bno;
 	new->length = len;

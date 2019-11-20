@@ -178,8 +178,8 @@ xfs_buf_get_maps(
 		return 0;
 	}
 
-	bp->b_maps = kmem_zalloc(map_count * sizeof(struct xfs_buf_map),
-				KM_NOFS);
+	bp->b_maps = kzalloc(map_count * sizeof(struct xfs_buf_map),
+			     GFP_NOFS | __GFP_NOFAIL);
 	if (!bp->b_maps)
 		return -ENOMEM;
 	return 0;
@@ -1749,7 +1749,7 @@ xfs_alloc_buftarg(
 {
 	xfs_buftarg_t		*btp;
 
-	btp = kmem_zalloc(sizeof(*btp), KM_NOFS);
+	btp = kzalloc(sizeof(*btp), GFP_NOFS | __GFP_NOFAIL);
 
 	btp->bt_mount = mp;
 	btp->bt_dev =  bdev->bd_dev;

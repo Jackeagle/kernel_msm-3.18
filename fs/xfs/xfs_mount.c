@@ -194,7 +194,8 @@ xfs_initialize_perag(
 			continue;
 		}
 
-		pag = kmem_zalloc(sizeof(*pag), KM_MAYFAIL);
+		pag = kzalloc(sizeof(*pag),
+			      GFP_KERNEL | __GFP_RETRY_MAYFAIL);
 		if (!pag)
 			goto out_unwind_new_pags;
 		pag->pag_agno = index;
