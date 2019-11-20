@@ -425,7 +425,7 @@ xlog_ticket_alloc(
 	int		count,
 	char		client,
 	bool		permanent,
-	xfs_km_flags_t	alloc_flags);
+	gfp_t		alloc_flags);
 
 
 static inline void
