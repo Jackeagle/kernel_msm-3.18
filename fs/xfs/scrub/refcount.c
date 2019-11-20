@@ -125,8 +125,8 @@ xchk_refcountbt_rmap_check(
 		 * is healthy each rmap_irec we see will be in agbno order
 		 * so we don't need insertion sort here.
 		 */
-		frag = kmem_alloc(sizeof(struct xchk_refcnt_frag),
-				KM_MAYFAIL);
+		frag = kmalloc(sizeof(struct xchk_refcnt_frag),
+			       GFP_KERNEL | __GFP_RETRY_MAYFAIL);
 		if (!frag)
 			return -ENOMEM;
 		memcpy(&frag->rm, rec, sizeof(frag->rm));

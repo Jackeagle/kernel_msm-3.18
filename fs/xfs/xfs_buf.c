@@ -274,8 +274,9 @@ _xfs_buf_get_pages(
 		if (page_count <= XB_PAGES) {
 			bp->b_pages = bp->b_page_array;
 		} else {
-			bp->b_pages = kmem_alloc(sizeof(struct page *) *
-						 page_count, KM_NOFS);
+			bp->b_pages = kmalloc(sizeof(struct page *) *
+					      page_count,
+					      GFP_NOFS | __GFP_NOFAIL);
 			if (bp->b_pages == NULL)
 				return -ENOMEM;
 		}

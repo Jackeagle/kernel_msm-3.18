@@ -148,7 +148,7 @@ xfs_attr3_leaf_inactive(
 	 * Allocate storage for a list of all the "remote" value extents.
 	 */
 	size = count * sizeof(xfs_attr_inactive_list_t);
-	list = kmem_alloc(size, 0);
+	list = kmalloc(size, GFP_KERNEL | __GFP_NOFAIL);
 
 	/*
 	 * Identify each of the "remote" value extents.

@@ -516,8 +516,8 @@ xfs_defer_add(
 			dfp = NULL;
 	}
 	if (!dfp) {
-		dfp = kmem_alloc(sizeof(struct xfs_defer_pending),
-				KM_NOFS);
+		dfp = kmalloc(sizeof(struct xfs_defer_pending),
+			      GFP_NOFS | __GFP_NOFAIL);
 		dfp->dfp_type = type;
 		dfp->dfp_intent = NULL;
 		dfp->dfp_done = NULL;

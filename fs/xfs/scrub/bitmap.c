@@ -25,7 +25,8 @@ xfs_bitmap_set(
 {
 	struct xfs_bitmap_range	*bmr;
 
-	bmr = kmem_alloc(sizeof(struct xfs_bitmap_range), KM_MAYFAIL);
+	bmr = kmalloc(sizeof(struct xfs_bitmap_range),
+		      GFP_KERNEL | __GFP_RETRY_MAYFAIL);
 	if (!bmr)
 		return -ENOMEM;
 
@@ -181,8 +182,8 @@ xfs_bitmap_disunion(
 			 * Deleting from the middle: add the new right extent
 			 * and then shrink the left extent.
 			 */
-			new_br = kmem_alloc(sizeof(struct xfs_bitmap_range),
-					KM_MAYFAIL);
+			new_br = kmalloc(sizeof(struct xfs_bitmap_range),
+					 GFP_KERNEL | __GFP_RETRY_MAYFAIL);
 			if (!new_br) {
 				error = -ENOMEM;
 				goto out;

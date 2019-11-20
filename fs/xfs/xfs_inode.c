@@ -3509,7 +3509,7 @@ xfs_iflush_cluster(
 	pag = xfs_perag_get(mp, XFS_INO_TO_AGNO(mp, ip->i_ino));
 
 	cilist_size = igeo->inodes_per_cluster * sizeof(struct xfs_inode *);
-	cilist = kmem_alloc(cilist_size, KM_MAYFAIL|KM_NOFS);
+	cilist = kmalloc(cilist_size, GFP_NOFS | __GFP_RETRY_MAYFAIL);
 	if (!cilist)
 		goto out_put;
 

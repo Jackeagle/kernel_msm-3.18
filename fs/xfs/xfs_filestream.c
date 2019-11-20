@@ -248,7 +248,7 @@ next_ag:
 		return 0;
 
 	err = -ENOMEM;
-	item = kmem_alloc(sizeof(*item), KM_MAYFAIL);
+	item = kmalloc(sizeof(*item), GFP_KERNEL | __GFP_RETRY_MAYFAIL);
 	if (!item)
 		goto out_put_ag;
 

@@ -8,8 +8,8 @@
 #include "xfs_message.h"
 #include "xfs_trace.h"
 
-void *
-kmem_alloc(size_t size, xfs_km_flags_t flags)
+static void *
+__kmem_alloc(size_t size, xfs_km_flags_t flags)
 {
 	int	retries = 0;
 	gfp_t	lflags = kmem_flags_convert(flags);
@@ -72,7 +72,7 @@ kmem_alloc_io(size_t size, int align_mask, xfs_km_flags_t flags)
 	if (WARN_ON_ONCE(align_mask >= PAGE_SIZE))
 		align_mask = PAGE_SIZE - 1;
 
-	ptr = kmem_alloc(size, flags | KM_MAYFAIL);
+	ptr = __kmem_alloc(size, flags | KM_MAYFAIL);
 	if (ptr) {
 		if (!((uintptr_t)ptr & align_mask))
 			return ptr;
@@ -88,7 +88,7 @@ kmem_alloc_large(size_t size, xfs_km_flags_t flags)
 
 	trace_kmem_alloc_large(size, flags, _RET_IP_);
 
-	ptr = kmem_alloc(size, flags | KM_MAYFAIL);
+	ptr = __kmem_alloc(size, flags | KM_MAYFAIL);
 	if (ptr)
 		return ptr;
 	return __kmem_vmalloc(size, flags);
