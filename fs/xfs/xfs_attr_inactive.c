@@ -22,6 +22,7 @@
 #include "xfs_attr_leaf.h"
 #include "xfs_quota.h"
 #include "xfs_dir2.h"
+#include "xfs_error.h"
 
 /*
  * Look at all the extents for this logical region,
@@ -190,37 +191,34 @@ xfs_attr3_leaf_inactive(
  */
 STATIC int
 xfs_attr3_node_inactive(
-	struct xfs_trans **trans,
-	struct xfs_inode *dp,
-	struct xfs_buf	*bp,
-	int		level)
+	struct xfs_trans	**trans,
+	struct xfs_inode	*dp,
+	struct xfs_buf		*bp,
+	int			level)
 {
-	xfs_da_blkinfo_t *info;
-	xfs_da_intnode_t *node;
-	xfs_dablk_t child_fsb;
-	xfs_daddr_t parent_blkno, child_blkno;
-	int error, i;
-	struct xfs_buf *child_bp;
-	struct xfs_da_node_entry *btree;
+	struct xfs_da_blkinfo	*info;
+	xfs_dablk_t		child_fsb;
+	xfs_daddr_t		parent_blkno, child_blkno;
+	struct xfs_buf		*child_bp;
 	struct xfs_da3_icnode_hdr ichdr;
+	int			error, i;
 
 	/*
 	 * Since this code is recursive (gasp!) we must protect ourselves.
 	 */
 	if (level > XFS_DA_NODE_MAXDEPTH) {
 		xfs_trans_brelse(*trans, bp);	/* no locks for later trans */
-		return -EIO;
+		xfs_buf_corruption_error(bp);
+		return -EFSCORRUPTED;
 	}
 
-	node = bp->b_addr;
-	dp->d_ops->node_hdr_from_disk(&ichdr, node);
+	xfs_da3_node_hdr_from_disk(dp->i_mount, &ichdr, bp->b_addr);
 	parent_blkno = bp->b_bn;
 	if (!ichdr.count) {
 		xfs_trans_brelse(*trans, bp);
 		return 0;
 	}
-	btree = dp->d_ops->node_tree_p(node);
-	child_fsb = be32_to_cpu(btree[0].before);
+	child_fsb = be32_to_cpu(ichdr.btree[0].before);
 	xfs_trans_brelse(*trans, bp);	/* no locks for later trans */
 
 	/*
@@ -258,8 +256,9 @@ xfs_attr3_node_inactive(
 			error = xfs_attr3_leaf_inactive(trans, dp, child_bp);
 			break;
 		default:
-			error = -EIO;
+			xfs_buf_corruption_error(child_bp);
 			xfs_trans_brelse(*trans, child_bp);
+			error = -EFSCORRUPTED;
 			break;
 		}
 		if (error)
@@ -279,13 +278,15 @@ xfs_attr3_node_inactive(
 		 * child block number.
 		 */
 		if (i + 1 < ichdr.count) {
+			struct xfs_da3_icnode_hdr phdr;
+
 			error = xfs_da3_node_read(*trans, dp, 0, parent_blkno,
 						 &bp, XFS_ATTR_FORK);
 			if (error)
 				return error;
-			node = bp->b_addr;
-			btree = dp->d_ops->node_tree_p(node);
-			child_fsb = be32_to_cpu(btree[i + 1].before);
+			xfs_da3_node_hdr_from_disk(dp->i_mount, &phdr,
+						  bp->b_addr);
+			child_fsb = be32_to_cpu(phdr.btree[i + 1].before);
 			xfs_trans_brelse(*trans, bp);
 		}
 		/*
@@ -341,7 +342,8 @@ xfs_attr3_root_inactive(
 		error = xfs_attr3_leaf_inactive(trans, dp, bp);
 		break;
 	default:
-		error = -EIO;
+		error = -EFSCORRUPTED;
+		xfs_buf_corruption_error(bp);
 		xfs_trans_brelse(*trans, bp);
 		break;
 	}
