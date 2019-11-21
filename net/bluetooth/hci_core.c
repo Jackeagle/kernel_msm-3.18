@@ -1446,11 +1446,11 @@ static int hci_dev_do_open(struct hci_dev *hdev)
 	    test_bit(HCI_QUIRK_NON_PERSISTENT_SETUP, &hdev->quirks)) {
 		hci_sock_dev_event(hdev, HCI_DEV_SETUP);
 
-		if (hdev->setup)
+		if (hdev->setup) {
 			ret = hdev->setup(hdev);
-
-		if (ret)
-			goto setup_failed;
+			if (ret)
+				goto setup_failed;
+		}
 
 		if (test_bit(HCI_QUIRK_USE_BDADDR_PROPERTY, &hdev->quirks)) {
 			if (!bacmp(&hdev->public_addr, BDADDR_ANY))
