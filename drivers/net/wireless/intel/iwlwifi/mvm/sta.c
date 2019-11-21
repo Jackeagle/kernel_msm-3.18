@@ -8,7 +8,7 @@
  * Copyright(c) 2012 - 2015 Intel Corporation. All rights reserved.
  * Copyright(c) 2013 - 2015 Intel Mobile Communications GmbH
  * Copyright(c) 2016 - 2017 Intel Deutschland GmbH
- * Copyright(c) 2018 Intel Corporation
+ * Copyright(c) 2018 - 2019 Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -31,7 +31,7 @@
  * Copyright(c) 2012 - 2015 Intel Corporation. All rights reserved.
  * Copyright(c) 2013 - 2015 Intel Mobile Communications GmbH
  * Copyright(c) 2016 - 2017 Intel Deutschland GmbH
- * Copyright(c) 2018 Intel Corporation
+ * Copyright(c) 2018 - 2019 Intel Corporation
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -746,7 +746,8 @@ static int iwl_mvm_find_free_queue(struct iwl_mvm *mvm, u8 sta_id,
 static int iwl_mvm_tvqm_enable_txq(struct iwl_mvm *mvm,
 				   u8 sta_id, u8 tid, unsigned int timeout)
 {
-	int queue, size = IWL_DEFAULT_QUEUE_SIZE;
+	int queue, size = max_t(u32, IWL_DEFAULT_QUEUE_SIZE,
+				mvm->trans->cfg->min_256_ba_txq_size);
 
 	if (tid == IWL_MAX_TID_COUNT) {
 		tid = IWL_MGMT_TID;
@@ -1399,7 +1400,9 @@ void iwl_mvm_add_new_dqa_stream_wk(struct work_struct *wk)
 
 		iwl_mvm_sta_alloc_queue(mvm, txq->sta, txq->ac, tid);
 		list_del_init(&mvmtxq->list);
+		local_bh_disable();
 		iwl_mvm_mac_itxq_xmit(mvm->hw, txq);
+		local_bh_enable();
 	}
 
 	mutex_unlock(&mvm->mutex);
@@ -1681,6 +1684,8 @@ int iwl_mvm_add_sta(struct iwl_mvm *mvm,
 	 */
 	if (iwl_mvm_has_tlc_offload(mvm))
 		iwl_mvm_rs_add_sta(mvm, mvm_sta);
+	else
+		spin_lock_init(&mvm_sta->lq_sta.rs_drv.pers.lock);
 
 	iwl_mvm_toggle_tx_ant(mvm, &mvm_sta->tx_ant);
 
@@ -2107,12 +2112,14 @@ int iwl_mvm_send_add_bcast_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 
 	if (!iwl_mvm_has_new_tx_api(mvm)) {
 		if (vif->type == NL80211_IFTYPE_AP ||
-		    vif->type == NL80211_IFTYPE_ADHOC)
+		    vif->type == NL80211_IFTYPE_ADHOC) {
 			queue = mvm->probe_queue;
-		else if (vif->type == NL80211_IFTYPE_P2P_DEVICE)
+		} else if (vif->type == NL80211_IFTYPE_P2P_DEVICE) {
 			queue = mvm->p2p_dev_queue;
-		else if (WARN(1, "Missing required TXQ for adding bcast STA\n"))
+		} else {
+			WARN(1, "Missing required TXQ for adding bcast STA\n");
 			return -EINVAL;
+		}
 
 		bsta->tfd_queue_msk |= BIT(queue);
 
@@ -2275,7 +2282,8 @@ int iwl_mvm_add_mcast_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 	static const u8 _maddr[] = {0x03, 0x00, 0x00, 0x00, 0x00, 0x00};
 	const u8 *maddr = _maddr;
 	struct iwl_trans_txq_scd_cfg cfg = {
-		.fifo = IWL_MVM_TX_FIFO_MCAST,
+		.fifo = vif->type == NL80211_IFTYPE_AP ?
+			IWL_MVM_TX_FIFO_MCAST : IWL_MVM_TX_FIFO_BE,
 		.sta_id = msta->sta_id,
 		.tid = 0,
 		.aggregate = false,
@@ -2332,21 +2340,6 @@ int iwl_mvm_add_mcast_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 			       IWL_UCODE_TLV_API_STA_TYPE))
 		iwl_mvm_enable_txq(mvm, NULL, mvmvif->cab_queue, 0, &cfg,
 				   timeout);
-
-	if (mvmvif->ap_wep_key) {
-		u8 key_offset = iwl_mvm_set_fw_key_idx(mvm);
-
-		__set_bit(key_offset, mvm->fw_key_table);
-
-		if (key_offset == STA_KEY_IDX_INVALID)
-			return -ENOSPC;
-
-		ret = iwl_mvm_send_sta_key(mvm, mvmvif->mcast_sta.sta_id,
-					   mvmvif->ap_wep_key, true, 0, NULL, 0,
-					   key_offset, 0);
-		if (ret)
-			return ret;
-	}
 
 	return 0;
 }
@@ -2419,28 +2412,6 @@ int iwl_mvm_rm_mcast_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 
 	iwl_mvm_disable_txq(mvm, NULL, mvmvif->cab_queue, 0, 0);
 
-	if (mvmvif->ap_wep_key) {
-		int i;
-
-		if (!__test_and_clear_bit(mvmvif->ap_wep_key->hw_key_idx,
-					  mvm->fw_key_table)) {
-			IWL_ERR(mvm, "offset %d not used in fw key table.\n",
-				mvmvif->ap_wep_key->hw_key_idx);
-			return -ENOENT;
-		}
-
-		/* track which key was deleted last */
-		for (i = 0; i < STA_KEY_MAX_NUM; i++) {
-			if (mvm->fw_key_deleted[i] < U8_MAX)
-				mvm->fw_key_deleted[i]++;
-		}
-		mvm->fw_key_deleted[mvmvif->ap_wep_key->hw_key_idx] = 0;
-		ret = __iwl_mvm_remove_sta_key(mvm, mvmvif->mcast_sta.sta_id,
-					       mvmvif->ap_wep_key, true);
-		if (ret)
-			return ret;
-	}
-
 	ret = iwl_mvm_rm_sta_common(mvm, mvmvif->mcast_sta.sta_id);
 	if (ret)
 		IWL_WARN(mvm, "Failed sending remove station\n");
@@ -2452,7 +2423,7 @@ int iwl_mvm_rm_mcast_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 
 static void iwl_mvm_sync_rxq_del_ba(struct iwl_mvm *mvm, u8 baid)
 {
-	struct iwl_mvm_delba_notif notif = {
+	struct iwl_mvm_rss_sync_notif notif = {
 		.metadata.type = IWL_MVM_RXQ_NOTIF_DEL_BA,
 		.metadata.sync = 1,
 		.delba.baid = baid,
@@ -3003,7 +2974,7 @@ out:
 	IWL_DEBUG_HT(mvm, "Tx aggregation enabled on ra = %pM tid = %d\n",
 		     sta->addr, tid);
 
-	return iwl_mvm_send_lq_cmd(mvm, &mvmsta->lq_sta.rs_drv.lq, false);
+	return iwl_mvm_send_lq_cmd(mvm, &mvmsta->lq_sta.rs_drv.lq);
 }
 
 static void iwl_mvm_unreserve_agg_queue(struct iwl_mvm *mvm,
