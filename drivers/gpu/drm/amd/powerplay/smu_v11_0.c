@@ -24,6 +24,8 @@
 #include <linux/module.h>
 #include <linux/pci.h>
 
+#define SMU_11_0_PARTIAL_PPTABLE
+
 #include "pp_debug.h"
 #include "amdgpu.h"
 #include "amdgpu_smu.h"
@@ -31,9 +33,11 @@
 #include "atomfirmware.h"
 #include "amdgpu_atomfirmware.h"
 #include "smu_v11_0.h"
+#include "smu_v11_0_pptable.h"
 #include "soc15_common.h"
 #include "atom.h"
 #include "amd_pcie.h"
+#include "amdgpu_ras.h"
 
 #include "asic_reg/thm/thm_11_0_2_offset.h"
 #include "asic_reg/thm/thm_11_0_2_sh_mask.h"
@@ -1045,13 +1049,44 @@ int smu_v11_0_init_max_sustainable_clocks(struct smu_context *smu)
 	return 0;
 }
 
+uint32_t smu_v11_0_get_max_power_limit(struct smu_context *smu) {
+	uint32_t od_limit, max_power_limit;
+	struct smu_11_0_powerplay_table *powerplay_table = NULL;
+	struct smu_table_context *table_context = &smu->smu_table;
+	powerplay_table = table_context->power_play_table;
+
+	max_power_limit = smu_get_pptable_power_limit(smu);
+
+	if (!max_power_limit) {
+		// If we couldn't get the table limit, fall back on first-read value
+		if (!smu->default_power_limit)
+			smu->default_power_limit = smu->power_limit;
+		max_power_limit = smu->default_power_limit;
+	}
+
+	if (smu->od_enabled) {
+		od_limit = le32_to_cpu(powerplay_table->overdrive_table.max[SMU_11_0_ODSETTING_POWERPERCENTAGE]);
+
+		pr_debug("ODSETTING_POWERPERCENTAGE: %d (default: %d)\n", od_limit, smu->default_power_limit);
+
+		max_power_limit *= (100 + od_limit);
+		max_power_limit /= 100;
+	}
+
+	return max_power_limit;
+}
+
 int smu_v11_0_set_power_limit(struct smu_context *smu, uint32_t n)
 {
 	int ret = 0;
+	uint32_t max_power_limit;
 
-	if (n > smu->default_power_limit) {
-		pr_err("New power limit is over the max allowed %d\n",
-				smu->default_power_limit);
+	max_power_limit = smu_v11_0_get_max_power_limit(smu);
+
+	if (n > max_power_limit) {
+		pr_err("New power limit (%d) is over the max allowed %d\n",
+				n,
+				max_power_limit);
 		return -EINVAL;
 	}
 
@@ -1608,7 +1643,9 @@ bool smu_v11_0_baco_is_support(struct smu_context *smu)
 	if (!baco_support)
 		return false;
 
-	if (!smu_feature_is_enabled(smu, SMU_FEATURE_BACO_BIT))
+	/* Arcturus does not support this bit mask */
+	if (smu_feature_is_supported(smu, SMU_FEATURE_BACO_BIT) &&
+	   !smu_feature_is_enabled(smu, SMU_FEATURE_BACO_BIT))
 		return false;
 
 	val = RREG32_SOC15(NBIO, 0, mmRCC_BIF_STRAP0);
@@ -1634,6 +1671,10 @@ int smu_v11_0_baco_set_state(struct smu_context *smu, enum smu_baco_state state)
 {
 
 	struct smu_baco_context *smu_baco = &smu->smu_baco;
+	struct amdgpu_device *adev = smu->adev;
+	struct amdgpu_ras *ras = amdgpu_ras_get_context(adev);
+	uint32_t bif_doorbell_intr_cntl;
+	uint32_t data;
 	int ret = 0;
 
 	if (smu_v11_0_baco_get_state(smu) == state)
@@ -1641,10 +1682,30 @@ int smu_v11_0_baco_set_state(struct smu_context *smu, enum smu_baco_state state)
 
 	mutex_lock(&smu_baco->mutex);
 
-	if (state == SMU_BACO_STATE_ENTER)
-		ret = smu_send_smc_msg_with_param(smu, SMU_MSG_EnterBaco, BACO_SEQ_BACO);
-	else
+	bif_doorbell_intr_cntl = RREG32_SOC15(NBIO, 0, mmBIF_DOORBELL_INT_CNTL);
+
+	if (state == SMU_BACO_STATE_ENTER) {
+		bif_doorbell_intr_cntl = REG_SET_FIELD(bif_doorbell_intr_cntl,
+						BIF_DOORBELL_INT_CNTL,
+						DOORBELL_INTERRUPT_DISABLE, 1);
+		WREG32_SOC15(NBIO, 0, mmBIF_DOORBELL_INT_CNTL, bif_doorbell_intr_cntl);
+
+		if (!ras || !ras->supported) {
+			data = RREG32_SOC15(THM, 0, mmTHM_BACO_CNTL);
+			data |= 0x80000000;
+			WREG32_SOC15(THM, 0, mmTHM_BACO_CNTL, data);
+
+			ret = smu_send_smc_msg_with_param(smu, SMU_MSG_EnterBaco, 0);
+		} else {
+			ret = smu_send_smc_msg_with_param(smu, SMU_MSG_EnterBaco, 1);
+		}
+	} else {
 		ret = smu_send_smc_msg(smu, SMU_MSG_ExitBaco);
+		bif_doorbell_intr_cntl = REG_SET_FIELD(bif_doorbell_intr_cntl,
+						BIF_DOORBELL_INT_CNTL,
+						DOORBELL_INTERRUPT_DISABLE, 0);
+		WREG32_SOC15(NBIO, 0, mmBIF_DOORBELL_INT_CNTL, bif_doorbell_intr_cntl);
+	}
 	if (ret)
 		goto out;
 
@@ -1654,19 +1715,30 @@ out:
 	return ret;
 }
 
-int smu_v11_0_baco_reset(struct smu_context *smu)
+int smu_v11_0_baco_enter(struct smu_context *smu)
 {
+	struct amdgpu_device *adev = smu->adev;
 	int ret = 0;
 
-	ret = smu_v11_0_baco_set_armd3_sequence(smu, BACO_SEQ_BACO);
-	if (ret)
-		return ret;
+	/* Arcturus does not need this audio workaround */
+	if (adev->asic_type != CHIP_ARCTURUS) {
+		ret = smu_v11_0_baco_set_armd3_sequence(smu, BACO_SEQ_BACO);
+		if (ret)
+			return ret;
+	}
 
 	ret = smu_v11_0_baco_set_state(smu, SMU_BACO_STATE_ENTER);
 	if (ret)
 		return ret;
 
 	msleep(10);
+
+	return ret;
+}
+
+int smu_v11_0_baco_exit(struct smu_context *smu)
+{
+	int ret = 0;
 
 	ret = smu_v11_0_baco_set_state(smu, SMU_BACO_STATE_EXIT);
 	if (ret)
@@ -1778,4 +1850,31 @@ int smu_v11_0_override_pcie_parameters(struct smu_context *smu)
 
 	return ret;
 
+}
+
+int smu_v11_0_set_default_od_settings(struct smu_context *smu, bool initialize, size_t overdrive_table_size)
+{
+	struct smu_table_context *table_context = &smu->smu_table;
+	int ret = 0;
+
+	if (initialize) {
+		if (table_context->overdrive_table) {
+			return -EINVAL;
+		}
+		table_context->overdrive_table = kzalloc(overdrive_table_size, GFP_KERNEL);
+		if (!table_context->overdrive_table) {
+			return -ENOMEM;
+		}
+		ret = smu_update_table(smu, SMU_TABLE_OVERDRIVE, 0, table_context->overdrive_table, false);
+		if (ret) {
+			pr_err("Failed to export overdrive table!\n");
+			return ret;
+		}
+	}
+	ret = smu_update_table(smu, SMU_TABLE_OVERDRIVE, 0, table_context->overdrive_table, true);
+	if (ret) {
+		pr_err("Failed to import overdrive table!\n");
+		return ret;
+	}
+	return ret;
 }
