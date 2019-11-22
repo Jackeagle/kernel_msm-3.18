@@ -230,19 +230,25 @@ static acpi_status acpi_gpiochip_alloc_event(struct acpi_resource *ares,
 	desc = gpiochip_request_own_desc(chip, pin, "ACPI:Event",
 					 GPIO_ACTIVE_HIGH, GPIOD_IN);
 	if (IS_ERR(desc)) {
-		dev_err(chip->parent, "Failed to request GPIO\n");
+		dev_err(chip->parent,
+			"Failed to request GPIO for pin 0x%04X, err %ld\n",
+			pin, PTR_ERR(desc));
 		return AE_ERROR;
 	}
 
 	ret = gpiochip_lock_as_irq(chip, pin);
 	if (ret) {
-		dev_err(chip->parent, "Failed to lock GPIO as interrupt\n");
+		dev_err(chip->parent,
+			"Failed to lock GPIO pin 0x%04X as interrupt, err %d\n",
+			pin, ret);
 		goto fail_free_desc;
 	}
 
 	irq = gpiod_to_irq(desc);
 	if (irq < 0) {
-		dev_err(chip->parent, "Failed to translate GPIO to IRQ\n");
+		dev_err(chip->parent,
+			"Failed to translate GPIO pin 0x%04X to IRQ, err %d\n",
+			pin, irq);
 		goto fail_unlock_irq;
 	}
 
@@ -1304,9 +1310,26 @@ late_initcall_sync(acpi_gpio_handle_deferred_request_irqs);
 
 static const struct dmi_system_id run_edge_events_on_boot_blacklist[] = {
 	{
+		/*
+		 * The Minix Neo Z83-4 has a micro-USB-B id-pin handler for
+		 * a non existing micro-USB-B connector which puts the HDMI
+		 * DDC pins in GPIO mode, breaking HDMI support.
+		 */
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "MINIX"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "Z83-4"),
+		}
+	},
+	{
+		/*
+		 * The Terra Pad 1061 has a micro-USB-B id-pin handler, which
+		 * instead of controlling the actual micro-USB-B turns the 5V
+		 * boost for its USB-A connector off. The actual micro-USB-B
+		 * connector is wired for charging only.
+		 */
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Wortmann_AG"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "TERRA_PAD_1061"),
 		}
 	},
 	{} /* Terminating entry */
