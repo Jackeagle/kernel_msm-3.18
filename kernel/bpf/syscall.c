@@ -1303,25 +1303,6 @@ static int find_prog_type(enum bpf_prog_type type, struct bpf_prog *prog)
 	return 0;
 }
 
-/* drop refcnt on maps used by eBPF program and free auxilary data */
-static void free_used_maps(struct bpf_prog_aux *aux)
-{
-	enum bpf_cgroup_storage_type stype;
-	int i;
-
-	for_each_cgroup_storage_type(stype) {
-		if (!aux->cgroup_storage[stype])
-			continue;
-		bpf_cgroup_storage_release(aux->prog,
-					   aux->cgroup_storage[stype]);
-	}
-
-	for (i = 0; i < aux->used_map_cnt; i++)
-		bpf_map_put(aux->used_maps[i]);
-
-	kfree(aux->used_maps);
-}
-
 enum bpf_event {
 	BPF_EVENT_LOAD,
 	BPF_EVENT_UNLOAD,
@@ -1444,7 +1425,6 @@ static void __bpf_prog_put_rcu(struct rcu_head *rcu)
 
 	kvfree(aux->func_info);
 	kfree(aux->func_info_aux);
-	free_used_maps(aux);
 	bpf_prog_uncharge_memlock(aux->prog);
 	security_bpf_prog_free(aux);
 	bpf_prog_free(aux->prog);
