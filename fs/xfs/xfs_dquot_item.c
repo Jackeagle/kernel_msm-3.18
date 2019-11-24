@@ -316,10 +316,10 @@ xfs_qm_qoffend_logitem_committed(
 	spin_lock(&ailp->ail_lock);
 	xfs_trans_ail_delete(ailp, &qfs->qql_item, SHUTDOWN_LOG_IO_ERROR);
 
-	kmem_free(qfs->qql_item.li_lv_shadow);
-	kmem_free(lip->li_lv_shadow);
-	kmem_free(qfs);
-	kmem_free(qfe);
+	kfree(qfs->qql_item.li_lv_shadow);
+	kfree(lip->li_lv_shadow);
+	kfree(qfs);
+	kfree(qfe);
 	return (xfs_lsn_t)-1;
 }
 
@@ -347,7 +347,8 @@ xfs_qm_qoff_logitem_init(
 {
 	struct xfs_qoff_logitem	*qf;
 
-	qf = kmem_zalloc(sizeof(struct xfs_qoff_logitem), 0);
+	qf = kzalloc(sizeof(struct xfs_qoff_logitem),
+		     GFP_KERNEL | __GFP_NOFAIL);
 
 	xfs_log_item_init(mp, &qf->qql_item, XFS_LI_QUOTAOFF, start ?
 			&xfs_qm_qoffend_logitem_ops : &xfs_qm_qoff_logitem_ops);

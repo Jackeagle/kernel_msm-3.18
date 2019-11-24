@@ -17,7 +17,7 @@
 #include "xfs_rmap_item.h"
 #include "xfs_log.h"
 #include "xfs_rmap.h"
-
+#include "xfs_error.h"
 
 kmem_zone_t	*xfs_rui_zone;
 kmem_zone_t	*xfs_rud_zone;
@@ -32,9 +32,9 @@ xfs_rui_item_free(
 	struct xfs_rui_log_item	*ruip)
 {
 	if (ruip->rui_format.rui_nextents > XFS_RUI_MAX_FAST_EXTENTS)
-		kmem_free(ruip);
+		kfree(ruip);
 	else
-		kmem_zone_free(xfs_rui_zone, ruip);
+		kmem_cache_free(xfs_rui_zone, ruip);
 }
 
 /*
@@ -142,9 +142,11 @@ xfs_rui_init(
 
 	ASSERT(nextents > 0);
 	if (nextents > XFS_RUI_MAX_FAST_EXTENTS)
-		ruip = kmem_zalloc(xfs_rui_log_item_sizeof(nextents), 0);
+		ruip = kzalloc(xfs_rui_log_item_sizeof(nextents),
+			       GFP_KERNEL | __GFP_NOFAIL);
 	else
-		ruip = kmem_zone_zalloc(xfs_rui_zone, 0);
+		ruip = kmem_cache_zalloc(xfs_rui_zone,
+					 GFP_KERNEL | __GFP_NOFAIL);
 
 	xfs_log_item_init(mp, &ruip->rui_item, XFS_LI_RUI, &xfs_rui_item_ops);
 	ruip->rui_format.rui_nextents = nextents;
@@ -171,8 +173,10 @@ xfs_rui_copy_format(
 	src_rui_fmt = buf->i_addr;
 	len = xfs_rui_log_format_sizeof(src_rui_fmt->rui_nextents);
 
-	if (buf->i_len != len)
+	if (buf->i_len != len) {
+		XFS_ERROR_REPORT(__func__, XFS_ERRLEVEL_LOW, NULL);
 		return -EFSCORRUPTED;
+	}
 
 	memcpy(dst_rui_fmt, src_rui_fmt, len);
 	return 0;
@@ -227,7 +231,7 @@ xfs_rud_item_release(
 	struct xfs_rud_log_item	*rudp = RUD_ITEM(lip);
 
 	xfs_rui_release(rudp->rud_ruip);
-	kmem_zone_free(xfs_rud_zone, rudp);
+	kmem_cache_free(xfs_rud_zone, rudp);
 }
 
 static const struct xfs_item_ops xfs_rud_item_ops = {
@@ -244,7 +248,7 @@ xfs_trans_get_rud(
 {
 	struct xfs_rud_log_item		*rudp;
 
-	rudp = kmem_zone_zalloc(xfs_rud_zone, 0);
+	rudp = kmem_cache_zalloc(xfs_rud_zone, GFP_KERNEL | __GFP_NOFAIL);
 	xfs_log_item_init(tp->t_mountp, &rudp->rud_item, XFS_LI_RUD,
 			  &xfs_rud_item_ops);
 	rudp->rud_ruip = ruip;
@@ -434,7 +438,7 @@ xfs_rmap_update_finish_item(
 			rmap->ri_bmap.br_blockcount,
 			rmap->ri_bmap.br_state,
 			(struct xfs_btree_cur **)state);
-	kmem_free(rmap);
+	kfree(rmap);
 	return error;
 }
 
@@ -466,7 +470,7 @@ xfs_rmap_update_cancel_item(
 	struct xfs_rmap_intent		*rmap;
 
 	rmap = container_of(item, struct xfs_rmap_intent, ri_list);
-	kmem_free(rmap);
+	kfree(rmap);
 }
 
 const struct xfs_defer_op_type xfs_rmap_update_defer_type = {
@@ -539,7 +543,7 @@ xfs_rui_recover(
 			 */
 			set_bit(XFS_RUI_RECOVERED, &ruip->rui_flags);
 			xfs_rui_release(ruip);
-			return -EIO;
+			return -EFSCORRUPTED;
 		}
 	}
 
@@ -581,6 +585,7 @@ xfs_rui_recover(
 			type = XFS_RMAP_FREE;
 			break;
 		default:
+			XFS_ERROR_REPORT(__func__, XFS_ERRLEVEL_LOW, NULL);
 			error = -EFSCORRUPTED;
 			goto abort_error;
 		}

@@ -701,8 +701,8 @@ xfs_buf_item_get_format(
 		return 0;
 	}
 
-	bip->bli_formats = kmem_zalloc(count * sizeof(struct xfs_buf_log_format),
-				0);
+	bip->bli_formats = kzalloc(count * sizeof(struct xfs_buf_log_format),
+				   GFP_KERNEL | __GFP_NOFAIL);
 	if (!bip->bli_formats)
 		return -ENOMEM;
 	return 0;
@@ -713,7 +713,7 @@ xfs_buf_item_free_format(
 	struct xfs_buf_log_item	*bip)
 {
 	if (bip->bli_formats != &bip->__bli_format) {
-		kmem_free(bip->bli_formats);
+		kfree(bip->bli_formats);
 		bip->bli_formats = NULL;
 	}
 }
@@ -747,7 +747,7 @@ xfs_buf_item_init(
 		return 0;
 	}
 
-	bip = kmem_zone_zalloc(xfs_buf_item_zone, 0);
+	bip = kmem_cache_zalloc(xfs_buf_item_zone, GFP_KERNEL | __GFP_NOFAIL);
 	xfs_log_item_init(mp, &bip->bli_item, XFS_LI_BUF, &xfs_buf_item_ops);
 	bip->bli_buf = bp;
 
@@ -763,7 +763,7 @@ xfs_buf_item_init(
 	error = xfs_buf_item_get_format(bip, bp->b_map_count);
 	ASSERT(error == 0);
 	if (error) {	/* to stop gcc throwing set-but-unused warnings */
-		kmem_zone_free(xfs_buf_item_zone, bip);
+		kmem_cache_free(xfs_buf_item_zone, bip);
 		return error;
 	}
 
@@ -851,7 +851,7 @@ xfs_buf_item_log_segment(
 	 * first_bit and last_bit.
 	 */
 	while ((bits_to_set - bits_set) >= NBWORD) {
-		*wordp |= 0xffffffff;
+		*wordp = 0xffffffff;
 		bits_set += NBWORD;
 		wordp++;
 	}
@@ -938,8 +938,8 @@ xfs_buf_item_free(
 	struct xfs_buf_log_item	*bip)
 {
 	xfs_buf_item_free_format(bip);
-	kmem_free(bip->bli_item.li_lv_shadow);
-	kmem_zone_free(xfs_buf_item_zone, bip);
+	kfree(bip->bli_item.li_lv_shadow);
+	kmem_cache_free(xfs_buf_item_zone, bip);
 }
 
 /*

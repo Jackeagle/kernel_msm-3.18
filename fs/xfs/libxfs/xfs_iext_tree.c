@@ -398,7 +398,8 @@ static void
 xfs_iext_grow(
 	struct xfs_ifork	*ifp)
 {
-	struct xfs_iext_node	*node = kmem_zalloc(NODE_SIZE, KM_NOFS);
+	struct xfs_iext_node	*node = kzalloc(NODE_SIZE,
+						GFP_NOFS | __GFP_NOFAIL);
 	int			i;
 
 	if (ifp->if_height == 1) {
@@ -454,7 +455,8 @@ xfs_iext_split_node(
 	int			*nr_entries)
 {
 	struct xfs_iext_node	*node = *nodep;
-	struct xfs_iext_node	*new = kmem_zalloc(NODE_SIZE, KM_NOFS);
+	struct xfs_iext_node	*new = kzalloc(NODE_SIZE,
+					       GFP_NOFS | __GFP_NOFAIL);
 	const int		nr_move = KEYS_PER_NODE / 2;
 	int			nr_keep = nr_move + (KEYS_PER_NODE & 1);
 	int			i = 0;
@@ -542,7 +544,8 @@ xfs_iext_split_leaf(
 	int			*nr_entries)
 {
 	struct xfs_iext_leaf	*leaf = cur->leaf;
-	struct xfs_iext_leaf	*new = kmem_zalloc(NODE_SIZE, KM_NOFS);
+	struct xfs_iext_leaf	*new = kzalloc(NODE_SIZE,
+					       GFP_NOFS | __GFP_NOFAIL);
 	const int		nr_move = RECS_PER_LEAF / 2;
 	int			nr_keep = nr_move + (RECS_PER_LEAF & 1);
 	int			i;
@@ -583,7 +586,8 @@ xfs_iext_alloc_root(
 {
 	ASSERT(ifp->if_bytes == 0);
 
-	ifp->if_u1.if_root = kmem_zalloc(sizeof(struct xfs_iext_rec), KM_NOFS);
+	ifp->if_u1.if_root = kzalloc(sizeof(struct xfs_iext_rec),
+				     GFP_NOFS | __GFP_NOFAIL);
 	ifp->if_height = 1;
 
 	/* now that we have a node step into it */
@@ -596,14 +600,14 @@ xfs_iext_realloc_root(
 	struct xfs_ifork	*ifp,
 	struct xfs_iext_cursor	*cur)
 {
-	size_t new_size = ifp->if_bytes + sizeof(struct xfs_iext_rec);
+	int64_t new_size = ifp->if_bytes + sizeof(struct xfs_iext_rec);
 	void *new;
 
 	/* account for the prev/next pointers */
 	if (new_size / sizeof(struct xfs_iext_rec) == RECS_PER_LEAF)
 		new_size = NODE_SIZE;
 
-	new = kmem_realloc(ifp->if_u1.if_root, new_size, KM_NOFS);
+	new = krealloc(ifp->if_u1.if_root, new_size, GFP_NOFS | __GFP_NOFAIL);
 	memset(new + ifp->if_bytes, 0, new_size - ifp->if_bytes);
 	ifp->if_u1.if_root = new;
 	cur->leaf = new;
@@ -734,7 +738,7 @@ xfs_iext_remove_node(
 again:
 	ASSERT(node->ptrs[pos]);
 	ASSERT(node->ptrs[pos] == victim);
-	kmem_free(victim);
+	kfree(victim);
 
 	nr_entries = xfs_iext_node_nr_entries(node, pos) - 1;
 	offset = node->keys[0];
@@ -780,7 +784,7 @@ again:
 		ASSERT(node == ifp->if_u1.if_root);
 		ifp->if_u1.if_root = node->ptrs[0];
 		ifp->if_height--;
-		kmem_free(node);
+		kfree(node);
 	}
 }
 
@@ -854,7 +858,7 @@ xfs_iext_free_last_leaf(
 	struct xfs_ifork	*ifp)
 {
 	ifp->if_height--;
-	kmem_free(ifp->if_u1.if_root);
+	kfree(ifp->if_u1.if_root);
 	ifp->if_u1.if_root = NULL;
 }
 
@@ -1035,7 +1039,7 @@ xfs_iext_destroy_node(
 		}
 	}
 
-	kmem_free(node);
+	kfree(node);
 }
 
 void

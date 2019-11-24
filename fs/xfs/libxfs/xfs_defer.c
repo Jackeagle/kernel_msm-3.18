@@ -341,7 +341,7 @@ xfs_defer_cancel_list(
 			ops->cancel_item(pwi);
 		}
 		ASSERT(dfp->dfp_count == 0);
-		kmem_free(dfp);
+		kfree(dfp);
 	}
 }
 
@@ -433,7 +433,7 @@ xfs_defer_finish_noroll(
 		} else {
 			/* Done with the dfp, free it. */
 			list_del(&dfp->dfp_list);
-			kmem_free(dfp);
+			kfree(dfp);
 		}
 
 		if (ops->finish_cleanup)
@@ -516,8 +516,8 @@ xfs_defer_add(
 			dfp = NULL;
 	}
 	if (!dfp) {
-		dfp = kmem_alloc(sizeof(struct xfs_defer_pending),
-				KM_NOFS);
+		dfp = kmalloc(sizeof(struct xfs_defer_pending),
+			      GFP_NOFS | __GFP_NOFAIL);
 		dfp->dfp_type = type;
 		dfp->dfp_intent = NULL;
 		dfp->dfp_done = NULL;

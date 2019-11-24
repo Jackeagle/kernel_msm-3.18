@@ -720,8 +720,8 @@ xchk_agfl(
 	memset(&sai, 0, sizeof(sai));
 	sai.sc = sc;
 	sai.sz_entries = agflcount;
-	sai.entries = kmem_zalloc(sizeof(xfs_agblock_t) * agflcount,
-			KM_MAYFAIL);
+	sai.entries = kzalloc(sizeof(xfs_agblock_t) * agflcount,
+			      GFP_KERNEL | __GFP_RETRY_MAYFAIL);
 	if (!sai.entries) {
 		error = -ENOMEM;
 		goto out;
@@ -753,7 +753,7 @@ xchk_agfl(
 	}
 
 out_free:
-	kmem_free(sai.entries);
+	kfree(sai.entries);
 out:
 	return error;
 }

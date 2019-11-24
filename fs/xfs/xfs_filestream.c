@@ -18,6 +18,7 @@
 #include "xfs_trace.h"
 #include "xfs_ag_resv.h"
 #include "xfs_trans.h"
+#include "xfs_filestream.h"
 
 struct xfs_fstrm_item {
 	struct xfs_mru_cache_elem	mru;
@@ -118,7 +119,7 @@ xfs_fstrm_free_func(
 	xfs_filestream_put_ag(mp, item->ag);
 	trace_xfs_filestream_free(mp, mru->key, item->ag);
 
-	kmem_free(item);
+	kfree(item);
 }
 
 /*
@@ -247,7 +248,7 @@ next_ag:
 		return 0;
 
 	err = -ENOMEM;
-	item = kmem_alloc(sizeof(*item), KM_MAYFAIL);
+	item = kmalloc(sizeof(*item), GFP_KERNEL | __GFP_RETRY_MAYFAIL);
 	if (!item)
 		goto out_put_ag;
 
@@ -263,7 +264,7 @@ next_ag:
 	return 0;
 
 out_free_item:
-	kmem_free(item);
+	kfree(item);
 out_put_ag:
 	xfs_filestream_put_ag(mp, *agp);
 	return err;
@@ -374,7 +375,7 @@ xfs_filestream_new_ag(
 		startag = (item->ag + 1) % mp->m_sb.sb_agcount;
 	}
 
-	if (xfs_alloc_is_userdata(ap->datatype))
+	if (ap->datatype & XFS_ALLOC_USERDATA)
 		flags |= XFS_PICK_USERDATA;
 	if (ap->tp->t_flags & XFS_TRANS_LOWMODE)
 		flags |= XFS_PICK_LOWSPACE;

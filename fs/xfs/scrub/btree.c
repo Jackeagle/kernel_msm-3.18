@@ -429,8 +429,8 @@ xchk_btree_check_owner(
 	 * later scanning.
 	 */
 	if (cur->bc_btnum == XFS_BTNUM_BNO || cur->bc_btnum == XFS_BTNUM_RMAP) {
-		co = kmem_alloc(sizeof(struct check_owner),
-				KM_MAYFAIL);
+		co = kmalloc(sizeof(struct check_owner),
+			     GFP_KERNEL | __GFP_RETRY_MAYFAIL);
 		if (!co)
 			return -ENOMEM;
 		co->level = level;
@@ -698,7 +698,7 @@ out:
 			error = xchk_btree_check_block_owner(&bs,
 					co->level, co->daddr);
 		list_del(&co->list);
-		kmem_free(co);
+		kfree(co);
 	}
 
 	return error;

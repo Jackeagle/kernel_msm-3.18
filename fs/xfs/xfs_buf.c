@@ -178,8 +178,8 @@ xfs_buf_get_maps(
 		return 0;
 	}
 
-	bp->b_maps = kmem_zalloc(map_count * sizeof(struct xfs_buf_map),
-				KM_NOFS);
+	bp->b_maps = kzalloc(map_count * sizeof(struct xfs_buf_map),
+			     GFP_NOFS | __GFP_NOFAIL);
 	if (!bp->b_maps)
 		return -ENOMEM;
 	return 0;
@@ -193,7 +193,7 @@ xfs_buf_free_maps(
 	struct xfs_buf	*bp)
 {
 	if (bp->b_maps != &bp->__b_map) {
-		kmem_free(bp->b_maps);
+		kfree(bp->b_maps);
 		bp->b_maps = NULL;
 	}
 }
@@ -209,7 +209,7 @@ _xfs_buf_alloc(
 	int			error;
 	int			i;
 
-	bp = kmem_zone_zalloc(xfs_buf_zone, KM_NOFS);
+	bp = kmem_cache_zalloc(xfs_buf_zone, GFP_NOFS | __GFP_NOFAIL);
 	if (unlikely(!bp))
 		return NULL;
 
@@ -238,7 +238,7 @@ _xfs_buf_alloc(
 	 */
 	error = xfs_buf_get_maps(bp, nmaps);
 	if (error)  {
-		kmem_zone_free(xfs_buf_zone, bp);
+		kmem_cache_free(xfs_buf_zone, bp);
 		return NULL;
 	}
 
@@ -274,8 +274,9 @@ _xfs_buf_get_pages(
 		if (page_count <= XB_PAGES) {
 			bp->b_pages = bp->b_page_array;
 		} else {
-			bp->b_pages = kmem_alloc(sizeof(struct page *) *
-						 page_count, KM_NOFS);
+			bp->b_pages = kmalloc(sizeof(struct page *) *
+					      page_count,
+					      GFP_NOFS | __GFP_NOFAIL);
 			if (bp->b_pages == NULL)
 				return -ENOMEM;
 		}
@@ -292,7 +293,7 @@ _xfs_buf_free_pages(
 	xfs_buf_t	*bp)
 {
 	if (bp->b_pages != bp->b_page_array) {
-		kmem_free(bp->b_pages);
+		kfree(bp->b_pages);
 		bp->b_pages = NULL;
 	}
 }
@@ -304,7 +305,7 @@ _xfs_buf_free_pages(
  * 	The buffer must not be on any hash - use xfs_buf_rele instead for
  * 	hashed and refcounted buffers
  */
-void
+static void
 xfs_buf_free(
 	xfs_buf_t		*bp)
 {
@@ -325,10 +326,10 @@ xfs_buf_free(
 			__free_page(page);
 		}
 	} else if (bp->b_flags & _XBF_KMEM)
-		kmem_free(bp->b_addr);
+		kvfree(bp->b_addr);
 	_xfs_buf_free_pages(bp);
 	xfs_buf_free_maps(bp);
-	kmem_zone_free(xfs_buf_zone, bp);
+	kmem_cache_free(xfs_buf_zone, bp);
 }
 
 /*
@@ -373,7 +374,7 @@ xfs_buf_allocate_memory(
 		if (((unsigned long)(bp->b_addr + size - 1) & PAGE_MASK) !=
 		    ((unsigned long)bp->b_addr & PAGE_MASK)) {
 			/* b_addr spans two pages - use alloc_page instead */
-			kmem_free(bp->b_addr);
+			kvfree(bp->b_addr);
 			bp->b_addr = NULL;
 			goto use_alloc_page;
 		}
@@ -461,7 +462,7 @@ _xfs_buf_map_pages(
 		unsigned nofs_flag;
 
 		/*
-		 * vm_map_ram() will allocate auxillary structures (e.g.
+		 * vm_map_ram() will allocate auxiliary structures (e.g.
 		 * pagetables) with GFP_KERNEL, yet we are likely to be under
 		 * GFP_NOFS context here. Hence we need to tell memory reclaim
 		 * that we are in such a context via PF_MEMALLOC_NOFS to prevent
@@ -949,7 +950,7 @@ xfs_buf_get_uncached(
 	_xfs_buf_free_pages(bp);
  fail_free_buf:
 	xfs_buf_free_maps(bp);
-	kmem_zone_free(xfs_buf_zone, bp);
+	kmem_cache_free(xfs_buf_zone, bp);
  fail:
 	return NULL;
 }
@@ -1261,8 +1262,7 @@ xfs_buf_ioapply_map(
 	int		map,
 	int		*buf_offset,
 	int		*count,
-	int		op,
-	int		op_flags)
+	int		op)
 {
 	int		page_index;
 	int		total_nr_pages = bp->b_page_count;
@@ -1297,7 +1297,7 @@ next_chunk:
 	bio->bi_iter.bi_sector = sector;
 	bio->bi_end_io = xfs_buf_bio_end_io;
 	bio->bi_private = bp;
-	bio_set_op_attrs(bio, op, op_flags);
+	bio->bi_opf = op;
 
 	for (; size && nr_pages; nr_pages--, page_index++) {
 		int	rbytes, nbytes = PAGE_SIZE - offset;
@@ -1342,7 +1342,6 @@ _xfs_buf_ioapply(
 {
 	struct blk_plug	plug;
 	int		op;
-	int		op_flags = 0;
 	int		offset;
 	int		size;
 	int		i;
@@ -1384,15 +1383,14 @@ _xfs_buf_ioapply(
 				dump_stack();
 			}
 		}
-	} else if (bp->b_flags & XBF_READ_AHEAD) {
-		op = REQ_OP_READ;
-		op_flags = REQ_RAHEAD;
 	} else {
 		op = REQ_OP_READ;
+		if (bp->b_flags & XBF_READ_AHEAD)
+			op |= REQ_RAHEAD;
 	}
 
 	/* we only use the buffer cache for meta-data */
-	op_flags |= REQ_META;
+	op |= REQ_META;
 
 	/*
 	 * Walk all the vectors issuing IO on them. Set up the initial offset
@@ -1404,7 +1402,7 @@ _xfs_buf_ioapply(
 	size = BBTOB(bp->b_length);
 	blk_start_plug(&plug);
 	for (i = 0; i < bp->b_map_count; i++) {
-		xfs_buf_ioapply_map(bp, i, &offset, &size, op, op_flags);
+		xfs_buf_ioapply_map(bp, i, &offset, &size, op);
 		if (bp->b_error)
 			break;
 		if (size <= 0)
@@ -1705,7 +1703,7 @@ xfs_free_buftarg(
 
 	xfs_blkdev_issue_flush(btp);
 
-	kmem_free(btp);
+	kfree(btp);
 }
 
 int
@@ -1752,7 +1750,7 @@ xfs_alloc_buftarg(
 {
 	xfs_buftarg_t		*btp;
 
-	btp = kmem_zalloc(sizeof(*btp), KM_NOFS);
+	btp = kzalloc(sizeof(*btp), GFP_NOFS | __GFP_NOFAIL);
 
 	btp->bt_mount = mp;
 	btp->bt_dev =  bdev->bd_dev;
@@ -1781,7 +1779,7 @@ error_pcpu:
 error_lru:
 	list_lru_destroy(&btp->bt_lru);
 error_free:
-	kmem_free(btp);
+	kfree(btp);
 	return NULL;
 }
 
@@ -2063,8 +2061,9 @@ xfs_buf_delwri_pushbuf(
 int __init
 xfs_buf_init(void)
 {
-	xfs_buf_zone = kmem_zone_init_flags(sizeof(xfs_buf_t), "xfs_buf",
-						KM_ZONE_HWALIGN, NULL);
+	xfs_buf_zone = kmem_cache_create("xfs_buf",
+					 sizeof(struct xfs_buf), 0,
+					 SLAB_HWCACHE_ALIGN, NULL);
 	if (!xfs_buf_zone)
 		goto out;
 
@@ -2077,7 +2076,7 @@ xfs_buf_init(void)
 void
 xfs_buf_terminate(void)
 {
-	kmem_zone_destroy(xfs_buf_zone);
+	kmem_cache_destroy(xfs_buf_zone);
 }
 
 void xfs_buf_set_ref(struct xfs_buf *bp, int lru_ref)

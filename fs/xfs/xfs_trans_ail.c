@@ -427,15 +427,15 @@ xfsaild_push(
 
 		case XFS_ITEM_FLUSHING:
 			/*
-			 * The item or its backing buffer is already beeing
+			 * The item or its backing buffer is already being
 			 * flushed.  The typical reason for that is that an
 			 * inode buffer is locked because we already pushed the
 			 * updates to it as part of inode clustering.
 			 *
 			 * We do not want to to stop flushing just because lots
-			 * of items are already beeing flushed, but we need to
+			 * of items are already being flushed, but we need to
 			 * re-try the flushing relatively soon if most of the
-			 * AIL is beeing flushed.
+			 * AIL is being flushed.
 			 */
 			XFS_STATS_INC(mp, xs_push_ail_flushing);
 			trace_xfs_ail_flushing(lip);
@@ -612,7 +612,7 @@ xfsaild(
  * The push is run asynchronously in a workqueue, which means the caller needs
  * to handle waiting on the async flush for space to become available.
  * We don't want to interrupt any push that is in progress, hence we only queue
- * work if we set the pushing bit approriately.
+ * work if we set the pushing bit appropriately.
  *
  * We do this unlocked - we only need to know whether there is anything in the
  * AIL at the time we are called. We don't need to access the contents of
@@ -824,7 +824,8 @@ xfs_trans_ail_init(
 {
 	struct xfs_ail	*ailp;
 
-	ailp = kmem_zalloc(sizeof(struct xfs_ail), KM_MAYFAIL);
+	ailp = kzalloc(sizeof(struct xfs_ail),
+		       GFP_KERNEL | __GFP_RETRY_MAYFAIL);
 	if (!ailp)
 		return -ENOMEM;
 
@@ -836,7 +837,7 @@ xfs_trans_ail_init(
 	init_waitqueue_head(&ailp->ail_empty);
 
 	ailp->ail_task = kthread_run(xfsaild, ailp, "xfsaild/%s",
-			ailp->ail_mount->m_fsname);
+			ailp->ail_mount->m_super->s_id);
 	if (IS_ERR(ailp->ail_task))
 		goto out_free_ailp;
 
@@ -844,7 +845,7 @@ xfs_trans_ail_init(
 	return 0;
 
 out_free_ailp:
-	kmem_free(ailp);
+	kfree(ailp);
 	return -ENOMEM;
 }
 
@@ -855,5 +856,5 @@ xfs_trans_ail_destroy(
 	struct xfs_ail	*ailp = mp->m_ail;
 
 	kthread_stop(ailp->ail_task);
-	kmem_free(ailp);
+	kfree(ailp);
 }

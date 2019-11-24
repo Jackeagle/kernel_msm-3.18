@@ -25,7 +25,8 @@ xfs_bitmap_set(
 {
 	struct xfs_bitmap_range	*bmr;
 
-	bmr = kmem_alloc(sizeof(struct xfs_bitmap_range), KM_MAYFAIL);
+	bmr = kmalloc(sizeof(struct xfs_bitmap_range),
+		      GFP_KERNEL | __GFP_RETRY_MAYFAIL);
 	if (!bmr)
 		return -ENOMEM;
 
@@ -47,7 +48,7 @@ xfs_bitmap_destroy(
 
 	for_each_xfs_bitmap_extent(bmr, n, bitmap) {
 		list_del(&bmr->list);
-		kmem_free(bmr);
+		kfree(bmr);
 	}
 }
 
@@ -174,15 +175,15 @@ xfs_bitmap_disunion(
 			/* Total overlap, just delete ex. */
 			lp = lp->next;
 			list_del(&br->list);
-			kmem_free(br);
+			kfree(br);
 			break;
 		case 0:
 			/*
 			 * Deleting from the middle: add the new right extent
 			 * and then shrink the left extent.
 			 */
-			new_br = kmem_alloc(sizeof(struct xfs_bitmap_range),
-					KM_MAYFAIL);
+			new_br = kmalloc(sizeof(struct xfs_bitmap_range),
+					 GFP_KERNEL | __GFP_RETRY_MAYFAIL);
 			if (!new_br) {
 				error = -ENOMEM;
 				goto out;
@@ -294,5 +295,6 @@ xfs_bitmap_set_btblocks(
 	struct xfs_bitmap	*bitmap,
 	struct xfs_btree_cur	*cur)
 {
-	return xfs_btree_visit_blocks(cur, xfs_bitmap_collect_btblock, bitmap);
+	return xfs_btree_visit_blocks(cur, xfs_bitmap_collect_btblock,
+			XFS_BTREE_VISIT_ALL, bitmap);
 }

@@ -38,7 +38,7 @@ xlog_cil_ticket_alloc(
 	struct xlog_ticket *tic;
 
 	tic = xlog_ticket_alloc(log, 0, 1, XFS_TRANSACTION, 0,
-				KM_NOFS);
+				GFP_NOFS | __GFP_NOFAIL);
 
 	/*
 	 * set the current reservation to zero so we know to steal the basic
@@ -179,12 +179,12 @@ xlog_cil_alloc_shadow_bufs(
 
 			/*
 			 * We free and allocate here as a realloc would copy
-			 * unecessary data. We don't use kmem_zalloc() for the
+			 * unnecessary data. We don't use kmem_zalloc() for the
 			 * same reason - we don't need to zero the data area in
 			 * the buffer, only the log vector header and the iovec
 			 * storage.
 			 */
-			kmem_free(lip->li_lv_shadow);
+			kfree(lip->li_lv_shadow);
 
 			lv = kmem_alloc_large(buf_size, KM_NOFS);
 			memset(lv, 0, xlog_cil_iovec_space(niovecs));
@@ -492,7 +492,7 @@ xlog_cil_free_logvec(
 
 	for (lv = log_vector; lv; ) {
 		struct xfs_log_vec *next = lv->lv_next;
-		kmem_free(lv);
+		kvfree(lv);
 		lv = next;
 	}
 }
@@ -506,7 +506,7 @@ xlog_discard_endio_work(
 	struct xfs_mount	*mp = ctx->cil->xc_log->l_mp;
 
 	xfs_extent_busy_clear(mp, &ctx->busy_extents, false);
-	kmem_free(ctx);
+	kfree(ctx);
 }
 
 /*
@@ -608,7 +608,7 @@ xlog_cil_committed(
 	if (!list_empty(&ctx->busy_extents))
 		xlog_discard_busy_extents(mp, ctx);
 	else
-		kmem_free(ctx);
+		kfree(ctx);
 }
 
 void
@@ -660,7 +660,7 @@ xlog_cil_push(
 	if (!cil)
 		return 0;
 
-	new_ctx = kmem_zalloc(sizeof(*new_ctx), KM_NOFS);
+	new_ctx = kzalloc(sizeof(*new_ctx), GFP_NOFS | __GFP_NOFAIL);
 	new_ctx->ticket = xlog_cil_ticket_alloc(log);
 
 	down_write(&cil->xc_ctx_lock);
@@ -682,7 +682,7 @@ xlog_cil_push(
 	}
 
 
-	/* check for a previously pushed seqeunce */
+	/* check for a previously pushed sequence */
 	if (push_seq < cil->xc_ctx->sequence) {
 		spin_unlock(&cil->xc_push_lock);
 		goto out_skip;
@@ -847,7 +847,7 @@ restart:
 		goto out_abort;
 
 	spin_lock(&commit_iclog->ic_callback_lock);
-	if (commit_iclog->ic_state & XLOG_STATE_IOERROR) {
+	if (commit_iclog->ic_state == XLOG_STATE_IOERROR) {
 		spin_unlock(&commit_iclog->ic_callback_lock);
 		goto out_abort;
 	}
@@ -872,7 +872,7 @@ restart:
 out_skip:
 	up_write(&cil->xc_ctx_lock);
 	xfs_log_ticket_put(new_ctx->ticket);
-	kmem_free(new_ctx);
+	kfree(new_ctx);
 	return 0;
 
 out_abort_free_ticket:
@@ -1179,13 +1179,13 @@ xlog_cil_init(
 	struct xfs_cil	*cil;
 	struct xfs_cil_ctx *ctx;
 
-	cil = kmem_zalloc(sizeof(*cil), KM_MAYFAIL);
+	cil = kzalloc(sizeof(*cil), GFP_KERNEL | __GFP_RETRY_MAYFAIL);
 	if (!cil)
 		return -ENOMEM;
 
-	ctx = kmem_zalloc(sizeof(*ctx), KM_MAYFAIL);
+	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL | __GFP_RETRY_MAYFAIL);
 	if (!ctx) {
-		kmem_free(cil);
+		kfree(cil);
 		return -ENOMEM;
 	}
 
@@ -1216,10 +1216,10 @@ xlog_cil_destroy(
 	if (log->l_cilp->xc_ctx) {
 		if (log->l_cilp->xc_ctx->ticket)
 			xfs_log_ticket_put(log->l_cilp->xc_ctx->ticket);
-		kmem_free(log->l_cilp->xc_ctx);
+		kfree(log->l_cilp->xc_ctx);
 	}
 
 	ASSERT(list_empty(&log->l_cilp->xc_cil));
-	kmem_free(log->l_cilp);
+	kfree(log->l_cilp);
 }
 

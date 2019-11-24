@@ -8,8 +8,8 @@
 #include "xfs_message.h"
 #include "xfs_trace.h"
 
-void *
-kmem_alloc(size_t size, xfs_km_flags_t flags)
+static void *
+__kmem_alloc(size_t size, xfs_km_flags_t flags)
 {
 	int	retries = 0;
 	gfp_t	lflags = kmem_flags_convert(flags);
@@ -32,7 +32,7 @@ kmem_alloc(size_t size, xfs_km_flags_t flags)
 
 
 /*
- * __vmalloc() will allocate data pages and auxillary structures (e.g.
+ * __vmalloc() will allocate data pages and auxiliary structures (e.g.
  * pagetables) with GFP_KERNEL, yet we may be under GFP_NOFS context here. Hence
  * we need to tell memory reclaim that we are in such a context via
  * PF_MEMALLOC_NOFS to prevent memory reclaim re-entering the filesystem here
@@ -72,7 +72,7 @@ kmem_alloc_io(size_t size, int align_mask, xfs_km_flags_t flags)
 	if (WARN_ON_ONCE(align_mask >= PAGE_SIZE))
 		align_mask = PAGE_SIZE - 1;
 
-	ptr = kmem_alloc(size, flags | KM_MAYFAIL);
+	ptr = __kmem_alloc(size, flags | KM_MAYFAIL);
 	if (ptr) {
 		if (!((uintptr_t)ptr & align_mask))
 			return ptr;
@@ -88,51 +88,8 @@ kmem_alloc_large(size_t size, xfs_km_flags_t flags)
 
 	trace_kmem_alloc_large(size, flags, _RET_IP_);
 
-	ptr = kmem_alloc(size, flags | KM_MAYFAIL);
+	ptr = __kmem_alloc(size, flags | KM_MAYFAIL);
 	if (ptr)
 		return ptr;
 	return __kmem_vmalloc(size, flags);
-}
-
-void *
-kmem_realloc(const void *old, size_t newsize, xfs_km_flags_t flags)
-{
-	int	retries = 0;
-	gfp_t	lflags = kmem_flags_convert(flags);
-	void	*ptr;
-
-	trace_kmem_realloc(newsize, flags, _RET_IP_);
-
-	do {
-		ptr = krealloc(old, newsize, lflags);
-		if (ptr || (flags & KM_MAYFAIL))
-			return ptr;
-		if (!(++retries % 100))
-			xfs_err(NULL,
-	"%s(%u) possible memory allocation deadlock size %zu in %s (mode:0x%x)",
-				current->comm, current->pid,
-				newsize, __func__, lflags);
-		congestion_wait(BLK_RW_ASYNC, HZ/50);
-	} while (1);
-}
-
-void *
-kmem_zone_alloc(kmem_zone_t *zone, xfs_km_flags_t flags)
-{
-	int	retries = 0;
-	gfp_t	lflags = kmem_flags_convert(flags);
-	void	*ptr;
-
-	trace_kmem_zone_alloc(kmem_cache_size(zone), flags, _RET_IP_);
-	do {
-		ptr = kmem_cache_alloc(zone, lflags);
-		if (ptr || (flags & KM_MAYFAIL))
-			return ptr;
-		if (!(++retries % 100))
-			xfs_err(NULL,
-		"%s(%u) possible memory allocation deadlock in %s (mode:0x%x)",
-				current->comm, current->pid,
-				__func__, lflags);
-		congestion_wait(BLK_RW_ASYNC, HZ/50);
-	} while (1);
 }

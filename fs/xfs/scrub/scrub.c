@@ -16,6 +16,7 @@
 #include "xfs_qm.h"
 #include "xfs_errortag.h"
 #include "xfs_error.h"
+#include "xfs_scrub.h"
 #include "scrub/scrub.h"
 #include "scrub/common.h"
 #include "scrub/trace.h"
@@ -174,7 +175,7 @@ xchk_teardown(
 		sc->flags &= ~XCHK_HAS_QUOTAOFFLOCK;
 	}
 	if (sc->buf) {
-		kmem_free(sc->buf);
+		kvfree(sc->buf);
 		sc->buf = NULL;
 	}
 	return error;
