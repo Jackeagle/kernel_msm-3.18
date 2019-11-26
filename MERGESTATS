@@ -1,0 +1,265 @@
+
+Branch origin/chromeos-5.4-android:
+git describe before merge: v5.4
+git describe after merge: v5.4-157-g1f346a981f6f
+Changes against baseline (wc):     157    1457   11695
+
+Branch origin/chromeos-5.4-android-fixes:
+git describe before merge: v5.4-157-g1f346a981f6f
+git describe after merge: v5.4-160-geb9a043dba63
+Changes against baseline (wc):     160    1480   11903
+
+Branch origin/chromeos-5.4-upstream-fixes:
+git describe before merge: v5.4-160-geb9a043dba63
+git describe after merge: v5.4-164-g9f0c3afdd8a6
+Changes against baseline (wc):     164    1516   12195
+
+Branch origin/chromeos-5.4-chromeos:
+git describe before merge: v5.4-164-g9f0c3afdd8a6
+git describe after merge: v5.4-179-ga5f5936b273d
+Changes against baseline (wc):     179    1620   13144
+
+Branch origin/chromeos-5.4-acpi:
+git describe before merge: v5.4-179-ga5f5936b273d
+git describe after merge: v5.4-184-g53cc7ede27ad
+Changes against baseline (wc):     184    1658   13454
+
+Branch origin/chromeos-5.4-arch-arm64:
+git describe before merge: v5.4-184-g53cc7ede27ad
+git describe after merge: v5.4-188-gaff6073ab4a7
+Changes against baseline (wc):     188    1681   13690
+
+Branch origin/chromeos-5.4-arch-x86:
+git describe before merge: v5.4-188-gaff6073ab4a7
+git describe after merge: v5.4-198-g00f2948ea912
+Changes against baseline (wc):     198    1767   14400
+
+Branch origin/chromeos-5.4-block-partitions:
+git describe before merge: v5.4-198-g00f2948ea912
+git describe after merge: v5.4-200-gdbc72d94c64d
+Changes against baseline (wc):     200    1781   14542
+
+Branch origin/chromeos-5.4-bluetooth:
+git describe before merge: v5.4-200-gdbc72d94c64d
+git describe after merge: v5.4-267-gd515dee5701d
+Changes against baseline (wc):     267    2379   19440
+
+Branch origin/chromeos-5.4-cgroup:
+git describe before merge: v5.4-267-gd515dee5701d
+git describe after merge: v5.4-269-gace241475e7f
+Changes against baseline (wc):     269    2392   19568
+
+Branch origin/chromeos-5.4-container-arm64:
+git describe before merge: v5.4-269-gace241475e7f
+git describe after merge: v5.4-271-gfa0402575d51
+Changes against baseline (wc):     271    2404   19691
+
+Branch origin/chromeos-5.4-power:
+git describe before merge: v5.4-271-gfa0402575d51
+git describe after merge: v5.4-282-g5f13cabdfe54
+Changes against baseline (wc):     282    2503   20465
+
+Branch origin/chromeos-5.4-cpufreq:
+git describe before merge: v5.4-282-g5f13cabdfe54
+git describe after merge: v5.4-285-g787401ea0168
+Changes against baseline (wc):     285    2523   20673
+
+Branch origin/chromeos-5.4-cros_ec:
+git describe before merge: v5.4-285-g787401ea0168
+git describe after merge: v5.4-306-gd857d50288d9
+Changes against baseline (wc):     306    2703   22176
+
+Branch origin/chromeos-5.4-cros_ec_iio:
+git describe before merge: v5.4-306-gd857d50288d9
+git describe after merge: v5.4-357-ga14bc989bb8b
+Changes against baseline (wc):     357    3180   26136
+
+Branch origin/chromeos-5.4-cros_ec-wilco:
+git describe before merge: v5.4-357-ga14bc989bb8b
+git describe after merge: v5.4-366-gdceac4b0a57f
+Changes against baseline (wc):     366    3251   26820
+
+Branch origin/chromeos-5.4-devicetree:
+git describe before merge: v5.4-366-gdceac4b0a57f
+git describe after merge: v5.4-368-gae7e1aef606f
+Changes against baseline (wc):     368    3262   26930
+
+Branch origin/chromeos-5.4-drivers:
+git describe before merge: v5.4-368-gae7e1aef606f
+git describe after merge: v5.4-383-g2c9bb50b42d6
+Changes against baseline (wc):     383    3398   28038
+
+Branch origin/chromeos-5.4-drivers-rockchip:
+git describe before merge: v5.4-383-g2c9bb50b42d6
+git describe after merge: v5.4-385-g830b4c22c0b1
+Changes against baseline (wc):     385    3409   28184
+
+Branch origin/chromeos-5.4-drm-amd:
+git describe before merge: v5.4-385-g830b4c22c0b1
+git describe after merge: v5.4-387-gca1d88b2dc65
+Changes against baseline (wc):     387    3418   28294
+
+Branch origin/chromeos-5.4-drm-i915:
+git describe before merge: v5.4-387-gca1d88b2dc65
+git describe after merge: v5.4-399-g4707624c2a38
+Changes against baseline (wc):     399    3516   29221
+
+Branch origin/chromeos-5.4-drm-rockchip:
+git describe before merge: v5.4-399-g4707624c2a38
+git describe after merge: v5.4-403-g303e024c341d
+Changes against baseline (wc):     403    3543   29477
+
+Branch origin/chromeos-5.4-drm-virtio:
+git describe before merge: v5.4-403-g303e024c341d
+git describe after merge: v5.4-421-ge2e41186a237
+Changes against baseline (wc):     421    3674   30743
+
+Branch origin/chromeos-5.4-thermal:
+git describe before merge: v5.4-421-ge2e41186a237
+git describe after merge: v5.4-425-gdd4f8522722e
+Changes against baseline (wc):     425    3704   31020
+
+Branch origin/chromeos-5.4-firmware-google:
+git describe before merge: v5.4-425-gdd4f8522722e
+git describe after merge: v5.4-434-g12880369c39e
+Changes against baseline (wc):     434    3777   31679
+
+Branch origin/chromeos-5.4-fs-ecryptfs:
+git describe before merge: v5.4-434-g12880369c39e
+git describe after merge: v5.4-439-g2743e0d3f0d7
+Changes against baseline (wc):     439    3821   32071
+
+Branch origin/chromeos-5.4-fs-esdfs:
+git describe before merge: v5.4-439-g2743e0d3f0d7
+git describe after merge: v5.4-481-g0044fdbaef09
+Changes against baseline (wc):     481    4134   34588
+
+Branch origin/chromeos-5.4-fs-other:
+git describe before merge: v5.4-481-g0044fdbaef09
+git describe after merge: v5.4-488-gcdc08e8156c3
+Changes against baseline (wc):     488    4190   35074
+
+Branch origin/chromeos-5.4-gpu-other:
+git describe before merge: v5.4-488-gcdc08e8156c3
+git describe after merge: v5.4-505-ge4666a81e668
+Changes against baseline (wc):     505    4324   36219
+
+Branch origin/chromeos-5.4-hid:
+git describe before merge: v5.4-505-ge4666a81e668
+git describe after merge: v5.4-516-g7076b9c90e9b
+Changes against baseline (wc):     516    4426   37032
+
+Branch origin/chromeos-5.4-init:
+git describe before merge: v5.4-516-g7076b9c90e9b
+git describe after merge: v5.4-518-ga098ff373109
+Changes against baseline (wc):     518    4441   37164
+
+Branch origin/chromeos-5.4-input:
+git describe before merge: v5.4-518-ga098ff373109
+git describe after merge: v5.4-523-g2e8ff2ba924a
+Changes against baseline (wc):     523    4481   37506
+
+Branch origin/chromeos-5.4-iommu:
+git describe before merge: v5.4-523-g2e8ff2ba924a
+git describe after merge: v5.4-534-gf9048392cbc6
+Changes against baseline (wc):     534    4569   38292
+
+Branch origin/chromeos-5.4-jasperlake:
+git describe before merge: v5.4-534-gf9048392cbc6
+git describe after merge: v5.4-534-g0dca5fba7318
+Changes against baseline (wc):     534    4569   38297
+
+Branch origin/chromeos-5.4-kernel:
+git describe before merge: v5.4-534-g0dca5fba7318
+git describe after merge: v5.4-541-gb9f8a93abe18
+Changes against baseline (wc):     541    4626   38796
+
+Branch origin/chromeos-5.4-lib:
+git describe before merge: v5.4-541-gb9f8a93abe18
+git describe after merge: v5.4-544-ged1cbd3de927
+Changes against baseline (wc):     544    4645   38956
+
+Branch origin/chromeos-5.4-md:
+git describe before merge: v5.4-544-ged1cbd3de927
+git describe after merge: v5.4-550-g23c3c4cb6c8b
+Changes against baseline (wc):     550    4688   39340
+
+Branch origin/chromeos-5.4-media:
+git describe before merge: v5.4-550-g23c3c4cb6c8b
+git describe after merge: v5.4-574-g9f7d09f47ef4
+Changes against baseline (wc):     574    4894   41097
+
+Branch origin/chromeos-5.4-mm:
+git describe before merge: v5.4-574-g9f7d09f47ef4
+git describe after merge: v5.4-581-gd8827c323843
+Changes against baseline (wc):     581    4954   41572
+
+Branch origin/chromeos-5.4-net:
+git describe before merge: v5.4-581-gd8827c323843
+git describe after merge: v5.4-594-g38cdc9da5b4a
+Changes against baseline (wc):     594    5055   42419
+
+Branch origin/chromeos-5.4-scheduler:
+git describe before merge: v5.4-594-g38cdc9da5b4a
+git describe after merge: v5.4-596-g99a80e598020
+Changes against baseline (wc):     596    5066   42535
+
+Branch origin/chromeos-5.4-scripts:
+git describe before merge: v5.4-596-g99a80e598020
+git describe after merge: v5.4-598-g134d5fc3b9a5
+Changes against baseline (wc):     598    5079   42663
+
+Branch origin/chromeos-5.4-scsi:
+git describe before merge: v5.4-598-g134d5fc3b9a5
+git describe after merge: v5.4-600-g07a834b71184
+Changes against baseline (wc):     600    5092   42778
+
+Branch origin/chromeos-5.4-security:
+git describe before merge: v5.4-600-g07a834b71184
+git describe after merge: v5.4-607-gb68536f7d72a
+Changes against baseline (wc):     607    5133   43180
+
+Branch origin/chromeos-5.4-sound-intel:
+git describe before merge: v5.4-607-gb68536f7d72a
+git describe after merge: v5.4-612-gf20930b5de4b
+Changes against baseline (wc):     612    5185   43581
+
+Branch origin/chromeos-5.4-sound-other:
+git describe before merge: v5.4-612-gf20930b5de4b
+git describe after merge: v5.4-636-g4f70780862a7
+Changes against baseline (wc):     636    5426   45497
+
+Branch origin/chromeos-5.4-sound-rockchip:
+git describe before merge: v5.4-636-g4f70780862a7
+git describe after merge: v5.4-640-g916c7dab19bc
+Changes against baseline (wc):     640    5457   45794
+
+Branch origin/chromeos-5.4-sysrq:
+git describe before merge: v5.4-640-g916c7dab19bc
+git describe after merge: v5.4-645-gad02220e7f8d
+Changes against baseline (wc):     645    5498   46115
+
+Branch origin/chromeos-5.4-tpm:
+git describe before merge: v5.4-645-gad02220e7f8d
+git describe after merge: v5.4-661-g69812a426db0
+Changes against baseline (wc):     661    5630   47136
+
+Branch origin/chromeos-5.4-usb:
+git describe before merge: v5.4-661-g69812a426db0
+git describe after merge: v5.4-666-g716e0f9a3566
+Changes against baseline (wc):     666    5671   47468
+
+Branch origin/chromeos-5.4-virtio:
+git describe before merge: v5.4-666-g716e0f9a3566
+git describe after merge: v5.4-668-g599b35e4a3ae
+Changes against baseline (wc):     668    5680   47563
+
+Branch origin/chromeos-5.4-wireless:
+git describe before merge: v5.4-668-g599b35e4a3ae
+git describe after merge: v5.4-680-g7a6012abc538
+Changes against baseline (wc):     680    5790   48359
+
+Branch origin/chromeos-5.4-other:
+git describe before merge: v5.4-680-g7a6012abc538
+git describe after merge: v5.4-682-g5b6176d1d964
+Changes against baseline (wc):     682    5802   48471
