@@ -169,18 +169,26 @@ cifs_read_super(struct super_block *sb)
 	else
 		sb->s_maxbytes = MAX_NON_LFS;
 
-	/* BB FIXME fix time_gran to be larger for LANMAN sessions */
-	sb->s_time_gran = 100;
-
-	if (tcon->unix_ext) {
+	/* Some very old servers like DOS and OS/2 used 2 second granularity */
+	if ((tcon->ses->server->vals->protocol_id == SMB10_PROT_ID) &&
+	    ((tcon->ses->capabilities &
+	      tcon->ses->server->vals->cap_nt_find) == 0) &&
+	    !tcon->unix_ext) {
+		sb->s_time_gran = 1000000000; /* 1 second is max allowed gran */
+		ts = cnvrtDosUnixTm(cpu_to_le16(SMB_DATE_MIN), 0, 0);
+		sb->s_time_min = ts.tv_sec;
+		ts = cnvrtDosUnixTm(cpu_to_le16(SMB_DATE_MAX),
+				    cpu_to_le16(SMB_TIME_MAX), 0);
+		sb->s_time_max = ts.tv_sec;
+	} else {
+		/*
+		 * Almost every server, including all SMB2+, uses DCE TIME
+		 * ie 100 nanosecond units, since 1601.  See MS-DTYP and MS-FSCC
+		 */
+		sb->s_time_gran = 100;
 		ts = cifs_NTtimeToUnix(0);
 		sb->s_time_min = ts.tv_sec;
 		ts = cifs_NTtimeToUnix(cpu_to_le64(S64_MAX));
-		sb->s_time_max = ts.tv_sec;
-	} else {
-		ts = cnvrtDosUnixTm(cpu_to_le16(SMB_DATE_MIN), 0, 0);
-		sb->s_time_min = ts.tv_sec;
-		ts = cnvrtDosUnixTm(cpu_to_le16(SMB_DATE_MAX), cpu_to_le16(SMB_TIME_MAX), 0);
 		sb->s_time_max = ts.tv_sec;
 	}
 
@@ -711,11 +719,6 @@ cifs_get_root(struct smb_vol *vol, struct super_block *sb)
 		struct inode *dir = d_inode(dentry);
 		struct dentry *child;
 
-		if (!dir) {
-			dput(dentry);
-			dentry = ERR_PTR(-ENOENT);
-			break;
-		}
 		if (!S_ISDIR(dir->i_mode)) {
 			dput(dentry);
 			dentry = ERR_PTR(-ENOTDIR);
@@ -732,7 +735,7 @@ cifs_get_root(struct smb_vol *vol, struct super_block *sb)
 		while (*s && *s != sep)
 			s++;
 
-		child = lookup_one_len_unlocked(p, dentry, s - p);
+		child = lookup_positive_unlocked(p, dentry, s - p);
 		dput(dentry);
 		dentry = child;
 	} while (!IS_ERR(dentry));
