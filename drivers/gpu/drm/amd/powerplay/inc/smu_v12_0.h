@@ -44,10 +44,9 @@ int smu_v12_0_read_arg(struct smu_context *smu, uint32_t *arg);
 
 int smu_v12_0_wait_for_response(struct smu_context *smu);
 
-int smu_v12_0_send_msg(struct smu_context *smu, uint16_t msg);
-
 int
-smu_v12_0_send_msg_with_param(struct smu_context *smu, uint16_t msg,
+smu_v12_0_send_msg_with_param(struct smu_context *smu,
+			      enum smu_message_type msg,
 			      uint32_t param);
 
 int smu_v12_0_check_fw_status(struct smu_context *smu);
@@ -58,7 +57,13 @@ int smu_v12_0_powergate_sdma(struct smu_context *smu, bool gate);
 
 int smu_v12_0_powergate_vcn(struct smu_context *smu, bool gate);
 
+int smu_v12_0_powergate_jpeg(struct smu_context *smu, bool gate);
+
 int smu_v12_0_set_gfx_cgpg(struct smu_context *smu, bool enable);
+
+int smu_v12_0_read_sensor(struct smu_context *smu,
+			  enum amd_pp_sensors sensor,
+			  void *data, uint32_t *size);
 
 uint32_t smu_v12_0_get_gfxoff_status(struct smu_context *smu);
 
