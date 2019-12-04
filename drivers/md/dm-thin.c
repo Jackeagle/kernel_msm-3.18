@@ -2383,8 +2383,16 @@ static void process_deferred_bios(struct pool *pool)
 	while ((bio = bio_list_pop(&bio_completions)))
 		bio_endio(bio);
 
-	while ((bio = bio_list_pop(&bios)))
-		generic_make_request(bio);
+	while ((bio = bio_list_pop(&bios))) {
+		/*
+		 * The data device was flushed as part of metadata commit,
+		 * so complete redundant flushes immediately.
+		 */
+		if (bio->bi_opf & REQ_PREFLUSH)
+			bio_endio(bio);
+		else
+			generic_make_request(bio);
+	}
 }
 
 static void do_worker(struct work_struct *ws)
@@ -3180,6 +3188,24 @@ static void metadata_low_callback(void *context)
 	dm_table_event(pool->ti->table);
 }
 
+/*
+ * We need to flush the data device **before** committing the metadata.
+ *
+ * This ensures that the data blocks of any newly inserted mappings are
+ * properly written to non-volatile storage and won't be lost in case of a
+ * crash.
+ *
+ * Failure to do so can result in data corruption in the case of internal or
+ * external snapshots and in the case of newly provisioned blocks, when block
+ * zeroing is enabled.
+ */
+static int metadata_pre_commit_callback(void *context)
+{
+	struct pool_c *pt = context;
+
+	return blkdev_issue_flush(pt->data_dev->bdev, GFP_NOIO, NULL);
+}
+
 static sector_t get_dev_size(struct block_device *bdev)
 {
 	return i_size_read(bdev->bd_inode) >> SECTOR_SHIFT;
@@ -3373,6 +3399,10 @@ static int pool_ctr(struct dm_target *ti, unsigned argc, char **argv)
 						pool);
 	if (r)
 		goto out_flags_changed;
+
+	dm_pool_register_pre_commit_callback(pt->pool->pmd,
+					     metadata_pre_commit_callback,
+					     pt);
 
 	pt->callbacks.congested_fn = pool_is_congested;
 	dm_table_add_target_callbacks(ti->table, &pt->callbacks);
