@@ -30,4 +30,18 @@ arm/fixes
 		arm64: defconfig: re-run savedefconfig
 		ARM: defconfig: re-run savedefconfig on multi_v* configs
 		ARM: multi_v7_defconfig: Restore debugfs support
+	<no branch> (d7d8d62a3f3b50b606c9395298b017bd9fd9c8d4)
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.5/ti-sysc-late-signed
+	<no branch> (3e5c3c41ae925458150273e2f74ffbf999530c5f)
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.5/dt-fixes-merge-window-signed
+	<no branch> (716864586c6261b079a4d5ebc02f19adc8e6aa38)
+		git://git.kernel.org/pub/scm/linux/kernel/git/dinguyen/linux tags/socfpga_update_for_v5.5
+	<no branch> (0fb438eed10ca13d212a5675363beb5a5cd721f2)
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.5-cpufreq
+	<no branch> (48914c4ecb0c0fa1d70ea7b97d758ce5fadacfb0)
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.5-soc-fixes
+	<no branch> (030d2829f4c22e675e21904f32ab60f659174e72)
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.5-memory-fixes
+	<no branch> (be8af7a9e3cce3cc4b7abbc8211dd06f8e72b976)
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.5/devicetree-part2
 
