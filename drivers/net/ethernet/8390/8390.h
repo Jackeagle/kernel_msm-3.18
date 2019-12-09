@@ -32,7 +32,7 @@ void NS8390_init(struct net_device *dev, int startp);
 int ei_open(struct net_device *dev);
 int ei_close(struct net_device *dev);
 irqreturn_t ei_interrupt(int irq, void *dev_id);
-void ei_tx_timeout(struct net_device *dev);
+void ei_tx_timeout(struct net_device *dev, unsigned int txqueue);
 netdev_tx_t ei_start_xmit(struct sk_buff *skb, struct net_device *dev);
 void ei_set_multicast_list(struct net_device *dev);
 struct net_device_stats *ei_get_stats(struct net_device *dev);
