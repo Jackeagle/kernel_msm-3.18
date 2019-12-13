@@ -7,6 +7,22 @@
 #define _UFS_MEDIATEK_H
 
 /*
+ * Vendor specific UFSHCI Registers
+ */
+#define REG_UFS_REFCLK_CTRL	    0x144
+
+/*
+ * Ref-clk control
+ *
+ * Values for register REG_UFS_REFCLK_CTRL
+ */
+#define REFCLK_RELEASE		    0x0
+#define REFCLK_REQUEST		    BIT(0)
+#define REFCLK_ACK		    BIT(1)
+
+#define REFCLK_REQ_TIMEOUT_MS	    3
+
+/*
  * Vendor specific pre-defined parameters
  */
 #define UFS_MTK_LIMIT_NUM_LANES_RX  1
@@ -29,6 +45,9 @@
 #define VS_SAVEPOWERCONTROL         0xD0A6
 #define VS_UNIPROPOWERDOWNCONTROL   0xD0A8
 
+#define UFS_MTK_SIP_DEVICE_RESET	  BIT(1)
+#define UFS_MTK_SIP_REF_CLK_NOTIFICATION  BIT(3)
+
 /*
  * VS_DEBUGCLOCKENABLE
  */
@@ -48,6 +67,7 @@ enum {
 struct ufs_mtk_host {
 	struct ufs_hba *hba;
 	struct phy *mphy;
+	bool ref_clk_enabled;
 };
 
 #endif /* !_UFS_MEDIATEK_H */
