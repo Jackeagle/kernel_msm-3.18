@@ -53,8 +53,6 @@
 
 #include "internal.h"
 
-static DEFINE_MUTEX(mce_log_mutex);
-
 /* sysfs synchronization */
 static DEFINE_MUTEX(mce_sysfs_mutex);
 
@@ -156,14 +154,7 @@ void mce_log(struct mce *m)
 	if (!mce_gen_pool_add(m))
 		irq_work_queue(&mce_irq_work);
 }
-
-void mce_inject_log(struct mce *m)
-{
-	mutex_lock(&mce_log_mutex);
-	mce_log(m);
-	mutex_unlock(&mce_log_mutex);
-}
-EXPORT_SYMBOL_GPL(mce_inject_log);
+EXPORT_SYMBOL_GPL(mce_log);
 
 static struct notifier_block mce_srao_nb;
 
@@ -819,8 +810,8 @@ static int mce_no_way_out(struct mce *m, char **msg, unsigned long *validp,
 		if (quirk_no_way_out)
 			quirk_no_way_out(i, m, regs);
 
+		m->bank = i;
 		if (mce_severity(m, mca_cfg.tolerant, &tmp, true) >= MCE_PANIC_SEVERITY) {
-			m->bank = i;
 			mce_read_aux(m, i);
 			*msg = tmp;
 			return 1;
@@ -1365,7 +1356,7 @@ void do_machine_check(struct pt_regs *regs, long error_code)
 		ist_end_non_atomic();
 	} else {
 		if (!fixup_exception(regs, X86_TRAP_MC, error_code, 0))
-			mce_panic("Failed kernel mode recovery", &m, NULL);
+			mce_panic("Failed kernel mode recovery", &m, msg);
 	}
 
 out_ist:
