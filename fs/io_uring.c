@@ -3988,12 +3988,31 @@ static void io_queue_sqe(struct io_kiocb *req)
 	ret = io_req_defer(req);
 	if (ret) {
 		if (ret != -EIOCBQUEUED) {
+err_req:
 			io_cqring_add_event(req, ret);
 			req_set_fail_links(req);
 			io_double_put_req(req);
 		}
-	} else
+	} else if ((req->sqe->flags & IOSQE_ASYNC) &&
+		   !io_wq_current_is_worker()) {
+		/*
+		 * Never try inline submit of IOSQE_ASYNC is set, go straight
+		 * to async execution.
+		 */
+		if (!req->io) {
+			if (io_alloc_async_ctx(req)) {
+				ret = -ENOMEM;
+				goto err_req;
+			}
+			ret = io_req_defer_prep(req);
+			if (ret)
+				goto err_req;
+		}
+		req->work.flags |= IO_WQ_WORK_CONCURRENT;
+		io_queue_async_work(req);
+	} else {
 		__io_queue_sqe(req);
+	}
 }
 
 static inline void io_queue_link_head(struct io_kiocb *req)
@@ -4006,7 +4025,7 @@ static inline void io_queue_link_head(struct io_kiocb *req)
 }
 
 #define SQE_VALID_FLAGS	(IOSQE_FIXED_FILE|IOSQE_IO_DRAIN|IOSQE_IO_LINK|	\
-				IOSQE_IO_HARDLINK)
+				IOSQE_IO_HARDLINK | IOSQE_ASYNC)
 
 static bool io_submit_sqe(struct io_kiocb *req, struct io_submit_state *state,
 			  struct io_kiocb **link)
