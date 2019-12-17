@@ -45,6 +45,7 @@
 #include "gem/i915_gem_context.h"
 #include "gem/i915_gem_ioctls.h"
 #include "gem/i915_gem_pm.h"
+#include "gt/intel_context.h"
 #include "gt/intel_engine_user.h"
 #include "gt/intel_gt.h"
 #include "gt/intel_gt_pm.h"
@@ -893,6 +894,20 @@ i915_gem_object_ggtt_pin(struct drm_i915_gem_object *obj,
 {
 	struct drm_i915_private *dev_priv = to_i915(obj->base.dev);
 	struct i915_address_space *vm = &dev_priv->ggtt.vm;
+
+	return i915_gem_object_pin(obj, vm, view, size, alignment,
+				   flags | PIN_GLOBAL);
+}
+
+struct i915_vma *
+i915_gem_object_pin(struct drm_i915_gem_object *obj,
+		    struct i915_address_space *vm,
+		    const struct i915_ggtt_view *view,
+		    u64 size,
+		    u64 alignment,
+		    u64 flags)
+{
+	struct drm_i915_private *dev_priv = to_i915(obj->base.dev);
 	struct i915_vma *vma;
 	int ret;
 
@@ -958,7 +973,7 @@ i915_gem_object_ggtt_pin(struct drm_i915_gem_object *obj,
 			return ERR_PTR(ret);
 	}
 
-	ret = i915_vma_pin(vma, size, alignment, flags | PIN_GLOBAL);
+	ret = i915_vma_pin(vma, size, alignment, flags);
 	if (ret)
 		return ERR_PTR(ret);
 
@@ -1039,36 +1054,16 @@ out:
 	return err;
 }
 
-void i915_gem_sanitize(struct drm_i915_private *i915)
+static int __intel_context_flush_retire(struct intel_context *ce)
 {
-	intel_wakeref_t wakeref;
+	struct intel_timeline *tl;
 
-	GEM_TRACE("\n");
+	tl = intel_context_timeline_lock(ce);
+	if (IS_ERR(tl))
+		return PTR_ERR(tl);
 
-	wakeref = intel_runtime_pm_get(&i915->runtime_pm);
-	intel_uncore_forcewake_get(&i915->uncore, FORCEWAKE_ALL);
-
-	/*
-	 * As we have just resumed the machine and woken the device up from
-	 * deep PCI sleep (presumably D3_cold), assume the HW has been reset
-	 * back to defaults, recovering from whatever wedged state we left it
-	 * in and so worth trying to use the device once more.
-	 */
-	if (intel_gt_is_wedged(&i915->gt))
-		intel_gt_unset_wedged(&i915->gt);
-
-	/*
-	 * If we inherit context state from the BIOS or earlier occupants
-	 * of the GPU, the GPU may be in an inconsistent state when we
-	 * try to take over. The only way to remove the earlier state
-	 * is by resetting. However, resetting on earlier gen is tricky as
-	 * it may impact the display and we are uncertain about the stability
-	 * of the reset, so this could be applied to even earlier gen.
-	 */
-	intel_gt_sanitize(&i915->gt, false);
-
-	intel_uncore_forcewake_put(&i915->uncore, FORCEWAKE_ALL);
-	intel_runtime_pm_put(&i915->runtime_pm, wakeref);
+	intel_context_timeline_unlock(tl);
+	return 0;
 }
 
 static int __intel_engines_record_defaults(struct intel_gt *gt)
@@ -1139,12 +1134,19 @@ err_rq:
 		if (!rq)
 			continue;
 
-		/* We want to be able to unbind the state from the GGTT */
-		GEM_BUG_ON(intel_context_is_pinned(rq->hw_context));
-
+		GEM_BUG_ON(!test_bit(CONTEXT_ALLOC_BIT,
+				     &rq->hw_context->flags));
 		state = rq->hw_context->state;
 		if (!state)
 			continue;
+
+		/* Serialise with retirement on another CPU */
+		err = __intel_context_flush_retire(rq->hw_context);
+		if (err)
+			goto out;
+
+		/* We want to be able to unbind the state from the GGTT */
+		GEM_BUG_ON(intel_context_is_pinned(rq->hw_context));
 
 		/*
 		 * As we will hold a reference to the logical state, it will
@@ -1411,11 +1413,6 @@ void i915_gem_driver_release(struct drm_i915_private *dev_priv)
 	i915_gem_drain_freed_objects(dev_priv);
 
 	WARN_ON(!list_empty(&dev_priv->gem.contexts.list));
-}
-
-void i915_gem_init_mmio(struct drm_i915_private *i915)
-{
-	i915_gem_sanitize(i915);
 }
 
 static void i915_gem_init__mm(struct drm_i915_private *i915)

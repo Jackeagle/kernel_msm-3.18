@@ -1507,12 +1507,12 @@ __dump_topology_ref_history(struct drm_dp_mst_topology_ref_history *history,
 		ulong *entries;
 		uint nr_entries;
 		u64 ts_nsec = entry->ts_nsec;
-		u64 rem_nsec = do_div(ts_nsec, 1000000000);
+		u32 rem_nsec = do_div(ts_nsec, 1000000000);
 
 		nr_entries = stack_depot_fetch(entry->backtrace, &entries);
 		stack_trace_snprint(buf, PAGE_SIZE, entries, nr_entries, 4);
 
-		drm_printf(&p, "  %d %ss (last at %5llu.%06llu):\n%s",
+		drm_printf(&p, "  %d %ss (last at %5llu.%06u):\n%s",
 			   entry->count,
 			   topology_ref_type_to_str(entry->type),
 			   ts_nsec, rem_nsec / 1000, buf);
@@ -3176,9 +3176,11 @@ int drm_dp_update_payload_part1(struct drm_dp_mst_topology_mgr *mgr)
 			drm_dp_mst_topology_put_port(port);
 	}
 
-	for (i = 0; i < mgr->max_payloads; i++) {
-		if (mgr->payloads[i].payload_state != DP_PAYLOAD_DELETE_LOCAL)
+	for (i = 0; i < mgr->max_payloads; /* do nothing */) {
+		if (mgr->payloads[i].payload_state != DP_PAYLOAD_DELETE_LOCAL) {
+			i++;
 			continue;
+		}
 
 		DRM_DEBUG_KMS("removing payload %d\n", i);
 		for (j = i; j < mgr->max_payloads - 1; j++) {
