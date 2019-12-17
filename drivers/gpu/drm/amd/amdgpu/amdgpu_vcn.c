@@ -28,19 +28,10 @@
 #include <linux/module.h>
 #include <linux/pci.h>
 
-#include <drm/drm.h>
-
 #include "amdgpu.h"
 #include "amdgpu_pm.h"
 #include "amdgpu_vcn.h"
 #include "soc15d.h"
-#include "soc15_common.h"
-
-#include "vcn/vcn_1_0_offset.h"
-#include "vcn/vcn_1_0_sh_mask.h"
-
-/* 1 second timeout */
-#define VCN_IDLE_TIMEOUT	msecs_to_jiffies(1000)
 
 /* Firmware Names */
 #define FIRMWARE_RAVEN		"amdgpu/raven_vcn.bin"
@@ -294,6 +285,7 @@ static void amdgpu_vcn_idle_work_handler(struct work_struct *work)
 	for (j = 0; j < adev->vcn.num_vcn_inst; ++j) {
 		if (adev->vcn.harvest_config & (1 << j))
 			continue;
+
 		for (i = 0; i < adev->vcn.num_enc_rings; ++i) {
 			fence[j] += amdgpu_fence_count_emitted(&adev->vcn.inst[j].ring_enc[i]);
 		}
@@ -306,26 +298,17 @@ static void amdgpu_vcn_idle_work_handler(struct work_struct *work)
 			else
 				new_state.fw_based = VCN_DPG_STATE__UNPAUSE;
 
-			if (amdgpu_fence_count_emitted(&adev->jpeg.inst[j].ring_dec))
-				new_state.jpeg = VCN_DPG_STATE__PAUSE;
-			else
-				new_state.jpeg = VCN_DPG_STATE__UNPAUSE;
-
 			adev->vcn.pause_dpg_mode(adev, &new_state);
 		}
 
-		fence[j] += amdgpu_fence_count_emitted(&adev->jpeg.inst[j].ring_dec);
 		fence[j] += amdgpu_fence_count_emitted(&adev->vcn.inst[j].ring_dec);
 		fences += fence[j];
 	}
 
 	if (fences == 0) {
 		amdgpu_gfx_off_ctrl(adev, true);
-		if (adev->asic_type < CHIP_ARCTURUS && adev->pm.dpm_enabled)
-			amdgpu_dpm_enable_uvd(adev, false);
-		else
-			amdgpu_device_ip_set_powergating_state(adev, AMD_IP_BLOCK_TYPE_VCN,
-							       AMD_PG_STATE_GATE);
+		amdgpu_device_ip_set_powergating_state(adev, AMD_IP_BLOCK_TYPE_VCN,
+		       AMD_PG_STATE_GATE);
 	} else {
 		schedule_delayed_work(&adev->vcn.idle_work, VCN_IDLE_TIMEOUT);
 	}
@@ -338,11 +321,8 @@ void amdgpu_vcn_ring_begin_use(struct amdgpu_ring *ring)
 
 	if (set_clocks) {
 		amdgpu_gfx_off_ctrl(adev, false);
-		if (adev->asic_type < CHIP_ARCTURUS && adev->pm.dpm_enabled)
-			amdgpu_dpm_enable_uvd(adev, true);
-		else
-			amdgpu_device_ip_set_powergating_state(adev, AMD_IP_BLOCK_TYPE_VCN,
-							       AMD_PG_STATE_UNGATE);
+		amdgpu_device_ip_set_powergating_state(adev, AMD_IP_BLOCK_TYPE_VCN,
+		       AMD_PG_STATE_UNGATE);
 	}
 
 	if (adev->pg_flags & AMD_PG_SUPPORT_VCN_DPG)	{
@@ -358,15 +338,8 @@ void amdgpu_vcn_ring_begin_use(struct amdgpu_ring *ring)
 		else
 			new_state.fw_based = VCN_DPG_STATE__UNPAUSE;
 
-		if (amdgpu_fence_count_emitted(&adev->jpeg.inst[ring->me].ring_dec))
-			new_state.jpeg = VCN_DPG_STATE__PAUSE;
-		else
-			new_state.jpeg = VCN_DPG_STATE__UNPAUSE;
-
 		if (ring->funcs->type == AMDGPU_RING_TYPE_VCN_ENC)
 			new_state.fw_based = VCN_DPG_STATE__PAUSE;
-		else if (ring->funcs->type == AMDGPU_RING_TYPE_VCN_JPEG)
-			new_state.jpeg = VCN_DPG_STATE__PAUSE;
 
 		adev->vcn.pause_dpg_mode(adev, &new_state);
 	}
