@@ -63,6 +63,7 @@ static int __gup_benchmark_ioctl(unsigned int cmd,
 					    NULL);
 			break;
 		default:
+			kvfree(pages);
 			return -1;
 		}
 
