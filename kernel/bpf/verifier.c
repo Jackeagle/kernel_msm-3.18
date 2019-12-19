@@ -8268,7 +8268,7 @@ static int replace_map_fd_with_map_ptr(struct bpf_verifier_env *env)
 			env->used_maps[env->used_map_cnt++] = map;
 
 			if (bpf_map_is_cgroup_storage(map) &&
-			    bpf_cgroup_storage_assign(env->prog, map)) {
+			    bpf_cgroup_storage_assign(env->prog->aux, map)) {
 				verbose(env, "only one cgroup storage of each type is allowed\n");
 				fdput(f);
 				return -EBUSY;
@@ -8298,18 +8298,8 @@ next_insn:
 /* drop refcnt of maps used by the rejected program */
 static void release_maps(struct bpf_verifier_env *env)
 {
-	enum bpf_cgroup_storage_type stype;
-	int i;
-
-	for_each_cgroup_storage_type(stype) {
-		if (!env->prog->aux->cgroup_storage[stype])
-			continue;
-		bpf_cgroup_storage_release(env->prog,
-			env->prog->aux->cgroup_storage[stype]);
-	}
-
-	for (i = 0; i < env->used_map_cnt; i++)
-		bpf_map_put(env->used_maps[i]);
+	__bpf_free_used_maps(env->prog->aux, env->used_maps,
+			     env->used_map_cnt);
 }
 
 /* convert pseudo BPF_LD_IMM64 into generic BPF_LD_IMM64 */
