@@ -1,0 +1,20 @@
+arm/soc
+
+arm/dt
+	exynos/dt-5.5-2
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt-5.5-2
+	socfpga/dt-5.5-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/dinguyen/linux tags/socfpga_dts_updates_for_v5.5_part2
+	ux500/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/linusw/linux-stericsson tags/ux500-armsoc-v5.6-1
+
+arm/drivers
+
+arm/defconfig
+	patch
+		ARM: defconfig: u8500: activate cpufreq
+
+arm/late
+
+arm/fixes
+
