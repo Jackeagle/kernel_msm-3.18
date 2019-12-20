@@ -34,6 +34,8 @@ struct io_uring_sqe {
 		__u32		timeout_flags;
 		__u32		accept_flags;
 		__u32		cancel_flags;
+		__u32		open_flags;
+		__u32		statx_flags;
 	};
 	__u64	user_data;	/* data to be passed back at completion time */
 	union {
@@ -49,6 +51,7 @@ struct io_uring_sqe {
 #define IOSQE_IO_DRAIN		(1U << 1)	/* issue after inflight IO */
 #define IOSQE_IO_LINK		(1U << 2)	/* links next sqe */
 #define IOSQE_IO_HARDLINK	(1U << 3)	/* like LINK, but stronger */
+#define IOSQE_ASYNC		(1U << 4)	/* always go async */
 
 /*
  * io_uring_setup() flags
@@ -76,6 +79,11 @@ enum {
 	IORING_OP_ASYNC_CANCEL,
 	IORING_OP_LINK_TIMEOUT,
 	IORING_OP_CONNECT,
+	IORING_OP_FALLOCATE,
+	IORING_OP_OPENAT,
+	IORING_OP_CLOSE,
+	IORING_OP_FILES_UPDATE,
+	IORING_OP_STATX,
 
 	/* this goes last, obviously */
 	IORING_OP_LAST,
