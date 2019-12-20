@@ -5828,6 +5828,7 @@ static inline int select_idle_smt(struct task_struct *p, int target)
  */
 static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, int target)
 {
+	struct cpumask *cpus = this_cpu_cpumask_var_ptr(select_idle_mask);
 	struct sched_domain *this_sd;
 	u64 avg_cost, avg_idle;
 	u64 time, cost;
@@ -5859,11 +5860,11 @@ static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, int t
 
 	time = cpu_clock(this);
 
-	for_each_cpu_wrap(cpu, sched_domain_span(sd), target) {
+	cpumask_and(cpus, sched_domain_span(sd), p->cpus_ptr);
+
+	for_each_cpu_wrap(cpu, cpus, target) {
 		if (!--nr)
 			return si_cpu;
-		if (!cpumask_test_cpu(cpu, p->cpus_ptr))
-			continue;
 		if (available_idle_cpu(cpu))
 			break;
 		if (si_cpu == -1 && sched_idle_cpu(cpu))
@@ -7328,7 +7329,14 @@ static int detach_tasks(struct lb_env *env)
 			    load < 16 && !env->sd->nr_balance_failed)
 				goto next;
 
-			if (load/2 > env->imbalance)
+			/*
+			 * Make sure that we don't migrate too much load.
+			 * Nevertheless, let relax the constraint if
+			 * scheduler fails to find a good waiting task to
+			 * migrate.
+			 */
+			if (load/2 > env->imbalance &&
+			    env->sd->nr_balance_failed <= env->sd->cache_nice_tries)
 				goto next;
 
 			env->imbalance -= load;
@@ -8416,6 +8424,10 @@ find_idlest_group(struct sched_domain *sd, struct task_struct *p,
 	/* There is no idlest group to push tasks to */
 	if (!idlest)
 		return NULL;
+
+	/* The local group has been skipped because of CPU affinity */
+	if (!local)
+		return idlest;
 
 	/*
 	 * If the local group is idler than the selected idlest group
@@ -10320,6 +10332,9 @@ static void
 prio_changed_fair(struct rq *rq, struct task_struct *p, int oldprio)
 {
 	if (!task_on_rq_queued(p))
+		return;
+
+	if (rq->cfs.nr_running == 1)
 		return;
 
 	/*

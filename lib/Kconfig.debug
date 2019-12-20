@@ -447,6 +447,8 @@ source "lib/Kconfig.kgdb"
 
 source "lib/Kconfig.ubsan"
 
+source "lib/Kconfig.kcsan"
+
 endmenu
 
 config DEBUG_KERNEL
@@ -1025,7 +1027,7 @@ config DEBUG_TIMEKEEPING
 
 config DEBUG_PREEMPT
 	bool "Debug preemptible kernel"
-	depends on DEBUG_KERNEL && PREEMPT && TRACE_IRQFLAGS_SUPPORT
+	depends on DEBUG_KERNEL && PREEMPTION && TRACE_IRQFLAGS_SUPPORT
 	default y
 	help
 	  If you say Y here then the kernel will use a debug variant of the
@@ -2174,8 +2176,6 @@ config MEMTEST
 	        ...
 	        memtest=17, mean do 17 test patterns.
 	  If you are unsure how to answer this question, answer N.
-
-
 
 config HYPERV_TESTING
 	bool "Microsoft Hyper-V driver testing"
