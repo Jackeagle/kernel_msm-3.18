@@ -2355,7 +2355,6 @@ static int cdns3_gadget_udc_stop(struct usb_gadget *gadget)
 	struct cdns3_endpoint *priv_ep;
 	u32 bEndpointAddress;
 	struct usb_ep *ep;
-	int ret = 0;
 	int val;
 
 	priv_dev->gadget_driver = NULL;
@@ -2377,7 +2376,7 @@ static int cdns3_gadget_udc_stop(struct usb_gadget *gadget)
 	writel(0, &priv_dev->regs->usb_ien);
 	writel(USB_CONF_DEVDS, &priv_dev->regs->usb_conf);
 
-	return ret;
+	return 0;
 }
 
 static const struct usb_gadget_ops cdns3_gadget_ops = {
