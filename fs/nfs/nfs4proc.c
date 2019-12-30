@@ -5019,12 +5019,16 @@ static int nfs4_proc_statfs(struct nfs_server *server, struct nfs_fh *fhandle, s
 static int _nfs4_do_fsinfo(struct nfs_server *server, struct nfs_fh *fhandle,
 		struct nfs_fsinfo *fsinfo)
 {
+	struct nfs_client *clp = server->nfs_client;
 	struct nfs4_fsinfo_arg args = {
 		.fh = fhandle,
 		.bitmask = server->attr_bitmask,
+		.clientid = clp->cl_clientid,
+		.renew = nfs4_has_session(clp) ? 0 : 1,		/* append RENEW */
 	};
 	struct nfs4_fsinfo_res res = {
 		.fsinfo = fsinfo,
+		.renew = nfs4_has_session(clp) ? 0 : 1,
 	};
 	struct rpc_message msg = {
 		.rpc_proc = &nfs4_procedures[NFSPROC4_CLNT_FSINFO],

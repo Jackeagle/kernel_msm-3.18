@@ -555,11 +555,13 @@ static int decode_layoutget(struct xdr_stream *xdr, struct rpc_rqst *req,
 #define NFS4_enc_fsinfo_sz	(compound_encode_hdr_maxsz + \
 				encode_sequence_maxsz + \
 				encode_putfh_maxsz + \
-				encode_fsinfo_maxsz)
+				encode_fsinfo_maxsz + \
+				encode_renew_maxsz)
 #define NFS4_dec_fsinfo_sz	(compound_decode_hdr_maxsz + \
 				decode_sequence_maxsz + \
 				decode_putfh_maxsz + \
-				decode_fsinfo_maxsz)
+				decode_fsinfo_maxsz + \
+				decode_renew_maxsz)
 #define NFS4_enc_renew_sz	(compound_encode_hdr_maxsz + \
 				encode_renew_maxsz)
 #define NFS4_dec_renew_sz	(compound_decode_hdr_maxsz + \
@@ -2646,6 +2648,8 @@ static void nfs4_xdr_enc_fsinfo(struct rpc_rqst *req, struct xdr_stream *xdr,
 	encode_sequence(xdr, &args->seq_args, &hdr);
 	encode_putfh(xdr, args->fh, &hdr);
 	encode_fsinfo(xdr, args->bitmask, &hdr);
+	if (args->renew)
+		encode_renew(xdr, args->clientid, &hdr);
 	encode_nops(&hdr);
 }
 
@@ -6781,6 +6785,11 @@ static int nfs4_xdr_dec_fsinfo(struct rpc_rqst *req, struct xdr_stream *xdr,
 		status = decode_putfh(xdr);
 	if (!status)
 		status = decode_fsinfo(xdr, res->fsinfo);
+	if (status)
+		goto out;
+	if (res->renew)
+		status = decode_renew(xdr);
+out:
 	return status;
 }
 

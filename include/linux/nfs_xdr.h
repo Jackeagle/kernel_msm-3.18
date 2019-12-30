@@ -1025,11 +1025,14 @@ struct nfs4_fsinfo_arg {
 	struct nfs4_sequence_args	seq_args;
 	const struct nfs_fh *		fh;
 	const u32 *			bitmask;
+	clientid4			clientid;
+	unsigned char			renew:1;
 };
 
 struct nfs4_fsinfo_res {
 	struct nfs4_sequence_res	seq_res;
 	struct nfs_fsinfo	       *fsinfo;
+	unsigned char			renew:1;
 };
 
 struct nfs4_getattr_arg {
