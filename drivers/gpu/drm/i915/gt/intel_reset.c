@@ -251,9 +251,8 @@ out:
 	return ret;
 }
 
-static int ironlake_do_reset(struct intel_gt *gt,
-			     intel_engine_mask_t engine_mask,
-			     unsigned int retry)
+static int ilk_do_reset(struct intel_gt *gt, intel_engine_mask_t engine_mask,
+			unsigned int retry)
 {
 	struct intel_uncore *uncore = gt->uncore;
 	int ret;
@@ -597,7 +596,7 @@ static reset_func intel_get_gpu_reset(const struct intel_gt *gt)
 	else if (INTEL_GEN(i915) >= 6)
 		return gen6_reset_engines;
 	else if (INTEL_GEN(i915) >= 5)
-		return ironlake_do_reset;
+		return ilk_do_reset;
 	else if (IS_G4X(i915))
 		return g4x_do_reset;
 	else if (IS_G33(i915) || IS_PINEVIEW(i915))
@@ -1329,10 +1328,10 @@ int intel_gt_terminally_wedged(struct intel_gt *gt)
 	if (!intel_gt_is_wedged(gt))
 		return 0;
 
-	/* Reset still in progress? Maybe we will recover? */
-	if (!test_bit(I915_RESET_BACKOFF, &gt->reset.flags))
+	if (intel_gt_has_init_error(gt))
 		return -EIO;
 
+	/* Reset still in progress? Maybe we will recover? */
 	if (wait_event_interruptible(gt->reset.queue,
 				     !test_bit(I915_RESET_BACKOFF,
 					       &gt->reset.flags)))
@@ -1354,6 +1353,9 @@ void intel_gt_init_reset(struct intel_gt *gt)
 	init_waitqueue_head(&gt->reset.queue);
 	mutex_init(&gt->reset.mutex);
 	init_srcu_struct(&gt->reset.backoff_srcu);
+
+	/* no GPU until we are ready! */
+	__set_bit(I915_WEDGED, &gt->reset.flags);
 }
 
 void intel_gt_fini_reset(struct intel_gt *gt)

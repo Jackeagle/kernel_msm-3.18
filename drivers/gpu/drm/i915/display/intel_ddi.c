@@ -34,6 +34,7 @@
 #include "intel_ddi.h"
 #include "intel_display_types.h"
 #include "intel_dp.h"
+#include "intel_dp_mst.h"
 #include "intel_dp_link_training.h"
 #include "intel_dpio_phy.h"
 #include "intel_dsi.h"
@@ -1899,8 +1900,13 @@ intel_ddi_transcoder_func_reg_val_get(const struct intel_crtc_state *crtc_state)
 		temp |= TRANS_DDI_MODE_SELECT_DP_MST;
 		temp |= DDI_PORT_WIDTH(crtc_state->lane_count);
 
-		if (INTEL_GEN(dev_priv) >= 12)
-			temp |= TRANS_DDI_MST_TRANSPORT_SELECT(crtc_state->cpu_transcoder);
+		if (INTEL_GEN(dev_priv) >= 12) {
+			enum transcoder master;
+
+			master = crtc_state->mst_master_transcoder;
+			WARN_ON(master == INVALID_TRANSCODER);
+			temp |= TRANS_DDI_MST_TRANSPORT_SELECT(master);
+		}
 	} else {
 		temp |= TRANS_DDI_MODE_SELECT_DP_SST;
 		temp |= DDI_PORT_WIDTH(crtc_state->lane_count);
@@ -1944,17 +1950,18 @@ void intel_ddi_disable_transcoder_func(const struct intel_crtc_state *crtc_state
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
 	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
 	enum transcoder cpu_transcoder = crtc_state->cpu_transcoder;
-	i915_reg_t reg = TRANS_DDI_FUNC_CTL(cpu_transcoder);
-	u32 val = I915_READ(reg);
+	u32 val;
+
+	val = I915_READ(TRANS_DDI_FUNC_CTL(cpu_transcoder));
+	val &= ~TRANS_DDI_FUNC_ENABLE;
 
 	if (INTEL_GEN(dev_priv) >= 12) {
-		val &= ~(TRANS_DDI_FUNC_ENABLE | TGL_TRANS_DDI_PORT_MASK |
-			 TRANS_DDI_DP_VC_PAYLOAD_ALLOC);
+		if (!intel_dp_mst_is_master_trans(crtc_state))
+			val &= ~TGL_TRANS_DDI_PORT_MASK;
 	} else {
-		val &= ~(TRANS_DDI_FUNC_ENABLE | TRANS_DDI_PORT_MASK |
-			 TRANS_DDI_DP_VC_PAYLOAD_ALLOC);
+		val &= ~TRANS_DDI_PORT_MASK;
 	}
-	I915_WRITE(reg, val);
+	I915_WRITE(TRANS_DDI_FUNC_CTL(cpu_transcoder), val);
 
 	if (dev_priv->quirks & QUIRK_INCREASE_DDI_DISABLED_TIME &&
 	    intel_crtc_has_type(crtc_state, INTEL_OUTPUT_HDMI)) {
@@ -3458,14 +3465,14 @@ static void tgl_ddi_pre_enable_dp(struct intel_encoder *encoder,
 	 * (DFLEXDPSP.DPX4TXLATC)
 	 *
 	 * This was done before tgl_ddi_pre_enable_dp by
-	 * haswell_crtc_enable()->intel_encoders_pre_pll_enable().
+	 * hsw_crtc_enable()->intel_encoders_pre_pll_enable().
 	 */
 
 	/*
 	 * 4. Enable the port PLL.
 	 *
 	 * The PLL enabling itself was already done before this function by
-	 * haswell_crtc_enable()->intel_enable_shared_dpll().  We need only
+	 * hsw_crtc_enable()->intel_enable_shared_dpll().  We need only
 	 * configure the PLL to port mapping here.
 	 */
 	intel_ddi_clk_select(encoder, crtc_state);
@@ -3808,8 +3815,19 @@ static void intel_ddi_post_disable_dp(struct intel_encoder *encoder,
 	 */
 	intel_dp_sink_dpms(intel_dp, DRM_MODE_DPMS_OFF);
 
-	if (INTEL_GEN(dev_priv) < 12 && !is_mst)
-		intel_ddi_disable_pipe_clock(old_crtc_state);
+	if (INTEL_GEN(dev_priv) >= 12) {
+		if (is_mst) {
+			enum transcoder cpu_transcoder = old_crtc_state->cpu_transcoder;
+			u32 val;
+
+			val = I915_READ(TRANS_DDI_FUNC_CTL(cpu_transcoder));
+			val &= ~TGL_TRANS_DDI_PORT_MASK;
+			I915_WRITE(TRANS_DDI_FUNC_CTL(cpu_transcoder), val);
+		}
+	} else {
+		if (!is_mst)
+			intel_ddi_disable_pipe_clock(old_crtc_state);
+	}
 
 	intel_disable_ddi_buf(encoder, old_crtc_state);
 
@@ -3860,8 +3878,6 @@ static void icl_disable_transcoder_port_sync(const struct intel_crtc_state *old_
 {
 	struct intel_crtc *crtc = to_intel_crtc(old_crtc_state->uapi.crtc);
 	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
-	i915_reg_t reg;
-	u32 trans_ddi_func_ctl2_val;
 
 	if (old_crtc_state->master_transcoder == INVALID_TRANSCODER)
 		return;
@@ -3869,10 +3885,7 @@ static void icl_disable_transcoder_port_sync(const struct intel_crtc_state *old_
 	DRM_DEBUG_KMS("Disabling Transcoder Port Sync on Slave Transcoder %s\n",
 		      transcoder_name(old_crtc_state->cpu_transcoder));
 
-	reg = TRANS_DDI_FUNC_CTL2(old_crtc_state->cpu_transcoder);
-	trans_ddi_func_ctl2_val = ~(PORT_SYNC_MODE_ENABLE |
-				    PORT_SYNC_MODE_MASTER_SELECT_MASK);
-	I915_WRITE(reg, trans_ddi_func_ctl2_val);
+	I915_WRITE(TRANS_DDI_FUNC_CTL2(old_crtc_state->cpu_transcoder), 0);
 }
 
 static void intel_ddi_post_disable(struct intel_encoder *encoder,
@@ -3896,9 +3909,9 @@ static void intel_ddi_post_disable(struct intel_encoder *encoder,
 	intel_dsc_disable(old_crtc_state);
 
 	if (INTEL_GEN(dev_priv) >= 9)
-		skylake_scaler_disable(old_crtc_state);
+		skl_scaler_disable(old_crtc_state);
 	else
-		ironlake_pfit_disable(old_crtc_state);
+		ilk_pfit_disable(old_crtc_state);
 
 	/*
 	 * When called from DP MST code:
@@ -4405,6 +4418,11 @@ void intel_ddi_get_config(struct intel_encoder *encoder,
 		pipe_config->output_types |= BIT(INTEL_OUTPUT_DP_MST);
 		pipe_config->lane_count =
 			((temp & DDI_PORT_WIDTH_MASK) >> DDI_PORT_WIDTH_SHIFT) + 1;
+
+		if (INTEL_GEN(dev_priv) >= 12)
+			pipe_config->mst_master_transcoder =
+					REG_FIELD_GET(TRANS_DDI_MST_TRANSPORT_SELECT_MASK, temp);
+
 		intel_dp_get_m_n(intel_crtc, pipe_config);
 		break;
 	default:

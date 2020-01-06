@@ -38,8 +38,6 @@ void intel_gt_init_early(struct intel_gt *gt, struct drm_i915_private *i915)
 void intel_gt_init_hw_early(struct intel_gt *gt, struct i915_ggtt *ggtt)
 {
 	gt->ggtt = ggtt;
-
-	intel_gt_sanitize(gt, false);
 }
 
 static void init_unused_ring(struct intel_gt *gt, u32 base)
@@ -76,10 +74,6 @@ int intel_gt_init_hw(struct intel_gt *gt)
 	struct drm_i915_private *i915 = gt->i915;
 	struct intel_uncore *uncore = gt->uncore;
 	int ret;
-
-	ret = intel_gt_terminally_wedged(gt);
-	if (ret)
-		return ret;
 
 	gt->last_init_time = ktime_get();
 
@@ -410,13 +404,12 @@ static int __engines_record_defaults(struct intel_gt *gt)
 		struct intel_context *ce;
 		struct i915_request *rq;
 
+		/* We must be able to switch to something! */
+		GEM_BUG_ON(!engine->kernel_context);
+
 		err = intel_renderstate_init(&so, engine);
 		if (err)
 			goto out;
-
-		/* We must be able to switch to something! */
-		GEM_BUG_ON(!engine->kernel_context);
-		engine->serial++; /* force the kernel context switch */
 
 		ce = intel_context_create(engine);
 		if (IS_ERR(ce)) {
