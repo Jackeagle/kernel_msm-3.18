@@ -791,6 +791,7 @@ static int azx_acquire_irq(struct azx *chip, int do_disconnect)
 		return -1;
 	}
 	bus->irq = chip->pci->irq;
+	chip->card->sync_irq = bus->irq;
 	pci_intx(chip->pci, !chip->msi);
 	return 0;
 }
@@ -1029,6 +1030,7 @@ static int azx_suspend(struct device *dev)
 	if (bus->irq >= 0) {
 		free_irq(bus->irq, chip);
 		bus->irq = -1;
+		chip->card->sync_irq = -1;
 	}
 
 	if (chip->msi)
@@ -1499,7 +1501,7 @@ static bool check_hdmi_disabled(struct pci_dev *pci)
 /*
  * white/black-listing for position_fix
  */
-static struct snd_pci_quirk position_fix_list[] = {
+static const struct snd_pci_quirk position_fix_list[] = {
 	SND_PCI_QUIRK(0x1028, 0x01cc, "Dell D820", POS_FIX_LPIB),
 	SND_PCI_QUIRK(0x1028, 0x01de, "Dell Precision 390", POS_FIX_LPIB),
 	SND_PCI_QUIRK(0x103c, 0x306d, "HP dv3", POS_FIX_LPIB),
@@ -1592,7 +1594,7 @@ static void assign_position_fix(struct azx *chip, int fix)
 /*
  * black-lists for probe_mask
  */
-static struct snd_pci_quirk probe_mask_list[] = {
+static const struct snd_pci_quirk probe_mask_list[] = {
 	/* Thinkpad often breaks the controller communication when accessing
 	 * to the non-working (or non-existing) modem codec slot.
 	 */
@@ -1640,7 +1642,7 @@ static void check_probe_mask(struct azx *chip, int dev)
 /*
  * white/black-list for enable_msi
  */
-static struct snd_pci_quirk msi_black_list[] = {
+static const struct snd_pci_quirk msi_black_list[] = {
 	SND_PCI_QUIRK(0x103c, 0x2191, "HP", 0), /* AMD Hudson */
 	SND_PCI_QUIRK(0x103c, 0x2192, "HP", 0), /* AMD Hudson */
 	SND_PCI_QUIRK(0x103c, 0x21f7, "HP", 0), /* AMD Hudson */
@@ -1752,7 +1754,7 @@ static int azx_create(struct snd_card *card, struct pci_dev *pci,
 		      int dev, unsigned int driver_caps,
 		      struct azx **rchip)
 {
-	static struct snd_device_ops ops = {
+	static const struct snd_device_ops ops = {
 		.dev_disconnect = azx_dev_disconnect,
 		.dev_free = azx_dev_free,
 	};
@@ -1818,7 +1820,7 @@ static int azx_create(struct snd_card *card, struct pci_dev *pci,
 
 	if (chip->driver_type == AZX_DRIVER_NVIDIA) {
 		dev_dbg(chip->card->dev, "Enable delay in RIRB handling\n");
-		chip->bus.needs_damn_long_delay = 1;
+		chip->bus.core.needs_damn_long_delay = 1;
 	}
 
 	err = snd_device_new(card, SNDRV_DEV_LOWLEVEL, chip, &ops);
@@ -1894,7 +1896,6 @@ static int azx_first_init(struct azx *chip)
 	}
 
 	pci_set_master(pci);
-	synchronize_irq(bus->irq);
 
 	gcap = azx_readw(chip, GCAP);
 	dev_dbg(card->dev, "chipset global capabilities = 0x%x\n", gcap);
@@ -2053,6 +2054,7 @@ static int disable_msi_reset_irq(struct azx *chip)
 
 	free_irq(bus->irq, chip);
 	bus->irq = -1;
+	chip->card->sync_irq = -1;
 	pci_disable_msi(chip->pci);
 	chip->msi = 0;
 	err = azx_acquire_irq(chip, 1);
@@ -2173,7 +2175,7 @@ out_free:
  * So we keep a list of devices where we disable powersaving as its known
  * to causes problems on these devices.
  */
-static struct snd_pci_quirk power_save_blacklist[] = {
+static const struct snd_pci_quirk power_save_blacklist[] = {
 	/* https://bugzilla.redhat.com/show_bug.cgi?id=1525104 */
 	SND_PCI_QUIRK(0x1849, 0xc892, "Asrock B85M-ITX", 0),
 	/* https://bugzilla.redhat.com/show_bug.cgi?id=1525104 */

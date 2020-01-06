@@ -550,7 +550,7 @@ static const DECLARE_TLV_DB_SCALE(db_scale_5bit_3db_step, -9300, 300, 0);
 static const DECLARE_TLV_DB_SCALE(db_scale_5bit, -4650, 150, 0);
 static const DECLARE_TLV_DB_SCALE(db_scale_4bit_12db_max, -3300, 300, 0);
 
-static struct snd_kcontrol_new snd_opti93x_controls[] = {
+static const struct snd_kcontrol_new snd_opti93x_controls[] = {
 WSS_DOUBLE("Master Playback Switch", 0,
 		OPTi93X_OUT_LEFT, OPTi93X_OUT_RIGHT, 7, 7, 1, 1),
 WSS_DOUBLE_TLV("Master Playback Volume", 0,
@@ -869,6 +869,7 @@ static int snd_opti9xx_probe(struct snd_card *card)
 	}
 #endif
 	chip->irq = irq;
+	card->sync_irq = chip->irq;
 	strcpy(card->driver, chip->name);
 	sprintf(card->shortname, "OPTi %s", card->driver);
 #if defined(CS4231) || defined(OPTi93X)

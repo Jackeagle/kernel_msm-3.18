@@ -108,24 +108,6 @@ static inline int another_stream(int stream)
 }
 
 /*
- * allocate buffers
- */
-static int snd_pmac_pcm_hw_params(struct snd_pcm_substream *subs,
-				  struct snd_pcm_hw_params *hw_params)
-{
-	return snd_pcm_lib_malloc_pages(subs, params_buffer_bytes(hw_params));
-}
-
-/*
- * release buffers
- */
-static int snd_pmac_pcm_hw_free(struct snd_pcm_substream *subs)
-{
-	snd_pcm_lib_free_pages(subs);
-	return 0;
-}
-
-/*
  * get a stream of the opposite direction
  */
 static struct pmac_stream *snd_pmac_get_stream(struct snd_pmac *chip, int stream)
@@ -671,9 +653,6 @@ static int snd_pmac_capture_close(struct snd_pcm_substream *subs)
 static const struct snd_pcm_ops snd_pmac_playback_ops = {
 	.open =		snd_pmac_playback_open,
 	.close =	snd_pmac_playback_close,
-	.ioctl =	snd_pcm_lib_ioctl,
-	.hw_params =	snd_pmac_pcm_hw_params,
-	.hw_free =	snd_pmac_pcm_hw_free,
 	.prepare =	snd_pmac_playback_prepare,
 	.trigger =	snd_pmac_playback_trigger,
 	.pointer =	snd_pmac_playback_pointer,
@@ -682,9 +661,6 @@ static const struct snd_pcm_ops snd_pmac_playback_ops = {
 static const struct snd_pcm_ops snd_pmac_capture_ops = {
 	.open =		snd_pmac_capture_open,
 	.close =	snd_pmac_capture_close,
-	.ioctl =	snd_pcm_lib_ioctl,
-	.hw_params =	snd_pmac_pcm_hw_params,
-	.hw_free =	snd_pmac_pcm_hw_free,
 	.prepare =	snd_pmac_capture_prepare,
 	.trigger =	snd_pmac_capture_trigger,
 	.pointer =	snd_pmac_capture_pointer,
@@ -721,9 +697,9 @@ int snd_pmac_pcm_new(struct snd_pmac *chip)
 	chip->capture.cur_freqs = chip->freqs_ok;
 
 	/* preallocate 64k buffer */
-	snd_pcm_lib_preallocate_pages_for_all(pcm, SNDRV_DMA_TYPE_DEV,
-					      &chip->pdev->dev,
-					      64 * 1024, 64 * 1024);
+	snd_pcm_set_managed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV,
+				       &chip->pdev->dev,
+				       64 * 1024, 64 * 1024);
 
 	return 0;
 }
@@ -1128,7 +1104,7 @@ static int pmac_hp_detect_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static struct snd_kcontrol_new auto_mute_controls[] = {
+static const struct snd_kcontrol_new auto_mute_controls[] = {
 	{ .iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	  .name = "Auto Mute Switch",
 	  .info = snd_pmac_boolean_mono_info,
@@ -1167,7 +1143,7 @@ int snd_pmac_new(struct snd_card *card, struct snd_pmac **chip_return)
 	int i, err;
 	unsigned int irq;
 	unsigned long ctrl_addr, txdma_addr, rxdma_addr;
-	static struct snd_device_ops ops = {
+	static const struct snd_device_ops ops = {
 		.dev_free =	snd_pmac_dev_free,
 	};
 
