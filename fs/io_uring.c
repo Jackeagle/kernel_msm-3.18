@@ -202,10 +202,10 @@ struct io_ring_ctx {
 
 	struct {
 		unsigned int		flags;
-		bool			compat;
-		bool			account_mem;
-		bool			cq_overflow_flushed;
-		bool			drain_next;
+		int			compat: 1;
+		int			account_mem: 1;
+		int			cq_overflow_flushed: 1;
+		int			drain_next: 1;
 
 		/*
 		 * Ring buffer of indices into array of io_uring_sqe, which is
@@ -991,7 +991,7 @@ static bool io_cqring_overflow_flush(struct io_ring_ctx *ctx, bool force)
 
 	/* if force is set, the ring is going away. always drop after that */
 	if (force)
-		ctx->cq_overflow_flushed = true;
+		ctx->cq_overflow_flushed = 1;
 
 	cqe = NULL;
 	while (!list_empty(&ctx->cq_overflow_list)) {
