@@ -393,7 +393,6 @@ struct io_open {
 	union {
 		unsigned		mask;
 	};
-	const char __user		*fname;
 	struct filename			*filename;
 	struct statx __user		*buffer;
 	struct open_how			how;
@@ -2463,6 +2462,7 @@ static int io_fallocate(struct io_kiocb *req, struct io_kiocb **nxt,
 
 static int io_openat_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
+	const char __user *fname;
 	int ret;
 
 	if (sqe->ioprio || sqe->buf_index)
@@ -2470,10 +2470,10 @@ static int io_openat_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 
 	req->open.dfd = READ_ONCE(sqe->fd);
 	req->open.how.mode = READ_ONCE(sqe->len);
-	req->open.fname = u64_to_user_ptr(READ_ONCE(sqe->addr));
+	fname = u64_to_user_ptr(READ_ONCE(sqe->addr));
 	req->open.how.flags = READ_ONCE(sqe->open_flags);
 
-	req->open.filename = getname(req->open.fname);
+	req->open.filename = getname(fname);
 	if (IS_ERR(req->open.filename)) {
 		ret = PTR_ERR(req->open.filename);
 		req->open.filename = NULL;
@@ -2649,6 +2649,7 @@ static int io_fadvise(struct io_kiocb *req, struct io_kiocb **nxt,
 
 static int io_statx_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
+	const char __user *fname;
 	unsigned lookup_flags;
 	int ret;
 
@@ -2657,14 +2658,14 @@ static int io_statx_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 
 	req->open.dfd = READ_ONCE(sqe->fd);
 	req->open.mask = READ_ONCE(sqe->len);
-	req->open.fname = u64_to_user_ptr(READ_ONCE(sqe->addr));
+	fname = u64_to_user_ptr(READ_ONCE(sqe->addr));
 	req->open.buffer = u64_to_user_ptr(READ_ONCE(sqe->addr2));
 	req->open.how.flags = READ_ONCE(sqe->statx_flags);
 
 	if (vfs_stat_set_lookup_flags(&lookup_flags, req->open.how.flags))
 		return -EINVAL;
 
-	req->open.filename = getname_flags(req->open.fname, lookup_flags, NULL);
+	req->open.filename = getname_flags(fname, lookup_flags, NULL);
 	if (IS_ERR(req->open.filename)) {
 		ret = PTR_ERR(req->open.filename);
 		req->open.filename = NULL;
