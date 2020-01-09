@@ -5087,6 +5087,12 @@ static void quirk_amd_harvest_no_ats(struct pci_dev *pdev)
 		pci_info(pdev, "disabling ATS\n");
 		pdev->ats_cap = 0;
 		break;
+	case 0x7340:
+		if (pdev->revision == 0xc5) {
+			pci_info(pdev, "disabling ATS\n");
+			pdev->ats_cap = 0;
+		}
+		break;
 	default:
 		break;
 	}
@@ -5096,6 +5102,8 @@ static void quirk_amd_harvest_no_ats(struct pci_dev *pdev)
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_ATI, 0x98e4, quirk_amd_harvest_no_ats);
 /* AMD Iceland dGPU */
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_ATI, 0x6900, quirk_amd_harvest_no_ats);
+/* AMD Navi14 dGPU */
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_ATI, 0x7340, quirk_amd_harvest_no_ats);
 #endif /* CONFIG_PCI_ATS */
 
 /* Freescale PCIe doesn't support MSI in RC mode */
