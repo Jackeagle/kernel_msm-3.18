@@ -718,6 +718,11 @@ static const struct io_op_def io_op_defs[] = {
 		/* IORING_OP_EPOLL_CTL */
 		.unbound_nonreg_file	= 1,
 	},
+	{
+		/* IORING_OP_OPENAT2 */
+		.needs_file		= 1,
+		.fd_non_neg		= 1,
+	},
 };
 
 static void io_wq_submit_work(struct io_wq_work **workptr);
@@ -2492,22 +2497,56 @@ static void io_openat_statx_async(struct io_wq_work **workptr)
 	putname(filename);
 }
 
-static int io_openat(struct io_kiocb *req, struct io_kiocb **nxt,
-		     bool force_nonblock)
+static int io_openat2_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
+{
+	struct open_how __user *how;
+	const char __user *fname;
+	size_t len;
+	int ret;
+
+	if (sqe->ioprio || sqe->buf_index)
+		return -EINVAL;
+
+	req->open.dfd = READ_ONCE(sqe->fd);
+	fname = u64_to_user_ptr(READ_ONCE(sqe->addr));
+	how = u64_to_user_ptr(READ_ONCE(sqe->addr2));
+	len = READ_ONCE(sqe->len);
+
+	if (len < OPEN_HOW_SIZE_VER0)
+		return -EINVAL;
+
+	ret = copy_struct_from_user(&req->open.how, sizeof(req->open.how), how,
+					len);
+	if (ret)
+		return ret;
+
+	if (!(req->open.how.flags & O_PATH) && force_o_largefile())
+		req->open.how.flags |= O_LARGEFILE;
+
+	req->open.filename = getname(fname);
+	if (IS_ERR(req->open.filename)) {
+		ret = PTR_ERR(req->open.filename);
+		req->open.filename = NULL;
+		return ret;
+	}
+
+	return 0;
+}
+
+static int io_openat2(struct io_kiocb *req, struct io_kiocb **nxt,
+		      bool force_nonblock)
 {
 	struct open_flags op;
-	struct open_how how;
 	struct file *file;
 	int ret;
 
-	how = build_open_how(req->open.how.flags, req->open.how.mode);
-	ret = build_open_flags(&how, &op);
+	ret = build_open_flags(&req->open.how, &op);
 	if (ret)
 		goto err;
 	if (force_nonblock)
 		op.lookup_flags |= LOOKUP_NONBLOCK;
 
-	ret = get_unused_fd_flags(how.flags);
+	ret = get_unused_fd_flags(req->open.how.flags);
 	if (ret < 0)
 		goto err;
 
@@ -2532,6 +2571,14 @@ err:
 	io_cqring_add_event(req, ret);
 	io_put_req_find_next(req, nxt);
 	return 0;
+
+}
+
+static int io_openat(struct io_kiocb *req, struct io_kiocb **nxt,
+		     bool force_nonblock)
+{
+	req->open.how = build_open_how(req->open.how.flags, req->open.how.mode);
+	return io_openat2(req, nxt, force_nonblock);
 }
 
 static int io_epoll_ctl_prep(struct io_kiocb *req,
@@ -4047,6 +4094,9 @@ static int io_req_defer_prep(struct io_kiocb *req,
 	case IORING_OP_EPOLL_CTL:
 		ret = io_epoll_ctl_prep(req, sqe);
 		break;
+	case IORING_OP_OPENAT2:
+		ret = io_openat2_prep(req, sqe);
+		break;
 	default:
 		printk_once(KERN_WARNING "io_uring: unhandled opcode %d\n",
 				req->opcode);
@@ -4274,6 +4324,14 @@ static int io_issue_sqe(struct io_kiocb *req, const struct io_uring_sqe *sqe,
 				break;
 		}
 		ret = io_epoll_ctl(req, nxt, force_nonblock);
+		break;
+	case IORING_OP_OPENAT2:
+		if (sqe) {
+			ret = io_openat2_prep(req, sqe);
+			if (ret)
+				break;
+		}
+		ret = io_openat2(req, nxt, force_nonblock);
 		break;
 	default:
 		ret = -EINVAL;
