@@ -2854,10 +2854,12 @@ bool dc_link_handle_hpd_rx_irq(struct dc_link *link, union hpd_irq_data *out_hpd
 	/* For now we only handle 'Downstream port status' case.
 	 * If we got sink count changed it means
 	 * Downstream port status changed,
-	 * then DM should call DC to do the detection. */
-	if (hpd_rx_irq_check_link_loss_status(
-		link,
-		&hpd_irq_dpcd_data)) {
+	 * then DM should call DC to do the detection.
+	 * NOTE: Do not handle link loss on eDP since it is internal link*/
+	if ((link->connector_signal != SIGNAL_TYPE_EDP) &&
+		hpd_rx_irq_check_link_loss_status(
+			link,
+			&hpd_irq_dpcd_data)) {
 		/* Connectivity log: link loss */
 		CONN_DATA_LINK_LOSS(link,
 					hpd_irq_dpcd_data.raw,
@@ -2874,7 +2876,6 @@ bool dc_link_handle_hpd_rx_irq(struct dc_link *link, union hpd_irq_data *out_hpd
 			return false;
 
 		previous_link_settings = link->cur_link_settings;
-		dp_disable_link_phy(link, pipe_ctx->stream->signal);
 
 		perform_link_training_with_retries(&previous_link_settings,
 			true, LINK_TRAINING_ATTEMPTS,
