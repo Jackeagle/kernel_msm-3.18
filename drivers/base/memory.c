@@ -61,6 +61,9 @@ static struct bus_type memory_subsys = {
  * Memory blocks are cached in a local radix tree to avoid
  * a costly linear search for the corresponding device on
  * the subsystem bus.
+ *
+ * Protected by mem_hotplug_lock in mem_hotplug_begin(), and by the guaranteed
+ * single-threadness at boot time.
  */
 static RADIX_TREE(memory_blocks, GFP_KERNEL);
 
