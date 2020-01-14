@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 Advanced Micro Devices, Inc.
+ * Copyright 2019 Advanced Micro Devices, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -21,15 +21,19 @@
  *
  */
 
-#ifndef __VI_H__
-#define __VI_H__
+#ifndef __AMDGPU_TMZ_H__
+#define __AMDGPU_TMZ_H__
 
-#define VI_FLUSH_GPU_TLB_NUM_WREG	3
+#include "amdgpu.h"
 
-void vi_srbm_select(struct amdgpu_device *adev,
-		    u32 me, u32 pipe, u32 queue, u32 vmid);
-int vi_set_ip_blocks(struct amdgpu_device *adev);
+/*
+ * Trust memory zone stuff
+ */
+struct amdgpu_tmz {
+	bool	enabled;
+};
 
-void legacy_doorbell_index_init(struct amdgpu_device *adev);
+
+extern bool amdgpu_is_tmz(struct amdgpu_device *adev);
 
 #endif
