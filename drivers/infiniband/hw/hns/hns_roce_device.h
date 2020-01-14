@@ -45,8 +45,6 @@
 
 #define HNS_ROCE_MAX_MSG_LEN			0x80000000
 
-#define HNS_ROCE_ALIGN_UP(a, b) ((((a) + (b) - 1) / (b)) * (b))
-
 #define HNS_ROCE_IB_MIN_SQ_STRIDE		6
 
 #define HNS_ROCE_BA_SIZE			(32 * 4096)
@@ -107,11 +105,6 @@
 #define NODE_DESC_SIZE				64
 #define DB_REG_OFFSET				0x1000
 
-#define SERV_TYPE_RC				0
-#define SERV_TYPE_RD				1
-#define SERV_TYPE_UC				2
-#define SERV_TYPE_UD				3
-
 /* Configure to HW for PAGE_SIZE larger than 4KB */
 #define PG_SHIFT_OFFSET				(PAGE_SHIFT - 12)
 
@@ -129,6 +122,13 @@
  * according to twice the actual EQ depth
  */
 #define EQ_DEPTH_COEFF				2
+
+enum {
+	SERV_TYPE_RC,
+	SERV_TYPE_UC,
+	SERV_TYPE_RD,
+	SERV_TYPE_UD,
+};
 
 enum {
 	HNS_ROCE_SUPPORT_RQ_RECORD_DB = 1 << 0,
@@ -423,7 +423,7 @@ struct hns_roce_mr_table {
 struct hns_roce_wq {
 	u64		*wrid;     /* Work request ID */
 	spinlock_t	lock;
-	int		wqe_cnt;  /* WQE num */
+	u32		wqe_cnt;  /* WQE num */
 	int		max_gs;
 	int		offset;
 	int		wqe_shift;	/* WQE size */
@@ -647,7 +647,6 @@ struct hns_roce_qp {
 	u8			sdb_en;
 	u32			doorbell_qpn;
 	u32			sq_signal_bits;
-	u32			sq_next_wqe;
 	struct hns_roce_wq	sq;
 
 	struct ib_umem		*umem;
@@ -1133,7 +1132,6 @@ int hns_roce_mtr_find(struct hns_roce_dev *hr_dev, struct hns_roce_mtr *mtr,
 
 int hns_roce_init_pd_table(struct hns_roce_dev *hr_dev);
 int hns_roce_init_mr_table(struct hns_roce_dev *hr_dev);
-int hns_roce_init_eq_table(struct hns_roce_dev *hr_dev);
 int hns_roce_init_cq_table(struct hns_roce_dev *hr_dev);
 int hns_roce_init_qp_table(struct hns_roce_dev *hr_dev);
 int hns_roce_init_srq_table(struct hns_roce_dev *hr_dev);
