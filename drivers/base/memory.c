@@ -591,16 +591,6 @@ static struct memory_block *find_memory_block_by_id(unsigned long block_id)
 	return mem;
 }
 
-/*
- * Called under device_hotplug_lock.
- */
-struct memory_block *find_memory_block(struct mem_section *section)
-{
-	unsigned long block_id = base_memory_block_id(__section_nr(section));
-
-	return find_memory_block_by_id(block_id);
-}
-
 static struct attribute *memory_memblk_attrs[] = {
 	&dev_attr_phys_index.attr,
 	&dev_attr_state.attr,
@@ -704,7 +694,7 @@ static void unregister_memory(struct memory_block *memory)
 
 	WARN_ON(radix_tree_delete(&memory_blocks, memory->dev.id) == NULL);
 
-	/* drop the ref. we got via find_memory_block() */
+	/* drop the ref. we got via find_memory_block_by_id() */
 	put_device(&memory->dev);
 	device_unregister(&memory->dev);
 }
