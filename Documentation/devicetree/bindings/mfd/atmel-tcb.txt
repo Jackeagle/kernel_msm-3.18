@@ -1,6 +1,9 @@
 * Device tree bindings for Atmel Timer Counter Blocks
-- compatible: Should be "atmel,<chip>-tcb", "simple-mfd", "syscon".
-  <chip> can be "at91rm9200" or "at91sam9x5"
+- compatible: Should be one of the following:
+	- "atmel,at91rm9200-tcb"
+	- "atmel,at91sam9x5-tcb"
+	- "microchip,sam9x60-tcb"
+  followed by: "simple-mfd", "syscon"
 - reg: Should contain registers location and length
 - #address-cells: has to be 1
 - #size-cells: has to be 0
