@@ -48,15 +48,6 @@
 
 #include "amdgpu_ras.h"
 
-#include "sdma0/sdma0_4_2_offset.h"
-#include "sdma1/sdma1_4_2_offset.h"
-#include "sdma2/sdma2_4_2_2_offset.h"
-#include "sdma3/sdma3_4_2_2_offset.h"
-#include "sdma4/sdma4_4_2_2_offset.h"
-#include "sdma5/sdma5_4_2_2_offset.h"
-#include "sdma6/sdma6_4_2_2_offset.h"
-#include "sdma7/sdma7_4_2_2_offset.h"
-
 #define GFX9_NUM_GFX_RINGS     1
 #define GFX9_MEC_HPD_SIZE 4096
 #define RLCG_UCODE_LOADING_START_ADDRESS 0x00002000L
@@ -3646,6 +3637,23 @@ static int gfx_v9_0_cp_resume(struct amdgpu_device *adev)
 	return 0;
 }
 
+static void gfx_v9_0_init_tcp_config(struct amdgpu_device *adev)
+{
+	u32 tmp;
+
+	if (adev->asic_type != CHIP_ARCTURUS)
+		return;
+
+	tmp = RREG32_SOC15(GC, 0, mmTCP_ADDR_CONFIG);
+	tmp = REG_SET_FIELD(tmp, TCP_ADDR_CONFIG, ENABLE64KHASH,
+				adev->df.hash_status.hash_64k);
+	tmp = REG_SET_FIELD(tmp, TCP_ADDR_CONFIG, ENABLE2MHASH,
+				adev->df.hash_status.hash_2m);
+	tmp = REG_SET_FIELD(tmp, TCP_ADDR_CONFIG, ENABLE1GHASH,
+				adev->df.hash_status.hash_1g);
+	WREG32_SOC15(GC, 0, mmTCP_ADDR_CONFIG, tmp);
+}
+
 static void gfx_v9_0_cp_enable(struct amdgpu_device *adev, bool enable)
 {
 	if (adev->asic_type != CHIP_ARCTURUS)
@@ -3662,6 +3670,8 @@ static int gfx_v9_0_hw_init(void *handle)
 		gfx_v9_0_init_golden_registers(adev);
 
 	gfx_v9_0_constants_init(adev);
+
+	gfx_v9_0_init_tcp_config(adev);
 
 	r = adev->gfx.rlc.funcs->resume(adev);
 	if (r)
@@ -4021,14 +4031,6 @@ static const struct soc15_reg_entry sec_ded_counter_registers[] = {
    { SOC15_REG_ENTRY(GC, 0, mmTCA_EDC_CNT), 0, 1, 2},
    { SOC15_REG_ENTRY(GC, 0, mmSQC_EDC_CNT3), 0, 4, 6},
    { SOC15_REG_ENTRY(HDP, 0, mmHDP_EDC_CNT), 0, 1, 1},
-   { SOC15_REG_ENTRY(SDMA0, 0, mmSDMA0_EDC_COUNTER), 0, 1, 1},
-   { SOC15_REG_ENTRY(SDMA1, 0, mmSDMA1_EDC_COUNTER), 0, 1, 1},
-   { SOC15_REG_ENTRY(SDMA2, 0, mmSDMA2_EDC_COUNTER), 0, 1, 1},
-   { SOC15_REG_ENTRY(SDMA3, 0, mmSDMA3_EDC_COUNTER), 0, 1, 1},
-   { SOC15_REG_ENTRY(SDMA4, 0, mmSDMA4_EDC_COUNTER), 0, 1, 1},
-   { SOC15_REG_ENTRY(SDMA5, 0, mmSDMA5_EDC_COUNTER), 0, 1, 1},
-   { SOC15_REG_ENTRY(SDMA6, 0, mmSDMA6_EDC_COUNTER), 0, 1, 1},
-   { SOC15_REG_ENTRY(SDMA7, 0, mmSDMA7_EDC_COUNTER), 0, 1, 1},
 };
 
 static int gfx_v9_0_do_edc_gds_workarounds(struct amdgpu_device *adev)
@@ -4092,7 +4094,6 @@ static int gfx_v9_0_do_edc_gpr_workarounds(struct amdgpu_device *adev)
 						adev->gfx.config.max_sh_per_se;
 	int sgpr_work_group_size = 5;
 	int gpr_reg_size = compute_dim_x / 16 + 6;
-	int sec_ded_counter_reg_size = adev->sdma.num_instances + 34;
 
 	/* only support when RAS is enabled */
 	if (!amdgpu_ras_is_supported(adev, AMDGPU_RAS_BLOCK__GFX))
@@ -4232,7 +4233,7 @@ static int gfx_v9_0_do_edc_gpr_workarounds(struct amdgpu_device *adev)
 
 	/* read back registers to clear the counters */
 	mutex_lock(&adev->grbm_idx_mutex);
-	for (i = 0; i < sec_ded_counter_reg_size; i++) {
+	for (i = 0; i < ARRAY_SIZE(sec_ded_counter_registers); i++) {
 		for (j = 0; j < sec_ded_counter_registers[i].se_num; j++) {
 			for (k = 0; k < sec_ded_counter_registers[i].instance; k++) {
 				gfx_v9_0_select_se_sh(adev, j, 0x0, k);
@@ -5110,20 +5111,28 @@ static void gfx_v9_0_ring_emit_de_meta(struct amdgpu_ring *ring)
 	amdgpu_ring_write_multiple(ring, (void *)&de_payload, sizeof(de_payload) >> 2);
 }
 
-static void gfx_v9_0_ring_emit_tmz(struct amdgpu_ring *ring, bool start)
+static void gfx_v9_0_ring_emit_tmz(struct amdgpu_ring *ring, bool start,
+				   bool trusted)
 {
 	amdgpu_ring_write(ring, PACKET3(PACKET3_FRAME_CONTROL, 0));
-	amdgpu_ring_write(ring, FRAME_CMD(start ? 0 : 1)); /* frame_end */
+	/*
+	 * cmd = 0: frame begin
+	 * cmd = 1: frame end
+	 */
+	amdgpu_ring_write(ring,
+			  ((ring->adev->tmz.enabled && trusted) ? FRAME_TMZ : 0)
+			  | FRAME_CMD(start ? 0 : 1));
 }
 
-static void gfx_v9_ring_emit_cntxcntl(struct amdgpu_ring *ring, uint32_t flags)
+static void gfx_v9_ring_emit_cntxcntl(struct amdgpu_ring *ring, uint32_t flags,
+				      bool trusted)
 {
 	uint32_t dw2 = 0;
 
 	if (amdgpu_sriov_vf(ring->adev))
 		gfx_v9_0_ring_emit_ce_meta(ring);
 
-	gfx_v9_0_ring_emit_tmz(ring, true);
+	gfx_v9_0_ring_emit_tmz(ring, true, trusted);
 
 	dw2 |= 0x80000000; /* set load_enable otherwise this package is just NOPs */
 	if (flags & AMDGPU_HAVE_CTX_SWITCH) {

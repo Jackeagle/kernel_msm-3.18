@@ -2876,7 +2876,6 @@ bool dc_link_handle_hpd_rx_irq(struct dc_link *link, union hpd_irq_data *out_hpd
 			return false;
 
 		previous_link_settings = link->cur_link_settings;
-		dp_disable_link_phy(link, pipe_ctx->stream->signal);
 
 		perform_link_training_with_retries(&previous_link_settings,
 			true, LINK_TRAINING_ATTEMPTS,
@@ -3269,7 +3268,7 @@ static bool retrieve_link_cap(struct dc_link *link)
 			dpcd_data[DP_TRAINING_AUX_RD_INTERVAL];
 
 		link->dpcd_caps.ext_receiver_cap_field_present =
-				aux_rd_interval.bits.EXT_RECEIVER_CAP_FIELD_PRESENT == 1 ? true:false;
+				aux_rd_interval.bits.EXT_RECEIVER_CAP_FIELD_PRESENT == 1;
 
 		if (aux_rd_interval.bits.EXT_RECEIVER_CAP_FIELD_PRESENT == 1) {
 			uint8_t ext_cap_data[16];
