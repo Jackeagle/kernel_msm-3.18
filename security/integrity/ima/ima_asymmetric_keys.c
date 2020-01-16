@@ -103,17 +103,18 @@ static bool ima_queue_key(struct key *keyring, const void *payload,
 {
 	bool queued = false;
 	struct ima_key_entry *entry;
+	unsigned long flags;
 
 	entry = ima_alloc_key_entry(keyring, payload, payload_len);
 	if (!entry)
 		return false;
 
-	spin_lock(&ima_keys_lock);
+	spin_lock_irqsave(&ima_keys_lock, flags);
 	if (!ima_process_keys) {
 		list_add_tail(&entry->list, &ima_keys);
 		queued = true;
 	}
-	spin_unlock(&ima_keys_lock);
+	spin_unlock_irqrestore(&ima_keys_lock, flags);
 
 	if (!queued)
 		ima_free_key_entry(entry);
@@ -131,6 +132,7 @@ void ima_process_queued_keys(void)
 {
 	struct ima_key_entry *entry, *tmp;
 	bool process = false;
+	unsigned long flags;
 
 	if (ima_process_keys)
 		return;
@@ -141,12 +143,12 @@ void ima_process_queued_keys(void)
 	 * First one setting the ima_process_keys flag to true will
 	 * process the queued keys.
 	 */
-	spin_lock(&ima_keys_lock);
+	spin_lock_irqsave(&ima_keys_lock, flags);
 	if (!ima_process_keys) {
 		ima_process_keys = true;
 		process = true;
 	}
-	spin_unlock(&ima_keys_lock);
+	spin_unlock_irqrestore(&ima_keys_lock, flags);
 
 	if (!process)
 		return;
