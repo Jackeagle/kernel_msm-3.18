@@ -338,7 +338,6 @@ static const struct ata_port_info ahci_brcm_port_info = {
 	.port_ops	= &ahci_brcm_platform_ops,
 };
 
-#ifdef CONFIG_PM_SLEEP
 static int brcm_ahci_suspend(struct device *dev)
 {
 	struct ata_host *host = dev_get_drvdata(dev);
@@ -348,22 +347,27 @@ static int brcm_ahci_suspend(struct device *dev)
 
 	brcm_sata_phys_disable(priv);
 
-	ret = ahci_platform_suspend(dev);
+	if (IS_ENABLED(CONFIG_PM_SLEEP))
+		ret = ahci_platform_suspend(dev);
+	else
+		ret = 0;
 
-	if (!IS_ERR_OR_NULL(priv->rcdev))
+	if (priv->version != BRCM_SATA_BCM7216)
 		reset_control_assert(priv->rcdev);
 
 	return ret;
 }
 
-static int brcm_ahci_resume(struct device *dev)
+static int __maybe_unused brcm_ahci_resume(struct device *dev)
 {
 	struct ata_host *host = dev_get_drvdata(dev);
 	struct ahci_host_priv *hpriv = host->private_data;
 	struct brcm_ahci_priv *priv = hpriv->plat_data;
 	int ret = 0;
 
-	if (!IS_ERR_OR_NULL(priv->rcdev))
+	if (priv->version == BRCM_SATA_BCM7216)
+		ret = reset_control_reset(priv->rcdev);
+	else
 		ret = reset_control_deassert(priv->rcdev);
 	if (ret)
 		return ret;
@@ -405,7 +409,6 @@ out_disable_phys:
 	ahci_platform_disable_clks(hpriv);
 	return ret;
 }
-#endif
 
 static struct scsi_host_template ahci_platform_sht = {
 	AHCI_SHT(DRV_NAME),
@@ -453,15 +456,13 @@ static int brcm_ahci_probe(struct platform_device *pdev)
 	else
 		reset_name = "ahci";
 
-	priv->rcdev = devm_reset_control_get(&pdev->dev, reset_name);
-	if (!IS_ERR_OR_NULL(priv->rcdev))
-		reset_control_deassert(priv->rcdev);
+	priv->rcdev = devm_reset_control_get_optional(&pdev->dev, reset_name);
+	if (IS_ERR(priv->rcdev))
+		return PTR_ERR(priv->rcdev);
 
 	hpriv = ahci_platform_get_resources(pdev, 0);
-	if (IS_ERR(hpriv)) {
-		ret = PTR_ERR(hpriv);
-		goto out_reset;
-	}
+	if (IS_ERR(hpriv))
+		return PTR_ERR(hpriv);
 
 	hpriv->plat_data = priv;
 	hpriv->flags = AHCI_HFLAG_WAKE_BEFORE_STOP | AHCI_HFLAG_NO_WRITE_TO_RO;
@@ -477,6 +478,13 @@ static int brcm_ahci_probe(struct platform_device *pdev)
 	default:
 		break;
 	}
+
+	if (priv->version == BRCM_SATA_BCM7216)
+		ret = reset_control_reset(priv->rcdev);
+	else
+		ret = reset_control_deassert(priv->rcdev);
+	if (ret)
+		return ret;
 
 	ret = ahci_platform_enable_clks(hpriv);
 	if (ret)
@@ -519,7 +527,7 @@ out_disable_phys:
 out_disable_clks:
 	ahci_platform_disable_clks(hpriv);
 out_reset:
-	if (!IS_ERR_OR_NULL(priv->rcdev))
+	if (priv->version != BRCM_SATA_BCM7216)
 		reset_control_assert(priv->rcdev);
 	return ret;
 }
