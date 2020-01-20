@@ -4044,14 +4044,15 @@ int sdhci_setup_host(struct sdhci_host *host)
 		void *buf;
 
 		if (host->flags & SDHCI_USE_64_BIT_DMA) {
-			host->adma_table_sz = host->adma_table_cnt *
-					      SDHCI_ADMA2_64_DESC_SZ(host);
-			host->desc_sz = SDHCI_ADMA2_64_DESC_SZ(host);
+			if (!host->alloc_desc_sz)
+				host->alloc_desc_sz =
+					SDHCI_ADMA2_64_DESC_SZ(host);
 		} else {
-			host->adma_table_sz = host->adma_table_cnt *
-					      SDHCI_ADMA2_32_DESC_SZ;
-			host->desc_sz = SDHCI_ADMA2_32_DESC_SZ;
+			host->alloc_desc_sz = SDHCI_ADMA2_32_DESC_SZ;
 		}
+		host->desc_sz = host->alloc_desc_sz;
+		host->adma_table_sz = host->adma_table_cnt *
+					      host->desc_sz;
 
 		host->align_buffer_sz = SDHCI_MAX_SEGS * SDHCI_ADMA2_ALIGN;
 		/*
