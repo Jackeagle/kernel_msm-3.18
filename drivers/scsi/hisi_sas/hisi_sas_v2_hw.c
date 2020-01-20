@@ -417,6 +417,11 @@ struct sig_atten_lu_s {
 	u32 sas_phy_ctrl;
 };
 
+static bool auto_affine_interrupts;
+module_param(auto_affine_interrupts, bool, 0444);
+MODULE_PARM_DESC(auto_affine_interrupts, "Enable auto-affinity of completion queue interrupts:\n"
+		 "default is off");
+
 static const struct hisi_sas_hw_error one_bit_ecc_errors[] = {
 	{
 		.irq_msk = BIT(SAS_ECC_INTR_DQE_ECC_1B_OFF),
@@ -3304,6 +3309,24 @@ static irq_handler_t fatal_interrupts[HISI_SAS_FATAL_INT_NR] = {
 	fatal_axi_int_v2_hw
 };
 
+static void setup_reply_map_v2_hw(struct hisi_hba *hisi_hba)
+{
+	int queue, cpu;
+
+	for (queue = 0; queue < hisi_hba->queue_count; queue++) {
+		struct hisi_sas_cq *cq = &hisi_hba->cq[queue];
+		struct irq_affinity_desc *mask;
+		struct cpumask *cpumask;
+
+		mask = &hisi_hba->affinity_masks[queue];
+		cpumask = &mask->mask;
+
+		cq->irq_mask = cpumask;
+		for_each_cpu(cpu, cpumask)
+			hisi_hba->reply_map[cpu] = queue;
+	}
+}
+
 /**
  * There is a limitation in the hip06 chipset that we need
  * to map in all mbigen interrupts, even if they are not used.
@@ -3314,6 +3337,27 @@ static int interrupt_init_v2_hw(struct hisi_hba *hisi_hba)
 	struct device *dev = &pdev->dev;
 	int irq, rc = 0, irq_map[128];
 	int i, phy_no, fatal_no, queue_no;
+
+	if (auto_affine_interrupts) {
+		struct irq_affinity_desc *masks;
+		struct irq_affinity desc = {};
+		int nvec;
+
+		nvec = hisi_hba->queue_count;
+		masks = irq_create_affinity_masks(nvec, &desc);
+		if (!masks)
+			return -ENOMEM;
+
+		memcpy(hisi_hba->affinity_masks, masks, nvec * sizeof(*masks));
+		kfree(masks);
+
+		hisi_hba->reply_map = devm_kcalloc(dev, nr_cpu_ids,
+						   sizeof(unsigned int),
+						   GFP_KERNEL);
+		if (!hisi_hba->reply_map)
+			return -ENOMEM;
+		setup_reply_map_v2_hw(hisi_hba);
+	}
 
 	for (i = 0; i < 128; i++)
 		irq_map[i] = platform_get_irq(pdev, i);
@@ -3358,11 +3402,16 @@ static int interrupt_init_v2_hw(struct hisi_hba *hisi_hba)
 
 	for (queue_no = 0; queue_no < hisi_hba->queue_count; queue_no++) {
 		struct hisi_sas_cq *cq = &hisi_hba->cq[queue_no];
+		unsigned long irqflags = IRQF_ONESHOT;
+
+		if (auto_affine_interrupts)
+			irqflags |= IRQF_NOBALANCING;
 
 		cq->irq_no = irq_map[queue_no + 96];
+
 		rc = devm_request_threaded_irq(dev, cq->irq_no,
 					       cq_interrupt_v2_hw,
-					       cq_thread_v2_hw, IRQF_ONESHOT,
+					       cq_thread_v2_hw, irqflags,
 					       DRV_NAME " cq", cq);
 		if (rc) {
 			dev_err(dev, "irq init: could not request cq interrupt %d, rc=%d\n",
@@ -3370,6 +3419,9 @@ static int interrupt_init_v2_hw(struct hisi_hba *hisi_hba)
 			rc = -ENOENT;
 			goto err_out;
 		}
+
+		if (auto_affine_interrupts)
+			irq_set_affinity(cq->irq_no, cq->irq_mask);
 	}
 
 	hisi_hba->cq_nvecs = hisi_hba->queue_count;

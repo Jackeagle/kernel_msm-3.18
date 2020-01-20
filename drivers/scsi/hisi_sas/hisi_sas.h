@@ -10,6 +10,7 @@
 #include <linux/acpi.h>
 #include <linux/clk.h>
 #include <linux/debugfs.h>
+#include <linux/device.h>
 #include <linux/dmapool.h>
 #include <linux/iopoll.h>
 #include <linux/lcm.h>
@@ -384,6 +385,8 @@ struct hisi_hba {
 	int n_phy;
 	spinlock_t lock;
 	struct semaphore sem;
+
+	struct irq_affinity_desc affinity_masks[HISI_SAS_MAX_QUEUES];
 
 	struct timer_list timer;
 	struct workqueue_struct *wq;
