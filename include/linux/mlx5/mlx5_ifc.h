@@ -87,6 +87,7 @@ enum {
 enum {
 	MLX5_GENERAL_OBJ_TYPES_CAP_SW_ICM = (1ULL << MLX5_OBJ_TYPE_SW_ICM),
 	MLX5_GENERAL_OBJ_TYPES_CAP_GENEVE_TLV_OPT = (1ULL << 11),
+	MLX5_GENERAL_OBJ_TYPES_CAP_VIRTIO_NET_Q = (1ULL << 13),
 };
 
 enum {
@@ -953,6 +954,19 @@ struct mlx5_ifc_device_event_cap_bits {
 	u8         user_unaffiliated_events[4][0x40];
 };
 
+struct mlx5_ifc_device_virtio_emulation_cap_bits {
+	u8         reserved_at_0[0x20];
+
+	u8         reserved_at_20[0x13];
+	u8         log_doorbell_stride[0x5];
+	u8         reserved_at_38[0x3];
+	u8         log_doorbell_bar_size[0x5];
+
+	u8         doorbell_bar_offset[0x40];
+
+	u8         reserved_at_80[0x780];
+};
+
 enum {
 	MLX5_ATOMIC_CAPS_ATOMIC_SIZE_QP_1_BYTE     = 0x0,
 	MLX5_ATOMIC_CAPS_ATOMIC_SIZE_QP_2_BYTES    = 0x2,
@@ -1160,7 +1174,8 @@ struct mlx5_ifc_cmd_hca_cap_bits {
 	u8         log_max_cq[0x5];
 
 	u8         log_max_eq_sz[0x8];
-	u8         reserved_at_e8[0x2];
+	u8         relaxed_ordering_write[0x1];
+	u8         relaxed_ordering_read[0x1];
 	u8         log_max_mkey[0x6];
 	u8         reserved_at_f0[0x8];
 	u8         dump_fill_mkey[0x1];
@@ -1183,7 +1198,8 @@ struct mlx5_ifc_cmd_hca_cap_bits {
 	u8         reserved_at_130[0xa];
 	u8         log_max_ra_res_dc[0x6];
 
-	u8         reserved_at_140[0xa];
+	u8         reserved_at_140[0x9];
+	u8         roce_accl[0x1];
 	u8         log_max_ra_req_qp[0x6];
 	u8         reserved_at_150[0xa];
 	u8         log_max_ra_res_qp[0x6];
@@ -2751,6 +2767,7 @@ union mlx5_ifc_hca_cap_union_bits {
 	struct mlx5_ifc_fpga_cap_bits fpga_cap;
 	struct mlx5_ifc_tls_cap_bits tls_cap;
 	struct mlx5_ifc_device_mem_cap_bits device_mem_cap;
+	struct mlx5_ifc_device_virtio_emulation_cap_bits virtio_emulation_cap;
 	u8         reserved_at_0[0x8000];
 };
 
@@ -3271,7 +3288,9 @@ struct mlx5_ifc_mkc_bits {
 
 	u8         translations_octword_size[0x20];
 
-	u8         reserved_at_1c0[0x1b];
+	u8         reserved_at_1c0[0x19];
+	u8         relaxed_ordering_read[0x1];
+	u8         reserved_at_1d9[0x1];
 	u8         log_page_size[0x5];
 
 	u8         reserved_at_1e0[0x20];
@@ -4731,7 +4750,19 @@ struct mlx5_ifc_query_q_counter_out_bits {
 
 	u8         req_cqe_flush_error[0x20];
 
-	u8         reserved_at_620[0x1e0];
+	u8         reserved_at_620[0x20];
+
+	u8         roce_adp_retrans[0x20];
+
+	u8         roce_adp_retrans_to[0x20];
+
+	u8         roce_slow_restart[0x20];
+
+	u8         roce_slow_restart_cnps[0x20];
+
+	u8         roce_slow_restart_trans[0x20];
+
+	u8         reserved_at_6e0[0x120];
 };
 
 struct mlx5_ifc_query_q_counter_in_bits {
