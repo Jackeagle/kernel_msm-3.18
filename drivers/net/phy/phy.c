@@ -422,8 +422,8 @@ int phy_mii_ioctl(struct phy_device *phydev, struct ifreq *ifr, int cmd)
 		return 0;
 
 	case SIOCSHWTSTAMP:
-		if (phydev->drv && phydev->drv->hwtstamp)
-			return phydev->drv->hwtstamp(phydev, ifr);
+		if (phydev->mii_ts && phydev->mii_ts->hwtstamp)
+			return phydev->mii_ts->hwtstamp(phydev->mii_ts, ifr);
 		/* fall through */
 
 	default:
@@ -431,6 +431,21 @@ int phy_mii_ioctl(struct phy_device *phydev, struct ifreq *ifr, int cmd)
 	}
 }
 EXPORT_SYMBOL(phy_mii_ioctl);
+
+/**
+ * phy_do_ioctl - generic ndo_do_ioctl implementation
+ * @dev: the net_device struct
+ * @ifr: &struct ifreq for socket ioctl's
+ * @cmd: ioctl cmd to execute
+ */
+int phy_do_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+{
+	if (!netif_running(dev) || !dev->phydev)
+		return -ENODEV;
+
+	return phy_mii_ioctl(dev->phydev, ifr, cmd);
+}
+EXPORT_SYMBOL(phy_do_ioctl);
 
 void phy_queue_state_machine(struct phy_device *phydev, unsigned long jiffies)
 {
