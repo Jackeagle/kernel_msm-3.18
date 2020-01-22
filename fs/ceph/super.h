@@ -72,6 +72,8 @@
 #define CEPH_CAPS_WANTED_DELAY_MIN_DEFAULT      5  /* cap release delay */
 #define CEPH_CAPS_WANTED_DELAY_MAX_DEFAULT     60  /* cap release delay */
 
+extern bool enable_async_dirops;
+
 struct ceph_mount_options {
 	unsigned int flags;
 
@@ -105,6 +107,8 @@ struct ceph_fs_client {
 
 	unsigned long last_auto_reconnect;
 	bool blacklisted;
+
+	bool have_copy_from2;
 
 	u32 filp_gen;
 	loff_t max_file_size;
@@ -282,6 +286,7 @@ struct ceph_dentry_info {
 #define CEPH_DENTRY_REFERENCED		1
 #define CEPH_DENTRY_LEASE_LIST		2
 #define CEPH_DENTRY_SHRINK_LIST		4
+#define CEPH_DENTRY_PRIMARY_LINK	8
 
 struct ceph_inode_xattrs_info {
 	/*
@@ -373,7 +378,7 @@ struct ceph_inode_info {
 
 	/* held references to caps */
 	int i_pin_ref;
-	int i_rd_ref, i_rdcache_ref, i_wr_ref, i_wb_ref;
+	int i_rd_ref, i_rdcache_ref, i_wr_ref, i_wb_ref, i_fx_ref;
 	int i_wrbuffer_ref, i_wrbuffer_ref_head;
 	atomic_t i_filelock_ref;
 	atomic_t i_shared_gen;       /* increment each time we get FILE_SHARED */
@@ -673,17 +678,7 @@ extern int ceph_caps_revoking(struct ceph_inode_info *ci, int mask);
 extern int __ceph_caps_used(struct ceph_inode_info *ci);
 
 extern int __ceph_caps_file_wanted(struct ceph_inode_info *ci);
-
-/*
- * wanted, by virtue of open file modes AND cap refs (buffered/cached data)
- */
-static inline int __ceph_caps_wanted(struct ceph_inode_info *ci)
-{
-	int w = __ceph_caps_file_wanted(ci) | __ceph_caps_used(ci);
-	if (w & CEPH_CAP_FILE_BUFFER)
-		w |= CEPH_CAP_FILE_EXCL;  /* we want EXCL if dirty data */
-	return w;
-}
+extern int __ceph_caps_wanted(struct ceph_inode_info *ci);
 
 /* what the mds thinks we want */
 extern int __ceph_caps_mds_wanted(struct ceph_inode_info *ci, bool check);
