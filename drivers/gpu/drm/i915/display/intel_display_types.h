@@ -214,6 +214,9 @@ struct intel_panel {
 		u8 controller;		/* bxt+ only */
 		struct pwm_device *pwm;
 
+		/* DPCD backlight */
+		u8 pwmgen_bit_count;
+
 		struct backlight_device *device;
 
 		/* Connector and platform specific backlight functions */
@@ -1469,7 +1472,7 @@ enc_to_dig_port(struct intel_encoder *encoder)
 }
 
 static inline struct intel_digital_port *
-conn_to_dig_port(struct intel_connector *connector)
+intel_attached_dig_port(struct intel_connector *connector)
 {
 	return enc_to_dig_port(intel_attached_encoder(connector));
 }
@@ -1484,6 +1487,11 @@ enc_to_mst(struct intel_encoder *encoder)
 static inline struct intel_dp *enc_to_intel_dp(struct intel_encoder *encoder)
 {
 	return &enc_to_dig_port(encoder)->dp;
+}
+
+static inline struct intel_dp *intel_attached_dp(struct intel_connector *connector)
+{
+	return enc_to_intel_dp(intel_attached_encoder(connector));
 }
 
 static inline bool intel_encoder_is_dp(struct intel_encoder *encoder)

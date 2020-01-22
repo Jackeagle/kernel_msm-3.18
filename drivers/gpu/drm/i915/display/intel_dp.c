@@ -146,11 +146,6 @@ bool intel_dp_is_edp(struct intel_dp *intel_dp)
 	return intel_dig_port->base.type == INTEL_OUTPUT_EDP;
 }
 
-static struct intel_dp *intel_attached_dp(struct intel_connector *connector)
-{
-	return enc_to_intel_dp(intel_attached_encoder(connector));
-}
-
 static void intel_dp_link_down(struct intel_encoder *encoder,
 			       const struct intel_crtc_state *old_crtc_state);
 static bool edp_panel_vdd_on(struct intel_dp *intel_dp);
@@ -323,11 +318,10 @@ intel_dp_set_source_rates(struct intel_dp *intel_dp)
 		162000, 270000
 	};
 	struct intel_digital_port *dig_port = dp_to_dig_port(intel_dp);
+	struct intel_encoder *encoder = &dig_port->base;
 	struct drm_i915_private *dev_priv = to_i915(dig_port->base.base.dev);
-	const struct ddi_vbt_port_info *info =
-		&dev_priv->vbt.ddi_port_info[dig_port->base.port];
 	const int *source_rates;
-	int size, max_rate = 0, vbt_max_rate = info->dp_max_link_rate;
+	int size, max_rate = 0, vbt_max_rate;
 
 	/* This should only be done once */
 	WARN_ON(intel_dp->source_rates || intel_dp->num_source_rates);
@@ -354,6 +348,7 @@ intel_dp_set_source_rates(struct intel_dp *intel_dp)
 		size = ARRAY_SIZE(g4x_rates);
 	}
 
+	vbt_max_rate = intel_bios_dp_max_link_rate(encoder);
 	if (max_rate && vbt_max_rate)
 		max_rate = min(max_rate, vbt_max_rate);
 	else if (vbt_max_rate)
@@ -4142,11 +4137,14 @@ intel_dp_set_signal_levels(struct intel_dp *intel_dp)
 	if (mask)
 		DRM_DEBUG_KMS("Using signal levels %08x\n", signal_levels);
 
-	DRM_DEBUG_KMS("Using vswing level %d\n",
-		train_set & DP_TRAIN_VOLTAGE_SWING_MASK);
-	DRM_DEBUG_KMS("Using pre-emphasis level %d\n",
-		(train_set & DP_TRAIN_PRE_EMPHASIS_MASK) >>
-			DP_TRAIN_PRE_EMPHASIS_SHIFT);
+	DRM_DEBUG_KMS("Using vswing level %d%s\n",
+		      train_set & DP_TRAIN_VOLTAGE_SWING_MASK,
+		      train_set & DP_TRAIN_MAX_SWING_REACHED ? " (max)" : "");
+	DRM_DEBUG_KMS("Using pre-emphasis level %d%s\n",
+		      (train_set & DP_TRAIN_PRE_EMPHASIS_MASK) >>
+		      DP_TRAIN_PRE_EMPHASIS_SHIFT,
+		      train_set & DP_TRAIN_MAX_PRE_EMPHASIS_REACHED ?
+		      " (max)" : "");
 
 	intel_dp->DP = (intel_dp->DP & ~mask) | signal_levels;
 
