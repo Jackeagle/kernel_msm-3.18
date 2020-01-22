@@ -4584,6 +4584,7 @@ again:
 	 */
 	if (ret == -EAGAIN && (!(req->flags & REQ_F_NOWAIT) ||
 	    (req->flags & REQ_F_MUST_PUNT))) {
+punt:
 		if (req->work.flags & IO_WQ_WORK_NEEDS_FILES) {
 			ret = io_grab_files(req);
 			if (ret)
@@ -4619,6 +4620,9 @@ done_req:
 	if (nxt) {
 		req = nxt;
 		nxt = NULL;
+
+		if (req->flags & REQ_F_FORCE_ASYNC)
+			goto punt;
 		goto again;
 	}
 }
@@ -4630,11 +4634,15 @@ static void io_queue_sqe(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	ret = io_req_defer(req, sqe);
 	if (ret) {
 		if (ret != -EIOCBQUEUED) {
+fail_req:
 			io_cqring_add_event(req, ret);
 			req_set_fail_links(req);
 			io_double_put_req(req);
 		}
 	} else if (req->flags & REQ_F_FORCE_ASYNC) {
+		ret = io_req_defer_prep(req, sqe);
+		if (unlikely(ret < 0))
+			goto fail_req;
 		/*
 		 * Never try inline submit of IOSQE_ASYNC is set, go straight
 		 * to async execution.
