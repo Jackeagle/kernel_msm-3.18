@@ -5796,13 +5796,18 @@ static int io_sq_offload_start(struct io_ring_ctx *ctx,
 
 	/* Do QD, or 4 * CPUS, whatever is smallest */
 	concurrency = min(ctx->sq_entries, 4 * num_online_cpus());
-	ctx->io_wq = io_wq_create(concurrency, &data);
+
+	if (ctx->flags & IORING_SETUP_SHARED)
+		ctx->io_wq = io_wq_create_id(concurrency, &data, p->id);
+	else
+		ctx->io_wq = io_wq_create(concurrency, &data);
 	if (IS_ERR(ctx->io_wq)) {
 		ret = PTR_ERR(ctx->io_wq);
 		ctx->io_wq = NULL;
 		goto err;
 	}
 
+	p->id = io_wq_id(ctx->io_wq);
 	return 0;
 err:
 	io_finish_async(ctx);
@@ -6626,7 +6631,7 @@ static long io_uring_setup(u32 entries, struct io_uring_params __user *params)
 
 	if (p.flags & ~(IORING_SETUP_IOPOLL | IORING_SETUP_SQPOLL |
 			IORING_SETUP_SQ_AFF | IORING_SETUP_CQSIZE |
-			IORING_SETUP_CLAMP))
+			IORING_SETUP_CLAMP | IORING_SETUP_SHARED))
 		return -EINVAL;
 
 	ret = io_uring_create(entries, &p);
