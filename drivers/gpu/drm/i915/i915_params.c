@@ -35,7 +35,7 @@
 	MODULE_PARM_DESC(name, desc)
 
 struct i915_params i915_modparams __read_mostly = {
-#define MEMBER(T, member, value) .member = (value),
+#define MEMBER(T, member, value, ...) .member = (value),
 	I915_PARAMS_FOR_EACH(MEMBER)
 #undef MEMBER
 };
@@ -91,9 +91,6 @@ i915_param_named_unsafe(enable_psr, int, 0600,
 i915_param_named_unsafe(force_probe, charp, 0400,
 	"Force probe the driver for specified devices. "
 	"See CONFIG_DRM_I915_FORCE_PROBE for details.");
-
-i915_param_named_unsafe(alpha_support, bool, 0400,
-	"Deprecated. See i915.force_probe.");
 
 i915_param_named_unsafe(disable_power_well, int, 0400,
 	"Disable display power wells when possible "
@@ -172,7 +169,7 @@ i915_param_named_unsafe(inject_probe_failure, uint, 0400,
 
 i915_param_named(enable_dpcd_backlight, int, 0600,
 	"Enable support for DPCD backlight control"
-	"(-1=use per-VBT LFP backlight type setting, 0=disabled [default], 1=enabled)");
+	"(-1=use per-VBT LFP backlight type setting [default], 0=disabled, 1=enabled)");
 
 #if IS_ENABLED(CONFIG_DRM_I915_GVT)
 i915_param_named(enable_gvt, bool, 0400,

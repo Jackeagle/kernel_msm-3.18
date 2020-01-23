@@ -686,7 +686,7 @@ parse_power_conservation_features(struct drm_i915_private *dev_priv,
 	if (bdb->version < 228)
 		return;
 
-	power = find_section(bdb, BDB_LVDS_POWER);
+	power = find_section(bdb, BDB_LFP_POWER);
 	if (!power)
 		return;
 
@@ -2236,9 +2236,7 @@ bool intel_bios_is_port_present(struct drm_i915_private *dev_priv, enum port por
 		const struct ddi_vbt_port_info *port_info =
 			&dev_priv->vbt.ddi_port_info[port];
 
-		return port_info->supports_dp ||
-		       port_info->supports_dvi ||
-		       port_info->supports_hdmi;
+		return port_info->child;
 	}
 
 	/* FIXME maybe deal with port A as well? */
@@ -2561,4 +2559,74 @@ enum aux_ch intel_bios_port_aux_ch(struct drm_i915_private *dev_priv,
 		      aux_ch_name(aux_ch), port_name(port));
 
 	return aux_ch;
+}
+
+int intel_bios_max_tmds_clock(struct intel_encoder *encoder)
+{
+	struct drm_i915_private *i915 = to_i915(encoder->base.dev);
+
+	return i915->vbt.ddi_port_info[encoder->port].max_tmds_clock;
+}
+
+int intel_bios_hdmi_level_shift(struct intel_encoder *encoder)
+{
+	struct drm_i915_private *i915 = to_i915(encoder->base.dev);
+	const struct ddi_vbt_port_info *info =
+		&i915->vbt.ddi_port_info[encoder->port];
+
+	return info->hdmi_level_shift_set ? info->hdmi_level_shift : -1;
+}
+
+int intel_bios_dp_boost_level(struct intel_encoder *encoder)
+{
+	struct drm_i915_private *i915 = to_i915(encoder->base.dev);
+
+	return i915->vbt.ddi_port_info[encoder->port].dp_boost_level;
+}
+
+int intel_bios_hdmi_boost_level(struct intel_encoder *encoder)
+{
+	struct drm_i915_private *i915 = to_i915(encoder->base.dev);
+
+	return i915->vbt.ddi_port_info[encoder->port].hdmi_boost_level;
+}
+
+int intel_bios_dp_max_link_rate(struct intel_encoder *encoder)
+{
+	struct drm_i915_private *i915 = to_i915(encoder->base.dev);
+
+	return i915->vbt.ddi_port_info[encoder->port].dp_max_link_rate;
+}
+
+int intel_bios_alternate_ddc_pin(struct intel_encoder *encoder)
+{
+	struct drm_i915_private *i915 = to_i915(encoder->base.dev);
+
+	return i915->vbt.ddi_port_info[encoder->port].alternate_ddc_pin;
+}
+
+bool intel_bios_port_supports_dvi(struct drm_i915_private *i915, enum port port)
+{
+	return i915->vbt.ddi_port_info[port].supports_dvi;
+}
+
+bool intel_bios_port_supports_hdmi(struct drm_i915_private *i915, enum port port)
+{
+	return i915->vbt.ddi_port_info[port].supports_hdmi;
+}
+
+bool intel_bios_port_supports_dp(struct drm_i915_private *i915, enum port port)
+{
+	return i915->vbt.ddi_port_info[port].supports_dp;
+}
+
+bool intel_bios_port_supports_typec_usb(struct drm_i915_private *i915,
+					enum port port)
+{
+	return i915->vbt.ddi_port_info[port].supports_typec_usb;
+}
+
+bool intel_bios_port_supports_tbt(struct drm_i915_private *i915, enum port port)
+{
+	return i915->vbt.ddi_port_info[port].supports_tbt;
 }
