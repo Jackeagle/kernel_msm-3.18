@@ -1024,7 +1024,7 @@ void io_wq_flush(struct io_wq *wq)
 	}
 }
 
-struct io_wq *io_wq_create(unsigned bounded, struct io_wq_data *data)
+static struct io_wq *__io_wq_create(unsigned bounded, struct io_wq_data *data)
 {
 	int ret = -ENOMEM, node, id;
 	struct io_wq *wq;
@@ -1107,6 +1107,41 @@ err:
 	return ERR_PTR(ret);
 }
 
+struct io_wq *io_wq_create(unsigned bounded, struct io_wq_data *data)
+{
+	return __io_wq_create(bounded, data);
+}
+
+/*
+ * Find and return io_wq with given id and grab a reference to it.
+ */
+struct io_wq *io_wq_create_id(unsigned bounded, struct io_wq_data *data,
+			      unsigned int id)
+{
+	struct io_wq *wq, *ret = NULL;
+
+	mutex_lock(&wq_lock);
+	list_for_each_entry(wq, &wq_list, wq_list) {
+		if (id != wq->id)
+			continue;
+		if (data->creds != wq->creds || data->user != wq->user)
+			continue;
+		if (data->get_work != wq->get_work ||
+		    data->put_work != wq->put_work)
+			continue;
+		if (!refcount_inc_not_zero(&wq->use_refs))
+			continue;
+		ret = wq;
+		break;
+	}
+	mutex_unlock(&wq_lock);
+
+	if (!ret)
+		ret = io_wq_create(bounded, data);
+
+	return ret;
+}
+
 static bool io_wq_worker_wake(struct io_worker *worker, void *data)
 {
 	wake_up_process(worker->task);
@@ -1144,4 +1179,9 @@ void io_wq_destroy(struct io_wq *wq)
 
 		__io_wq_destroy(wq);
 	}
+}
+
+unsigned int io_wq_id(struct io_wq *wq)
+{
+	return wq->id;
 }
