@@ -96,21 +96,18 @@ void wilc_mac_indicate(struct wilc *wilc)
 
 static struct net_device *get_if_handler(struct wilc *wilc, u8 *mac_header)
 {
-	u8 *bssid, *bssid1;
 	struct net_device *ndev = NULL;
 	struct wilc_vif *vif;
-
-	bssid = mac_header + 10;
-	bssid1 = mac_header + 4;
+	struct ieee80211_hdr *h = (struct ieee80211_hdr *)mac_header;
 
 	list_for_each_entry_rcu(vif, &wilc->vif_list, list) {
 		if (vif->mode == WILC_STATION_MODE)
-			if (ether_addr_equal_unaligned(bssid, vif->bssid)) {
+			if (ether_addr_equal_unaligned(h->addr2, vif->bssid)) {
 				ndev = vif->ndev;
 				goto out;
 			}
 		if (vif->mode == WILC_AP_MODE)
-			if (ether_addr_equal_unaligned(bssid1, vif->bssid)) {
+			if (ether_addr_equal_unaligned(h->addr1, vif->bssid)) {
 				ndev = vif->ndev;
 				goto out;
 			}
@@ -840,7 +837,7 @@ static const struct net_device_ops wilc_netdev_ops = {
 void wilc_netdev_cleanup(struct wilc *wilc)
 {
 	struct wilc_vif *vif;
-	int srcu_idx;
+	int srcu_idx, ifc_cnt = 0;
 
 	if (!wilc)
 		return;
@@ -861,7 +858,7 @@ void wilc_netdev_cleanup(struct wilc *wilc)
 	flush_workqueue(wilc->hif_workqueue);
 	destroy_workqueue(wilc->hif_workqueue);
 
-	do {
+	while (ifc_cnt < WILC_NUM_CONCURRENT_IFC) {
 		mutex_lock(&wilc->vif_mutex);
 		if (wilc->vif_num <= 0) {
 			mutex_unlock(&wilc->vif_mutex);
@@ -874,7 +871,8 @@ void wilc_netdev_cleanup(struct wilc *wilc)
 		wilc->vif_num--;
 		mutex_unlock(&wilc->vif_mutex);
 		synchronize_srcu(&wilc->srcu);
-	} while (1);
+		ifc_cnt++;
+	}
 
 	wilc_wlan_cfg_deinit(wilc);
 	wlan_deinit_locks(wilc);
