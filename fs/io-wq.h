@@ -12,6 +12,8 @@ enum {
 	IO_WQ_WORK_UNBOUND	= 32,
 	IO_WQ_WORK_INTERNAL	= 64,
 	IO_WQ_WORK_CB		= 128,
+	IO_WQ_WORK_NO_CANCEL	= 256,
+	IO_WQ_WORK_CONCURRENT	= 512,
 
 	IO_WQ_HASH_SHIFT	= 24,	/* upper 8 bits are used for hash key */
 };
@@ -96,7 +98,10 @@ struct io_wq_data {
 };
 
 struct io_wq *io_wq_create(unsigned bounded, struct io_wq_data *data);
+struct io_wq *io_wq_create_id(unsigned bounded, struct io_wq_data *data,
+				unsigned int id);
 void io_wq_destroy(struct io_wq *wq);
+unsigned int io_wq_id(struct io_wq *wq);
 
 void io_wq_enqueue(struct io_wq *wq, struct io_wq_work *work);
 void io_wq_enqueue_hashed(struct io_wq *wq, struct io_wq_work *work, void *val);
