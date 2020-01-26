@@ -799,7 +799,7 @@ static int brcm_pcie_setup(struct brcm_pcie *pcie)
 
 		brcm_pcie_set_outbound_win(pcie, num_out_wins, res->start,
 					   res->start - entry->offset,
-					   res->end - res->start + 1);
+					   resource_size(res));
 		num_out_wins++;
 	}
 
