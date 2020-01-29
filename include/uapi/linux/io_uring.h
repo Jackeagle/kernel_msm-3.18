@@ -40,7 +40,12 @@ struct io_uring_sqe {
 	};
 	__u64	user_data;	/* data to be passed back at completion time */
 	union {
-		__u16	buf_index;	/* index into fixed buffers, if used */
+		struct {
+			/* index into fixed buffers, if used */
+			__u16	buf_index;
+			/* personality to use, if used */
+			__u16	personality;
+		};
 		__u64	__pad2[3];
 	};
 };
@@ -75,6 +80,7 @@ enum {
 #define IORING_SETUP_SQ_AFF	(1U << 2)	/* sq_thread_cpu is valid */
 #define IORING_SETUP_CQSIZE	(1U << 3)	/* app defines CQ size */
 #define IORING_SETUP_CLAMP	(1U << 4)	/* clamp SQ/CQ ring sizes */
+#define IORING_SETUP_ATTACH_WQ	(1U << 5)	/* attach to existing wq */
 
 enum {
 	IORING_OP_NOP,
@@ -184,7 +190,8 @@ struct io_uring_params {
 	__u32 sq_thread_cpu;
 	__u32 sq_thread_idle;
 	__u32 features;
-	__u32 resv[4];
+	__u32 wq_fd;
+	__u32 resv[3];
 	struct io_sqring_offsets sq_off;
 	struct io_cqring_offsets cq_off;
 };
@@ -196,6 +203,7 @@ struct io_uring_params {
 #define IORING_FEAT_NODROP		(1U << 1)
 #define IORING_FEAT_SUBMIT_STABLE	(1U << 2)
 #define IORING_FEAT_RW_CUR_POS		(1U << 3)
+#define IORING_FEAT_CUR_PERSONALITY	(1U << 4)
 
 /*
  * io_uring_register(2) opcodes and arguments
@@ -209,6 +217,8 @@ struct io_uring_params {
 #define IORING_REGISTER_FILES_UPDATE	6
 #define IORING_REGISTER_EVENTFD_ASYNC	7
 #define IORING_REGISTER_PROBE		8
+#define IORING_REGISTER_PERSONALITY	9
+#define IORING_UNREGISTER_PERSONALITY	10
 
 struct io_uring_files_update {
 	__u32 offset;

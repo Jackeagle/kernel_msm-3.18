@@ -274,6 +274,8 @@ struct io_ring_ctx {
 	struct socket		*ring_sock;
 #endif
 
+	struct idr		personality_idr;
+
 	struct {
 		unsigned		cached_cq_tail;
 		unsigned		cq_entries;
@@ -809,6 +811,7 @@ static struct io_ring_ctx *io_ring_ctx_alloc(struct io_uring_params *p)
 	INIT_LIST_HEAD(&ctx->cq_overflow_list);
 	init_completion(&ctx->completions[0]);
 	init_completion(&ctx->completions[1]);
+	idr_init(&ctx->personality_idr);
 	mutex_init(&ctx->uring_lock);
 	init_waitqueue_head(&ctx->wait);
 	spin_lock_init(&ctx->completion_lock);
@@ -888,6 +891,29 @@ static void __io_commit_cqring(struct io_ring_ctx *ctx)
 	}
 }
 
+static inline void io_req_work_grab_env(struct io_kiocb *req,
+					const struct io_op_def *def)
+{
+	if (!req->work.mm && def->needs_mm) {
+		mmgrab(current->mm);
+		req->work.mm = current->mm;
+	}
+	if (!req->work.creds)
+		req->work.creds = get_current_cred();
+}
+
+static inline void io_req_work_drop_env(struct io_kiocb *req)
+{
+	if (req->work.mm) {
+		mmdrop(req->work.mm);
+		req->work.mm = NULL;
+	}
+	if (req->work.creds) {
+		put_cred(req->work.creds);
+		req->work.creds = NULL;
+	}
+}
+
 static inline bool io_prep_async_work(struct io_kiocb *req,
 				      struct io_kiocb **link)
 {
@@ -901,8 +927,8 @@ static inline bool io_prep_async_work(struct io_kiocb *req,
 		if (def->unbound_nonreg_file)
 			req->work.flags |= IO_WQ_WORK_UNBOUND;
 	}
-	if (def->needs_mm)
-		req->work.flags |= IO_WQ_WORK_NEEDS_USER;
+
+	io_req_work_grab_env(req, def);
 
 	*link = io_prep_linked_timeout(req);
 	return do_hashed;
@@ -1193,6 +1219,8 @@ static void __io_req_aux_free(struct io_kiocb *req)
 		else
 			fput(req->file);
 	}
+
+	io_req_work_drop_env(req);
 }
 
 static void __io_free_req(struct io_kiocb *req)
@@ -2125,8 +2153,7 @@ static int io_setup_async_rw(struct io_kiocb *req, ssize_t io_size,
 			     struct iovec *iovec, struct iovec *fast_iov,
 			     struct iov_iter *iter)
 {
-	if (req->opcode == IORING_OP_READ_FIXED ||
-	    req->opcode == IORING_OP_WRITE_FIXED)
+	if (!io_op_defs[req->opcode].async_ctx)
 		return 0;
 	if (!req->io && io_alloc_async_ctx(req))
 		return -ENOMEM;
@@ -4025,6 +4052,8 @@ static int io_req_defer_prep(struct io_kiocb *req,
 {
 	ssize_t ret = 0;
 
+	io_req_work_grab_env(req, &io_op_defs[req->opcode]);
+
 	switch (req->opcode) {
 	case IORING_OP_NOP:
 		break;
@@ -4669,9 +4698,10 @@ static inline void io_queue_link_head(struct io_kiocb *req)
 static bool io_submit_sqe(struct io_kiocb *req, const struct io_uring_sqe *sqe,
 			  struct io_submit_state *state, struct io_kiocb **link)
 {
+	const struct cred *old_creds = NULL;
 	struct io_ring_ctx *ctx = req->ctx;
 	unsigned int sqe_flags;
-	int ret;
+	int ret, id;
 
 	sqe_flags = READ_ONCE(sqe->flags);
 
@@ -4680,6 +4710,19 @@ static bool io_submit_sqe(struct io_kiocb *req, const struct io_uring_sqe *sqe,
 		ret = -EINVAL;
 		goto err_req;
 	}
+
+	id = READ_ONCE(sqe->personality);
+	if (id) {
+		const struct cred *personality_creds;
+
+		personality_creds = idr_find(&ctx->personality_idr, id);
+		if (unlikely(!personality_creds)) {
+			ret = -EINVAL;
+			goto err_req;
+		}
+		old_creds = override_creds(personality_creds);
+	}
+
 	/* same numerical values with corresponding REQ_F_*, safe to copy */
 	req->flags |= sqe_flags & (IOSQE_IO_DRAIN|IOSQE_IO_HARDLINK|
 					IOSQE_ASYNC);
@@ -4689,6 +4732,8 @@ static bool io_submit_sqe(struct io_kiocb *req, const struct io_uring_sqe *sqe,
 err_req:
 		io_cqring_add_event(req, ret);
 		io_double_put_req(req);
+		if (old_creds)
+			revert_creds(old_creds);
 		return false;
 	}
 
@@ -4702,6 +4747,13 @@ err_req:
 	if (*link) {
 		struct io_kiocb *head = *link;
 
+		/*
+		 * Taking sequential execution of a link, draining both sides
+		 * of the link also fullfils IOSQE_IO_DRAIN semantics for all
+		 * requests in the link. So, it drains the head and the
+		 * next after the link request. The last one is done via
+		 * drain_next flag to persist the effect across calls.
+		 */
 		if (sqe_flags & IOSQE_IO_DRAIN) {
 			head->flags |= REQ_F_IO_DRAIN;
 			ctx->drain_next = 1;
@@ -4742,6 +4794,8 @@ err_req:
 		}
 	}
 
+	if (old_creds)
+		revert_creds(old_creds);
 	return true;
 }
 
@@ -4896,8 +4950,11 @@ static int io_submit_sqes(struct io_ring_ctx *ctx, unsigned int nr,
 			break;
 	}
 
-	if (submitted != nr)
-		percpu_ref_put_many(&ctx->refs, nr - submitted);
+	if (unlikely(submitted != nr)) {
+		int ref_used = (submitted == -EAGAIN) ? 0 : submitted;
+
+		percpu_ref_put_many(&ctx->refs, nr - ref_used);
+	}
 	if (link)
 		io_queue_link_head(link);
 	if (statep)
@@ -5740,11 +5797,56 @@ static void io_get_work(struct io_wq_work *work)
 	refcount_inc(&req->refs);
 }
 
+static int io_init_wq_offload(struct io_ring_ctx *ctx,
+			      struct io_uring_params *p)
+{
+	struct io_wq_data data;
+	struct fd f;
+	struct io_ring_ctx *ctx_attach;
+	unsigned int concurrency;
+	int ret = 0;
+
+	data.user = ctx->user;
+	data.get_work = io_get_work;
+	data.put_work = io_put_work;
+
+	if (!(p->flags & IORING_SETUP_ATTACH_WQ)) {
+		/* Do QD, or 4 * CPUS, whatever is smallest */
+		concurrency = min(ctx->sq_entries, 4 * num_online_cpus());
+
+		ctx->io_wq = io_wq_create(concurrency, &data);
+		if (IS_ERR(ctx->io_wq)) {
+			ret = PTR_ERR(ctx->io_wq);
+			ctx->io_wq = NULL;
+		}
+		return ret;
+	}
+
+	f = fdget(p->wq_fd);
+	if (!f.file)
+		return -EBADF;
+
+	if (f.file->f_op != &io_uring_fops) {
+		ret = -EINVAL;
+		goto out_fput;
+	}
+
+	ctx_attach = f.file->private_data;
+	/* @io_wq is protected by holding the fd */
+	if (!io_wq_get(ctx_attach->io_wq, &data)) {
+		ret = -EINVAL;
+		goto out_fput;
+	}
+
+	ctx->io_wq = ctx_attach->io_wq;
+out_fput:
+	fdput(f);
+	return ret;
+}
+
 static int io_sq_offload_start(struct io_ring_ctx *ctx,
 			       struct io_uring_params *p)
 {
-	struct io_wq_data data;
-	unsigned concurrency;
 	int ret;
 
 	init_waitqueue_head(&ctx->sqo_wait);
@@ -5788,20 +5890,9 @@ static int io_sq_offload_start(struct io_ring_ctx *ctx,
 		goto err;
 	}
 
-	data.mm = ctx->sqo_mm;
-	data.user = ctx->user;
-	data.creds = ctx->creds;
-	data.get_work = io_get_work;
-	data.put_work = io_put_work;
-
-	/* Do QD, or 4 * CPUS, whatever is smallest */
-	concurrency = min(ctx->sq_entries, 4 * num_online_cpus());
-	ctx->io_wq = io_wq_create(concurrency, &data);
-	if (IS_ERR(ctx->io_wq)) {
-		ret = PTR_ERR(ctx->io_wq);
-		ctx->io_wq = NULL;
+	ret = io_init_wq_offload(ctx, p);
+	if (ret)
 		goto err;
-	}
 
 	return 0;
 err:
@@ -6179,6 +6270,17 @@ static int io_uring_fasync(int fd, struct file *file, int on)
 	return fasync_helper(fd, file, on, &ctx->cq_fasync);
 }
 
+static int io_remove_personalities(int id, void *p, void *data)
+{
+	struct io_ring_ctx *ctx = data;
+	const struct cred *cred;
+
+	cred = idr_remove(&ctx->personality_idr, id);
+	if (cred)
+		put_cred(cred);
+	return 0;
+}
+
 static void io_ring_ctx_wait_and_kill(struct io_ring_ctx *ctx)
 {
 	mutex_lock(&ctx->uring_lock);
@@ -6195,6 +6297,7 @@ static void io_ring_ctx_wait_and_kill(struct io_ring_ctx *ctx)
 	/* if we failed setting up the ctx, we might not have any rings */
 	if (ctx->rings)
 		io_cqring_overflow_flush(ctx, true);
+	idr_for_each(&ctx->personality_idr, io_remove_personalities, ctx);
 	wait_for_completion(&ctx->completions[0]);
 	io_ring_ctx_free(ctx);
 }
@@ -6598,7 +6701,8 @@ static int io_uring_create(unsigned entries, struct io_uring_params *p)
 		goto err;
 
 	p->features = IORING_FEAT_SINGLE_MMAP | IORING_FEAT_NODROP |
-			IORING_FEAT_SUBMIT_STABLE | IORING_FEAT_RW_CUR_POS;
+			IORING_FEAT_SUBMIT_STABLE | IORING_FEAT_RW_CUR_POS |
+			IORING_FEAT_CUR_PERSONALITY;
 	trace_io_uring_create(ret, ctx, p->sq_entries, p->cq_entries, p->flags);
 	return ret;
 err:
@@ -6626,7 +6730,7 @@ static long io_uring_setup(u32 entries, struct io_uring_params __user *params)
 
 	if (p.flags & ~(IORING_SETUP_IOPOLL | IORING_SETUP_SQPOLL |
 			IORING_SETUP_SQ_AFF | IORING_SETUP_CQSIZE |
-			IORING_SETUP_CLAMP))
+			IORING_SETUP_CLAMP | IORING_SETUP_ATTACH_WQ))
 		return -EINVAL;
 
 	ret = io_uring_create(entries, &p);
@@ -6684,6 +6788,45 @@ out:
 	return ret;
 }
 
+static int io_register_personality(struct io_ring_ctx *ctx)
+{
+	const struct cred *creds = get_current_cred();
+	int id;
+
+	id = idr_alloc_cyclic(&ctx->personality_idr, (void *) creds, 1,
+				USHRT_MAX, GFP_KERNEL);
+	if (id < 0)
+		put_cred(creds);
+	return id;
+}
+
+static int io_unregister_personality(struct io_ring_ctx *ctx, unsigned id)
+{
+	const struct cred *old_creds;
+
+	old_creds = idr_remove(&ctx->personality_idr, id);
+	if (old_creds) {
+		put_cred(old_creds);
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+static bool io_register_op_must_quiesce(int op)
+{
+	switch (op) {
+	case IORING_UNREGISTER_FILES:
+	case IORING_REGISTER_FILES_UPDATE:
+	case IORING_REGISTER_PROBE:
+	case IORING_REGISTER_PERSONALITY:
+	case IORING_UNREGISTER_PERSONALITY:
+		return false;
+	default:
+		return true;
+	}
+}
+
 static int __io_uring_register(struct io_ring_ctx *ctx, unsigned opcode,
 			       void __user *arg, unsigned nr_args)
 	__releases(ctx->uring_lock)
@@ -6699,9 +6842,7 @@ static int __io_uring_register(struct io_ring_ctx *ctx, unsigned opcode,
 	if (percpu_ref_is_dying(&ctx->refs))
 		return -ENXIO;
 
-	if (opcode != IORING_UNREGISTER_FILES &&
-	    opcode != IORING_REGISTER_FILES_UPDATE &&
-	    opcode != IORING_REGISTER_PROBE) {
+	if (io_register_op_must_quiesce(opcode)) {
 		percpu_ref_kill(&ctx->refs);
 
 		/*
@@ -6769,15 +6910,24 @@ static int __io_uring_register(struct io_ring_ctx *ctx, unsigned opcode,
 			break;
 		ret = io_probe(ctx, arg, nr_args);
 		break;
+	case IORING_REGISTER_PERSONALITY:
+		ret = -EINVAL;
+		if (arg || nr_args)
+			break;
+		ret = io_register_personality(ctx);
+		break;
+	case IORING_UNREGISTER_PERSONALITY:
+		ret = -EINVAL;
+		if (arg)
+			break;
+		ret = io_unregister_personality(ctx, nr_args);
+		break;
 	default:
 		ret = -EINVAL;
 		break;
 	}
 
-
-	if (opcode != IORING_UNREGISTER_FILES &&
-	    opcode != IORING_REGISTER_FILES_UPDATE &&
-	    opcode != IORING_REGISTER_PROBE) {
+	if (io_register_op_must_quiesce(opcode)) {
 		/* bring the ctx back to life */
 		percpu_ref_reinit(&ctx->refs);
 out:
