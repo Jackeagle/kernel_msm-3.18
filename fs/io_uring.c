@@ -740,6 +740,7 @@ static const struct io_op_def io_op_defs[] = {
 	},
 	[IORING_OP_EPOLL_CTL] = {
 		.unbound_nonreg_file	= 1,
+		.file_table		= 1,
 	},
 };
 
@@ -2657,10 +2658,8 @@ static int io_epoll_ctl(struct io_kiocb *req, struct io_kiocb **nxt,
 	int ret;
 
 	ret = do_epoll_ctl(ie->epfd, ie->op, ie->fd, &ie->event, force_nonblock);
-	if (force_nonblock && ret == -EAGAIN) {
-		req->work.flags |= IO_WQ_WORK_NEEDS_FILES;
+	if (force_nonblock && ret == -EAGAIN)
 		return -EAGAIN;
-	}
 
 	if (ret < 0)
 		req_set_fail_links(req);
