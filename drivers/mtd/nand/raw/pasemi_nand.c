@@ -154,7 +154,7 @@ static int pasemi_nand_probe(struct platform_device *ofdev)
 
 	return 0;
 
-out_cleanup:
+ out_cleanup_nand:
 	nand_cleanup(chip);
  out_lpc:
 	release_region(lpcctl, 4);
