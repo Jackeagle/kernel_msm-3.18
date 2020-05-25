@@ -64,6 +64,7 @@ config RCU_TORTURE_TEST
 config RCU_REF_PERF_TEST
 	tristate "Performance tests for read-side synchronization (RCU and others)"
 	depends on DEBUG_KERNEL
+	depends on 64BIT
 	select TORTURE_TEST
 	select SRCU
 	select TASKS_RCU
