@@ -3057,7 +3057,7 @@ next:
 	if ((!cycled && !done) || retry) {
 		cycled = 1;
 		index = 0;
-		end = writeback_index - 1;
+		end = retry ? -1 : writeback_index - 1;
 		goto retry;
 	}
 	if (wbc->range_cyclic || (range_whole && wbc->nr_to_write > 0))
