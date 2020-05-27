@@ -1865,8 +1865,6 @@ static void btrfs_add_delalloc_inodes(struct btrfs_root *root,
 	if (list_empty(&BTRFS_I(inode)->delalloc_inodes)) {
 		list_add_tail(&BTRFS_I(inode)->delalloc_inodes,
 			      &root->delalloc_inodes);
-		set_bit(BTRFS_INODE_IN_DELALLOC_LIST,
-			&BTRFS_I(inode)->runtime_flags);
 		root->nr_delalloc_inodes++;
 		if (root->nr_delalloc_inodes == 1) {
 			spin_lock(&fs_info->delalloc_root_lock);
@@ -1887,8 +1885,6 @@ void __btrfs_del_delalloc_inode(struct btrfs_root *root,
 
 	if (!list_empty(&inode->delalloc_inodes)) {
 		list_del_init(&inode->delalloc_inodes);
-		clear_bit(BTRFS_INODE_IN_DELALLOC_LIST,
-			  &inode->runtime_flags);
 		root->nr_delalloc_inodes--;
 		if (!root->nr_delalloc_inodes) {
 			ASSERT(list_empty(&root->delalloc_inodes));
@@ -1944,8 +1940,7 @@ void btrfs_set_delalloc_extent(struct inode *inode, struct extent_state *state,
 		BTRFS_I(inode)->delalloc_bytes += len;
 		if (*bits & EXTENT_DEFRAG)
 			BTRFS_I(inode)->defrag_bytes += len;
-		if (do_list && !test_bit(BTRFS_INODE_IN_DELALLOC_LIST,
-					 &BTRFS_I(inode)->runtime_flags))
+		if (do_list)
 			btrfs_add_delalloc_inodes(root, inode);
 		spin_unlock(&BTRFS_I(inode)->lock);
 	}
@@ -2014,9 +2009,7 @@ void btrfs_clear_delalloc_extent(struct inode *vfs_inode,
 					 fs_info->delalloc_batch);
 		spin_lock(&inode->lock);
 		inode->delalloc_bytes -= len;
-		if (do_list && inode->delalloc_bytes == 0 &&
-		    test_bit(BTRFS_INODE_IN_DELALLOC_LIST,
-					&inode->runtime_flags))
+		if (do_list && inode->delalloc_bytes == 0)
 			btrfs_del_delalloc_inode(root, inode);
 		spin_unlock(&inode->lock);
 	}
