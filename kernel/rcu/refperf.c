@@ -133,8 +133,8 @@ static struct ref_perf_ops rcu_ops = {
 
 
 // Definitions for SRCU ref perf testing.
-DEFINE_STATIC_SRCU(srcu_ctl_perf);
-static struct srcu_struct *srcu_ctlp = &srcu_ctl_perf;
+DEFINE_STATIC_SRCU(ref_srcu_ctl_perf);
+static struct srcu_struct *srcu_ctlp = &ref_srcu_ctl_perf;
 
 static void srcu_ref_perf_read_section(int nloops)
 {
