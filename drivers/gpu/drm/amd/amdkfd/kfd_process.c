@@ -114,7 +114,7 @@ static void kfd_sdma_activity_worker(struct work_struct *work)
 		return;
 	}
 
-	use_mm(mm);
+	kthread_use_mm(mm);
 
 	dqm_lock(dqm);
 
@@ -141,7 +141,7 @@ static void kfd_sdma_activity_worker(struct work_struct *work)
 	}
 
 	dqm_unlock(dqm);
-	unuse_mm(mm);
+	kthread_unuse_mm(mm);
 	mmput(mm);
 }
 
