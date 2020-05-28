@@ -737,7 +737,8 @@ void dcn10_bios_golden_init(struct dc *dc)
 	if (dc->res_pool->hubbub->funcs->allow_self_refresh_control)
 		if (allow_self_fresh_force_enable == false &&
 				dc->res_pool->hubbub->funcs->is_allow_self_refresh_enabled(dc->res_pool->hubbub))
-			dc->res_pool->hubbub->funcs->allow_self_refresh_control(dc->res_pool->hubbub, true);
+			dc->res_pool->hubbub->funcs->allow_self_refresh_control(dc->res_pool->hubbub,
+										!dc->res_pool->hubbub->ctx->dc->debug.disable_stutter);
 
 }
 
@@ -1741,6 +1742,8 @@ static void delay_cursor_until_vupdate(struct dc *dc, struct pipe_ctx *pipe_ctx)
 		return;
 
 	/* Stall out until the cursor update completes. */
+	if (vupdate_end < vupdate_start)
+		vupdate_end += stream->timing.v_total;
 	us_vupdate = (vupdate_end - vupdate_start + 1) * us_per_line;
 	udelay(us_to_vupdate + us_vupdate);
 }
@@ -2573,14 +2576,15 @@ void dcn10_blank_pixel_data(
 		if (stream_res->tg->funcs->set_blank)
 			stream_res->tg->funcs->set_blank(stream_res->tg, blank);
 		if (stream_res->abm) {
-			stream_res->abm->funcs->set_pipe(stream_res->abm, stream_res->tg->inst + 1,
-					stream->link->panel_cntl->inst);
+			dc->hwss.set_pipe(pipe_ctx);
 			stream_res->abm->funcs->set_abm_level(stream_res->abm, stream->abm_level);
 		}
 	} else if (blank) {
 		dc->hwss.set_abm_immediate_disable(pipe_ctx);
-		if (stream_res->tg->funcs->set_blank)
+		if (stream_res->tg->funcs->set_blank) {
+			stream_res->tg->funcs->wait_for_state(stream_res->tg, CRTC_STATE_VBLANK);
 			stream_res->tg->funcs->set_blank(stream_res->tg, blank);
+		}
 	}
 }
 

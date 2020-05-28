@@ -26,7 +26,6 @@
 #include "amdgpu_smu.h"
 
 #define SMU11_DRIVER_IF_VERSION_INV 0xFFFFFFFF
-#define SMU11_DRIVER_IF_VERSION_VG20 0x13
 #define SMU11_DRIVER_IF_VERSION_ARCT 0x14
 #define SMU11_DRIVER_IF_VERSION_NV10 0x36
 #define SMU11_DRIVER_IF_VERSION_NV12 0x33
@@ -69,6 +68,12 @@ static const struct smu_temperature_range smu11_thermal_policy[] =
 {
 	{-273150,  99000, 99000, -273150, 99000, 99000, -273150, 99000, 99000},
 	{ 120000, 120000, 120000, 120000, 120000, 120000, 120000, 120000, 120000},
+};
+
+struct smu_11_0_msg_mapping {
+	int	valid_mapping;
+	int	map_to;
+	int	valid_in_vf;
 };
 
 struct smu_11_0_cmn2aisc_mapping {
