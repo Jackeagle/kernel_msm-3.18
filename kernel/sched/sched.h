@@ -895,7 +895,9 @@ struct rq {
 	atomic_t		nohz_flags;
 #endif /* CONFIG_NO_HZ_COMMON */
 
-	unsigned long		nr_load_updates;
+#ifdef CONFIG_SMP
+	unsigned int		ttwu_pending;
+#endif
 	u64			nr_switches;
 
 #ifdef CONFIG_UCLAMP_TASK
@@ -951,6 +953,7 @@ struct rq {
 
 	struct callback_head	*balance_callback;
 
+	unsigned char		nohz_idle_balance;
 	unsigned char		idle_balance;
 
 	unsigned long		misfit_task_load;
@@ -1018,11 +1021,6 @@ struct rq {
 	/* try_to_wake_up() stats */
 	unsigned int		ttwu_count;
 	unsigned int		ttwu_local;
-#endif
-
-#ifdef CONFIG_SMP
-	call_single_data_t	wake_csd;
-	struct llist_head	wake_list;
 #endif
 
 #ifdef CONFIG_CPU_IDLE
@@ -1368,8 +1366,6 @@ queue_balance_callback(struct rq *rq,
 	rq->balance_callback = head;
 }
 
-extern void sched_ttwu_pending(void);
-
 #define rcu_dereference_check_sched_domain(p) \
 	rcu_dereference_check((p), \
 			      lockdep_is_held(&sched_domains_mutex))
@@ -1505,11 +1501,11 @@ static inline void unregister_sched_domain_sysctl(void)
 }
 #endif
 
-#else
+extern void flush_smp_call_function_from_idle(void);
 
-static inline void sched_ttwu_pending(void) { }
-
-#endif /* CONFIG_SMP */
+#else /* !CONFIG_SMP: */
+static inline void flush_smp_call_function_from_idle(void) { }
+#endif
 
 #include "stats.h"
 #include "autogroup.h"
