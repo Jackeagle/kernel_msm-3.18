@@ -46,7 +46,6 @@
 #include "asic_reg/smuio/smuio_11_0_0_offset.h"
 #include "asic_reg/smuio/smuio_11_0_0_sh_mask.h"
 
-MODULE_FIRMWARE("amdgpu/vega20_smc.bin");
 MODULE_FIRMWARE("amdgpu/arcturus_smc.bin");
 MODULE_FIRMWARE("amdgpu/navi10_smc.bin");
 MODULE_FIRMWARE("amdgpu/navi14_smc.bin");
@@ -101,7 +100,7 @@ smu_v11_0_send_msg_with_param(struct smu_context *smu,
 
 	index = smu_msg_get_index(smu, msg);
 	if (index < 0)
-		return index;
+		return index == -EACCES ? 0 : index;
 
 	mutex_lock(&smu->message_lock);
 	ret = smu_v11_0_wait_for_response(smu);
@@ -148,9 +147,6 @@ int smu_v11_0_init_microcode(struct smu_context *smu)
 	struct amdgpu_firmware_info *ucode = NULL;
 
 	switch (adev->asic_type) {
-	case CHIP_VEGA20:
-		chip_name = "vega20";
-		break;
 	case CHIP_ARCTURUS:
 		chip_name = "arcturus";
 		break;
@@ -270,9 +266,6 @@ int smu_v11_0_check_fw_version(struct smu_context *smu)
 	smu_debug = (smu_version >> 0) & 0xff;
 
 	switch (smu->adev->asic_type) {
-	case CHIP_VEGA20:
-		smu->smc_driver_if_version = SMU11_DRIVER_IF_VERSION_VG20;
-		break;
 	case CHIP_ARCTURUS:
 		smu->smc_driver_if_version = SMU11_DRIVER_IF_VERSION_ARCT;
 		break;
@@ -775,9 +768,6 @@ int smu_v11_0_set_deep_sleep_dcefclk(struct smu_context *smu, uint32_t clk)
 {
 	int ret;
 
-	if (amdgpu_sriov_vf(smu->adev))
-		return 0;
-
 	ret = smu_send_smc_msg_with_param(smu,
 					  SMU_MSG_SetMinDeepSleepDcefclk, clk, NULL);
 	if (ret)
@@ -821,9 +811,6 @@ int smu_v11_0_set_tool_table_location(struct smu_context *smu)
 	int ret = 0;
 	struct smu_table *tool_table = &smu->smu_table.tables[SMU_TABLE_PMSTATUSLOG];
 
-	if (amdgpu_sriov_vf(smu->adev))
-		return 0;
-
 	if (tool_table->mc_address) {
 		ret = smu_send_smc_msg_with_param(smu,
 				SMU_MSG_SetToolsDramAddrHigh,
@@ -843,9 +830,6 @@ int smu_v11_0_init_display_count(struct smu_context *smu, uint32_t count)
 {
 	int ret = 0;
 
-	if (amdgpu_sriov_vf(smu->adev))
-		return 0;
-
 	if (!smu->pm_enabled)
 		return ret;
 
@@ -859,9 +843,6 @@ int smu_v11_0_set_allowed_mask(struct smu_context *smu)
 	struct smu_feature *feature = &smu->smu_feature;
 	int ret = 0;
 	uint32_t feature_mask[2];
-
-	if (amdgpu_sriov_vf(smu->adev))
-		return 0;
 
 	mutex_lock(&feature->mutex);
 	if (bitmap_empty(feature->allowed, SMU_FEATURE_MAX) || feature->feature_num < 64)
@@ -890,9 +871,6 @@ int smu_v11_0_get_enabled_mask(struct smu_context *smu,
 	uint32_t feature_mask_high = 0, feature_mask_low = 0;
 	struct smu_feature *feature = &smu->smu_feature;
 	int ret = 0;
-
-	if (amdgpu_sriov_vf(smu->adev) && !amdgpu_sriov_is_pp_one_vf(smu->adev))
-		return 0;
 
 	if (!feature_mask || num < 2)
 		return -EINVAL;
@@ -948,9 +926,6 @@ int smu_v11_0_system_features_control(struct smu_context *smu,
 int smu_v11_0_notify_display_change(struct smu_context *smu)
 {
 	int ret = 0;
-
-	if (amdgpu_sriov_vf(smu->adev))
-		return 0;
 
 	if (!smu->pm_enabled)
 		return ret;
@@ -1113,9 +1088,6 @@ int smu_v11_0_set_power_limit(struct smu_context *smu, uint32_t n)
 {
 	int ret = 0;
 	uint32_t max_power_limit;
-
-	if (amdgpu_sriov_vf(smu->adev))
-		return 0;
 
 	max_power_limit = smu_v11_0_get_max_power_limit(smu);
 
@@ -1385,8 +1357,6 @@ int smu_v11_0_gfx_off_control(struct smu_context *smu, bool enable)
 	struct amdgpu_device *adev = smu->adev;
 
 	switch (adev->asic_type) {
-	case CHIP_VEGA20:
-		break;
 	case CHIP_NAVI10:
 	case CHIP_NAVI14:
 	case CHIP_NAVI12:
@@ -1874,9 +1844,6 @@ int smu_v11_0_override_pcie_parameters(struct smu_context *smu)
 	struct amdgpu_device *adev = smu->adev;
 	uint32_t pcie_gen = 0, pcie_width = 0;
 	int ret;
-
-	if (amdgpu_sriov_vf(smu->adev))
-		return 0;
 
 	if (adev->pm.pcie_gen_mask & CAIL_PCIE_LINK_SPEED_SUPPORT_GEN4)
 		pcie_gen = 3;
