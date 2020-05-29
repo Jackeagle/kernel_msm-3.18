@@ -66,8 +66,17 @@ properties:
     items:
       - description: Must be 19.2MHz (19200000).
       - description: Must be >= 60 MHz in HS mode, >= 125 MHz in SS mode.
+
   resets:
     maxItems: 1
+
+  interconnects:
+    maxItems: 2
+
+  interconnect-names:
+    items:
+      - const: usb-ddr
+      - const: apps-usb
 
   interrupts:
     items:
