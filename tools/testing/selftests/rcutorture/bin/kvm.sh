@@ -73,6 +73,10 @@ usage () {
 while test $# -gt 0
 do
 	case "$1" in
+	--allcpus)
+		cpus=$TORTURE_ALLOTED_CPUS
+		max_cpus=$TORTURE_ALLOTED_CPUS
+		;;
 	--bootargs|--bootarg)
 		checkarg --bootargs "(list of kernel boot arguments)" "$#" "$2" '.*' '^--'
 		TORTURE_BOOTARGS="$2"
@@ -180,13 +184,14 @@ do
 		shift
 		;;
 	--torture)
-		checkarg --torture "(suite name)" "$#" "$2" '^\(lock\|rcu\|rcuperf\)$' '^--'
+		checkarg --torture "(suite name)" "$#" "$2" '^\(lock\|rcu\|rcuperf\|refperf\)$' '^--'
 		TORTURE_SUITE=$2
 		shift
-		if test "$TORTURE_SUITE" = rcuperf
+		if test "$TORTURE_SUITE" = rcuperf || test "$TORTURE_SUITE" = refperf
 		then
-			# If you really want jitter for rcuperf, specify
-			# it after specifying rcuperf.  (But why?)
+			# If you really want jitter for refperf or
+			# rcuperf, specify it after specifying the rcuperf
+			# or the refperf.  (But why jitter in these cases?)
 			jitter=0
 		fi
 		;;
