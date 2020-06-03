@@ -44,7 +44,7 @@ $(obj)/%.o: $(obj)/%.gz
 	$(LD) -r -o $@ -b binary $<
 
 $(obj)/%.gz: $(obj)/%.bin
-	gzip -cf -9 $< > $@
+	$(_GZIP) -cf -9 $< > $@
 
 $(obj)/kImage.bin: $(KERNEL_IMAGE)
 	$(OBJCOPY) -O binary -S $^ $@
