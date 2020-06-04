@@ -335,12 +335,12 @@ static void walk_pagetables(struct pg_state *st)
 	for (i = pgd_index(addr); i < PTRS_PER_PGD; i++, pgd++, addr += PGDIR_SIZE) {
 		p4d_t *p4d = p4d_offset(pgd, 0);
 
-		if (pgd_none(*pgd) || pgd_is_leaf(*pgd))
+		if (p4d_none(*p4d) || p4d_is_leaf(*p4d))
 			note_page(st, addr, 1, p4d_val(*p4d), PGDIR_SIZE);
 		else if (is_hugepd(__hugepd(p4d_val(*p4d))))
-			walk_hugepd(st, (hugepd_t *)pgd, addr, PGDIR_SHIFT, 1);
+			walk_hugepd(st, (hugepd_t *)p4d, addr, PGDIR_SHIFT, 1);
 		else
-			/* pgd exists */
+			/* p4d exists */
 			walk_pud(st, p4d, addr);
 	}
 }
