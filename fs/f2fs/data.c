@@ -514,26 +514,43 @@ void f2fs_submit_bio(struct f2fs_sb_info *sbi,
 	__submit_bio(sbi, bio, type);
 }
 
-static void __attach_data_io_flag(struct f2fs_io_info *fio)
+static void __attach_io_flag(struct f2fs_io_info *fio)
 {
 	struct f2fs_sb_info *sbi = fio->sbi;
 	unsigned int temp_mask = (1 << NR_TEMP_TYPE) - 1;
-	unsigned int fua_flag = sbi->data_io_flag & temp_mask;
-	unsigned int meta_flag = (sbi->data_io_flag >> NR_TEMP_TYPE) &
-								temp_mask;
+
 	/*
 	 * data io flag bits per temp:
 	 *      REQ_META     |      REQ_FUA      |
 	 *    5 |    4 |   3 |    2 |    1 |   0 |
 	 * Cold | Warm | Hot | Cold | Warm | Hot |
 	 */
-	if (fio->type != DATA)
-		return;
+	if (fio->type == DATA) {
+		unsigned int fua_flag = sbi->data_io_flag & temp_mask;
+		unsigned int meta_flag = (sbi->data_io_flag >> NR_TEMP_TYPE) &
+								temp_mask;
 
-	if ((1 << fio->temp) & meta_flag)
-		fio->op_flags |= REQ_META;
-	if ((1 << fio->temp) & fua_flag)
-		fio->op_flags |= REQ_FUA;
+		if ((1 << fio->temp) & meta_flag)
+			fio->op_flags |= REQ_META;
+		if ((1 << fio->temp) & fua_flag)
+			fio->op_flags |= REQ_FUA;
+	}
+	/*
+	 * node io flag bits per temp:
+	 *      REQ_META     |      REQ_FUA      |
+	 *    5 |    4 |   3 |    2 |    1 |   0 |
+	 * Cold | Warm | Hot | Cold | Warm | Hot |
+	 */
+	if (fio->type == NODE) {
+		unsigned int fua_flag = sbi->node_io_flag & temp_mask;
+		unsigned int meta_flag = (sbi->node_io_flag >> NR_TEMP_TYPE) &
+								temp_mask;
+
+		if ((1 << fio->temp) & meta_flag)
+			fio->op_flags |= REQ_META;
+		if ((1 << fio->temp) & fua_flag)
+			fio->op_flags |= REQ_FUA;
+	}
 }
 
 static void __submit_merged_bio(struct f2fs_bio_info *io)
@@ -543,7 +560,7 @@ static void __submit_merged_bio(struct f2fs_bio_info *io)
 	if (!io->bio)
 		return;
 
-	__attach_data_io_flag(fio);
+	__attach_io_flag(fio);
 	bio_set_op_attrs(io->bio, fio->op, fio->op_flags);
 
 	if (is_read_io(fio->op))
