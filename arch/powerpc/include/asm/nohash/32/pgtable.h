@@ -341,6 +341,10 @@ static inline int pte_young(pte_t pte)
 	pfn_to_page((__pa(pmd_val(pmd)) >> PAGE_SHIFT))
 #endif
 
+#define pte_offset_kernel(dir, addr)	\
+	(pmd_bad(*(dir)) ? NULL : (pte_t *)pmd_page_vaddr(*(dir)) + \
+				  pte_index(addr))
+
 /*
  * Encode and decode a swap entry.
  * Note that the bits we use in a PTE for representing a swap entry
