@@ -158,6 +158,8 @@ static int qcom_cpufreq_hw_read_lut(struct device *cpu_dev,
 	} else if (ret != -ENODEV) {
 		dev_err(cpu_dev, "Invalid opp table in device tree\n");
 		return ret;
+	} else {
+		policy->fast_switch_possible = true;
 	}
 
 	for (i = 0; i < LUT_MAX_ENTRIES; i++) {
@@ -306,8 +308,6 @@ static int qcom_cpufreq_hw_cpu_init(struct cpufreq_policy *policy)
 	}
 
 	dev_pm_opp_of_register_em(policy->cpus);
-
-	policy->fast_switch_possible = true;
 
 	return 0;
 error:
