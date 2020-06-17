@@ -13,6 +13,7 @@
  * Mode 2 allows user-defined system call filters in the form
  *        of Berkeley Packet Filters/Linux Socket Filters.
  */
+#define pr_fmt(fmt) "seccomp: " fmt
 
 #include <linux/refcount.h>
 #include <linux/audit.h>
@@ -41,6 +42,7 @@
 #include <linux/tracehook.h>
 #include <linux/uaccess.h>
 #include <linux/anon_inodes.h>
+#include <linux/lockdep.h>
 
 enum notify_state {
 	SECCOMP_NOTIFY_INIT,
@@ -94,27 +96,35 @@ struct seccomp_knotif {
  *           filter->notify_lock.
  * @next_id: The id of the next request.
  * @notifications: A list of struct seccomp_knotif elements.
- * @wqh: A wait queue for poll.
  */
 struct notification {
 	struct semaphore request;
 	u64 next_id;
 	struct list_head notifications;
-	wait_queue_head_t wqh;
 };
 
 /**
  * struct seccomp_filter - container for seccomp BPF programs
  *
- * @usage: reference count to manage the object lifetime.
- *         get/put helpers should be used when accessing an instance
- *         outside of a lifetime-guarded section.  In general, this
- *         is only needed for handling filters shared across tasks.
+ * @refs: Reference count to manage the object lifetime.
+ *	  A filter's reference count is incremented for each directly
+ *	  attached task, once for the dependent filter, and if
+ *	  requested for the user notifier. When @refs reaches zero,
+ *	  the filter can be freed.
+ * @users: A filter's @users count is incremented for each directly
+ *         attached task (filter installation, fork(), thread_sync),
+ *	   and once for the dependent filter (tracked in filter->prev).
+ *	   When it reaches zero it indicates that no direct or indirect
+ *	   users of that filter exist. No new tasks can get associated with
+ *	   this filter after reaching 0. The @users count is always smaller
+ *	   or equal to @refs. Hence, reaching 0 for @users does not mean
+ *	   the filter can be freed.
  * @log: true if all actions except for SECCOMP_RET_ALLOW should be logged
  * @prev: points to a previously installed, or inherited, filter
  * @prog: the BPF program to evaluate
  * @notif: the struct that holds all notification related information
  * @notify_lock: A lock for all notification-related accesses.
+ * @wqh: A wait queue for poll if a notifier is in use.
  *
  * seccomp_filter objects are organized in a tree linked via the @prev
  * pointer.  For any task, it appears to be a singly-linked list starting
@@ -124,15 +134,17 @@ struct notification {
  * how namespaces work.
  *
  * seccomp_filter objects should never be modified after being attached
- * to a task_struct (other than @usage).
+ * to a task_struct (other than @refs).
  */
 struct seccomp_filter {
-	refcount_t usage;
+	refcount_t refs;
+	refcount_t users;
 	bool log;
 	struct seccomp_filter *prev;
 	struct bpf_prog *prog;
 	struct notification *notif;
 	struct mutex notify_lock;
+	wait_queue_head_t wqh;
 };
 
 /* Limit any path through the tree to 256KB worth of instructions. */
@@ -366,6 +378,59 @@ static inline pid_t seccomp_can_sync_threads(void)
 	return 0;
 }
 
+static inline void seccomp_filter_free(struct seccomp_filter *filter)
+{
+	if (filter) {
+		bpf_prog_destroy(filter->prog);
+		kfree(filter);
+	}
+}
+
+static void __seccomp_filter_orphan(struct seccomp_filter *orig)
+{
+	while (orig && refcount_dec_and_test(&orig->users)) {
+		if (waitqueue_active(&orig->wqh))
+			wake_up_poll(&orig->wqh, EPOLLHUP);
+		orig = orig->prev;
+	}
+}
+
+static void __put_seccomp_filter(struct seccomp_filter *orig)
+{
+	/* Clean up single-reference branches iteratively. */
+	while (orig && refcount_dec_and_test(&orig->refs)) {
+		struct seccomp_filter *freeme = orig;
+		orig = orig->prev;
+		seccomp_filter_free(freeme);
+	}
+}
+
+static void __seccomp_filter_release(struct seccomp_filter *orig)
+{
+	/* Notify about any unused filters in the task's former filter tree. */
+	__seccomp_filter_orphan(orig);
+	/* Finally drop all references to the task's former tree. */
+	__put_seccomp_filter(orig);
+}
+
+/**
+ * seccomp_filter_release - Detach the task from its filter tree,
+ *			    drop its reference count, and notify
+ *			    about unused filters
+ *
+ * This function should only be called when the task is exiting as
+ * it detaches it from its filter tree. As such, READ_ONCE() and
+ * barriers are not needed here, as would normally be needed.
+ */
+void seccomp_filter_release(struct task_struct *tsk)
+{
+	struct seccomp_filter *orig = tsk->seccomp.filter;
+
+	/* Detach task from its filter tree. */
+	tsk->seccomp.filter = NULL;
+	__seccomp_filter_release(orig);
+}
+
 /**
  * seccomp_sync_threads: sets all threads to use current's filter
  *
@@ -390,14 +455,19 @@ static inline void seccomp_sync_threads(unsigned long flags)
 
 		/* Get a task reference for the new leaf node. */
 		get_seccomp_filter(caller);
+
 		/*
 		 * Drop the task reference to the shared ancestor since
 		 * current's path will hold a reference.  (This also
 		 * allows a put before the assignment.)
 		 */
-		put_seccomp_filter(thread);
+		__seccomp_filter_release(thread->seccomp.filter);
+
+		/* Make our new filter tree visible. */
 		smp_store_release(&thread->seccomp.filter,
 				  caller->seccomp.filter);
+		atomic_set(&thread->seccomp.filter_count,
+			   atomic_read(&thread->seccomp.filter_count));
 
 		/*
 		 * Don't let an unprivileged task work around
@@ -461,7 +531,9 @@ static struct seccomp_filter *seccomp_prepare_filter(struct sock_fprog *fprog)
 		return ERR_PTR(ret);
 	}
 
-	refcount_set(&sfilter->usage, 1);
+	refcount_set(&sfilter->refs, 1);
+	refcount_set(&sfilter->users, 1);
+	init_waitqueue_head(&sfilter->wqh);
 
 	return sfilter;
 }
@@ -544,6 +616,7 @@ static long seccomp_attach_filter(unsigned int flags,
 	 */
 	filter->prev = current->seccomp.filter;
 	current->seccomp.filter = filter;
+	atomic_inc(&current->seccomp.filter_count);
 
 	/* Now that the new filter is in place, synchronize to all threads. */
 	if (flags & SECCOMP_FILTER_FLAG_TSYNC)
@@ -554,7 +627,7 @@ static long seccomp_attach_filter(unsigned int flags,
 
 static void __get_seccomp_filter(struct seccomp_filter *filter)
 {
-	refcount_inc(&filter->usage);
+	refcount_inc(&filter->refs);
 }
 
 /* get_seccomp_filter - increments the reference count of the filter on @tsk */
@@ -564,30 +637,7 @@ void get_seccomp_filter(struct task_struct *tsk)
 	if (!orig)
 		return;
 	__get_seccomp_filter(orig);
-}
-
-static inline void seccomp_filter_free(struct seccomp_filter *filter)
-{
-	if (filter) {
-		bpf_prog_destroy(filter->prog);
-		kfree(filter);
-	}
-}
-
-static void __put_seccomp_filter(struct seccomp_filter *orig)
-{
-	/* Clean up single-reference branches iteratively. */
-	while (orig && refcount_dec_and_test(&orig->usage)) {
-		struct seccomp_filter *freeme = orig;
-		orig = orig->prev;
-		seccomp_filter_free(freeme);
-	}
-}
-
-/* put_seccomp_filter - decrements the ref count of tsk->seccomp.filter */
-void put_seccomp_filter(struct task_struct *tsk)
-{
-	__put_seccomp_filter(tsk->seccomp.filter);
+	refcount_inc(&orig->users);
 }
 
 static void seccomp_init_siginfo(kernel_siginfo_t *info, int syscall, int reason)
@@ -757,7 +807,7 @@ static int seccomp_do_user_notification(int this_syscall,
 	list_add(&n.list, &match->notif->notifications);
 
 	up(&match->notif->request);
-	wake_up_poll(&match->notif->wqh, EPOLLIN | EPOLLRDNORM);
+	wake_up_poll(&match->wqh, EPOLLIN | EPOLLRDNORM);
 	mutex_unlock(&match->notify_lock);
 
 	/*
@@ -1021,10 +1071,27 @@ static int seccomp_notify_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* must be called with notif_lock held */
+static inline struct seccomp_knotif *
+find_notification(struct seccomp_filter *filter, u64 id)
+{
+	struct seccomp_knotif *cur;
+
+	lockdep_assert_held(&filter->notify_lock);
+
+	list_for_each_entry(cur, &filter->notif->notifications, list) {
+		if (cur->id == id)
+			return cur;
+	}
+
+	return NULL;
+}
+
+
 static long seccomp_notify_recv(struct seccomp_filter *filter,
 				void __user *buf)
 {
-	struct seccomp_knotif *knotif = NULL, *cur;
+	struct seccomp_knotif *knotif, *cur;
 	struct seccomp_notif unotif;
 	ssize_t ret;
 
@@ -1064,7 +1131,7 @@ static long seccomp_notify_recv(struct seccomp_filter *filter,
 	unotif.data = *(knotif->data);
 
 	knotif->state = SECCOMP_NOTIFY_SENT;
-	wake_up_poll(&filter->notif->wqh, EPOLLOUT | EPOLLWRNORM);
+	wake_up_poll(&filter->wqh, EPOLLOUT | EPOLLWRNORM);
 	ret = 0;
 out:
 	mutex_unlock(&filter->notify_lock);
@@ -1078,15 +1145,8 @@ out:
 		 * may have died when we released the lock, so we need to make
 		 * sure it's still around.
 		 */
-		knotif = NULL;
 		mutex_lock(&filter->notify_lock);
-		list_for_each_entry(cur, &filter->notif->notifications, list) {
-			if (cur->id == unotif.id) {
-				knotif = cur;
-				break;
-			}
-		}
-
+		knotif = find_notification(filter, unotif.id);
 		if (knotif) {
 			knotif->state = SECCOMP_NOTIFY_INIT;
 			up(&filter->notif->request);
@@ -1101,7 +1161,7 @@ static long seccomp_notify_send(struct seccomp_filter *filter,
 				void __user *buf)
 {
 	struct seccomp_notif_resp resp = {};
-	struct seccomp_knotif *knotif = NULL, *cur;
+	struct seccomp_knotif *knotif;
 	long ret;
 
 	if (copy_from_user(&resp, buf, sizeof(resp)))
@@ -1118,13 +1178,7 @@ static long seccomp_notify_send(struct seccomp_filter *filter,
 	if (ret < 0)
 		return ret;
 
-	list_for_each_entry(cur, &filter->notif->notifications, list) {
-		if (cur->id == resp.id) {
-			knotif = cur;
-			break;
-		}
-	}
-
+	knotif = find_notification(filter, resp.id);
 	if (!knotif) {
 		ret = -ENOENT;
 		goto out;
@@ -1150,7 +1204,7 @@ out:
 static long seccomp_notify_id_valid(struct seccomp_filter *filter,
 				    void __user *buf)
 {
-	struct seccomp_knotif *knotif = NULL;
+	struct seccomp_knotif *knotif;
 	u64 id;
 	long ret;
 
@@ -1161,16 +1215,12 @@ static long seccomp_notify_id_valid(struct seccomp_filter *filter,
 	if (ret < 0)
 		return ret;
 
-	ret = -ENOENT;
-	list_for_each_entry(knotif, &filter->notif->notifications, list) {
-		if (knotif->id == id) {
-			if (knotif->state == SECCOMP_NOTIFY_SENT)
-				ret = 0;
-			goto out;
-		}
-	}
+	knotif = find_notification(filter, id);
+	if (knotif && knotif->state == SECCOMP_NOTIFY_SENT)
+		ret = 0;
+	else
+		ret = -ENOENT;
 
-out:
 	mutex_unlock(&filter->notify_lock);
 	return ret;
 }
@@ -1200,7 +1250,7 @@ static __poll_t seccomp_notify_poll(struct file *file,
 	__poll_t ret = 0;
 	struct seccomp_knotif *cur;
 
-	poll_wait(file, &filter->notif->wqh, poll_tab);
+	poll_wait(file, &filter->wqh, poll_tab);
 
 	if (mutex_lock_interruptible(&filter->notify_lock) < 0)
 		return EPOLLERR;
@@ -1215,6 +1265,9 @@ static __poll_t seccomp_notify_poll(struct file *file,
 	}
 
 	mutex_unlock(&filter->notify_lock);
+
+	if (refcount_read(&filter->users) == 0)
+		ret |= EPOLLHUP;
 
 	return ret;
 }
@@ -1244,7 +1297,6 @@ static struct file *init_listener(struct seccomp_filter *filter)
 	sema_init(&filter->notif->request, 0);
 	filter->notif->next_id = get_random_u64();
 	INIT_LIST_HEAD(&filter->notif->notifications);
-	init_waitqueue_head(&filter->notif->wqh);
 
 	ret = anon_inode_getfile("seccomp notify", &seccomp_notify_ops,
 				 filter, O_RDWR);
@@ -1822,7 +1874,7 @@ static int __init seccomp_sysctl_init(void)
 
 	hdr = register_sysctl_paths(seccomp_sysctl_path, seccomp_sysctl_table);
 	if (!hdr)
-		pr_warn("seccomp: sysctl registration failed\n");
+		pr_warn("sysctl registration failed\n");
 	else
 		kmemleak_not_leak(hdr);
 
