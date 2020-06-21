@@ -307,7 +307,7 @@ void scm_detach_fds(struct msghdr *msg, struct scm_cookie *scm)
 
 	for (i = 0; i < fdmax; i++) {
 		err = fd_install_received_user(scm->fp->fp[i], cmsg_data + i, o_flags);
-		if (err < 0)
+		if (err)
 			break;
 	}
 
