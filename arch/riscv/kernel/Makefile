@@ -52,5 +52,6 @@ obj-$(CONFIG_SMP) += cpu_ops_sbi.o
 endif
 obj-$(CONFIG_HOTPLUG_CPU)	+= cpu-hotplug.o
 obj-$(CONFIG_KGDB)		+= kgdb.o
+obj-${CONFIG_KEXEC}		+= kexec_relocate.o machine_kexec.o
 
 clean:
