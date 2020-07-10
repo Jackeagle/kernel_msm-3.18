@@ -151,6 +151,58 @@ Modifications include:
 - Addition of encoding options when required (derived from OpenMAX IL)
 - Addition of rateControlSupported (missing in OpenMAX AL)
 
+State Machine
+=============
+
+The compressed audio stream state machine is described below ::
+
+                                        +----------+
+                                        |          |
+                                        |   OPEN   |
+                                        |          |
+                                        +----------+
+                                             |
+                                             |
+                                             | compr_set_params()
+                                             |
+                                             V
+                                        +----------+
+                compr_drain_notify()    |          |
+              +------------------------>|   SETUP  |
+              |                         |          |
+              |                         +----------+
+              |                              |
+              |                              |
+              |                              | compr_write()
+              |                              |
+              |                              V
+              |                         +----------+
+              |                         |          |
+              |                         |  PREPARE |
+              |                         |          |
+              |                         +----------+
+              |                              |
+              |                              |
+              |                              | compr_start()
+              |                              |
+              |                              V
+        +----------+                    +----------+     compr_pause()      +----------+
+        |          |                    |          |----------------------->|          |
+        |  DRAIN   |<-------------------|  RUNNING |                        |  PAUSE   |
+        |          |                    |          |<-----------------------|          |
+        +----------+                    +----------+     compr_resume()     +----------+
+              |                              |
+              |                              |
+              |                              | compr_free()
+              |                              |
+              |                              V
+              |                         +----------+
+              |     compr_free()        |          |
+              +------------------------>|          |
+                                        |   STOP   |
+                                        |          |
+                                        +----------+
+
 
 Gapless Playback
 ================
@@ -199,6 +251,38 @@ Sequence flow for gapless would be:
 
 (note: order for partial_drain and write for next track can be reversed as well)
 
+Gapless Playback SM
+===================
+
+For Gapless, we move from running state to partial drain and back, along
+with setting of meta_data and signalling for next track ::
+
+
+                                        +----------+
+                compr_drain_notify()    |          |
+              +------------------------>|  RUNNING |
+              |                         |          |
+              |                         +----------+
+              |                              |
+              |                              |
+              |                              | compr_next_track()
+              |                              |
+              |                              V
+              |                         +----------+
+              |                         |          |
+              |                         |NEXT_TRACK|
+              |                         |          |
+              |                         +----------+
+              |                              |
+              |                              |
+              |                              | compr_partial_drain()
+              |                              |
+              |                              V
+              |                         +----------+
+              |                         |          |
+              +------------------------ | PARTIAL_ |
+                                        |  DRAIN   |
+                                        +----------+
 
 Not supported
 =============
