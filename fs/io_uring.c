@@ -4949,7 +4949,6 @@ static int io_poll_add(struct io_kiocb *req)
 	__poll_t mask;
 
 	INIT_HLIST_NODE(&req->hash_node);
-	INIT_LIST_HEAD(&req->list);
 	ipt.pt._qproc = io_poll_queue_proc;
 
 	mask = __io_arm_poll_handler(req, &req->poll, &ipt, poll->events,
