@@ -2569,6 +2569,25 @@ static void process_csb(struct intel_engine_cs *engine)
 		return;
 
 	/*
+	 * We will consume all events from HW, or at least pretend to.
+	 *
+	 * The sequence of events from the HW is deterministic, and derived
+	 * from our writes to the ELSP, with a smidgen of variability for
+	 * the arrival of the asynchronous requests wrt to the inflight
+	 * execution. If the HW sends an event that does not correspond with
+	 * the one we are expecting, we have to abandon all hope as we lose
+	 * all tracking of what the engine is actually executing. We will
+	 * only detect we are out of sequence with the HW when we get an
+	 * 'impossible' event because we have already drained our own
+	 * preemption/promotion queue. If this occurs, we know that we likely
+	 * lost track of execution earlier and must unwind and restart, the
+	 * simplest way is by stop processing the event queue and force the
+	 * engine to reset.
+	 */
+	execlists->csb_head = tail;
+	ENGINE_TRACE(engine, "cs-irq head=%d, tail=%d\n", head, tail);
+
+	/*
 	 * Hopefully paired with a wmb() in HW!
 	 *
 	 * We must complete the read of the write pointer before any reads
@@ -2577,8 +2596,6 @@ static void process_csb(struct intel_engine_cs *engine)
 	 * we perform the READ_ONCE(*csb_write).
 	 */
 	rmb();
-
-	ENGINE_TRACE(engine, "cs-irq head=%d, tail=%d\n", head, tail);
 	do {
 		bool promote;
 
@@ -2613,6 +2630,11 @@ static void process_csb(struct intel_engine_cs *engine)
 		if (promote) {
 			struct i915_request * const *old = execlists->active;
 
+			if (GEM_WARN_ON(!*execlists->pending)) {
+				execlists->error_interrupt |= ERROR_CSB;
+				break;
+			}
+
 			ring_set_paused(engine, 0);
 
 			/* Point active to the new ELSP; prevent overwriting */
@@ -2635,7 +2657,10 @@ static void process_csb(struct intel_engine_cs *engine)
 
 			WRITE_ONCE(execlists->pending[0], NULL);
 		} else {
-			GEM_BUG_ON(!*execlists->active);
+			if (GEM_WARN_ON(!*execlists->active)) {
+				execlists->error_interrupt |= ERROR_CSB;
+				break;
+			}
 
 			/* port0 completed, advanced to port1 */
 			trace_ports(execlists, "completed", execlists->active);
@@ -2686,7 +2711,6 @@ static void process_csb(struct intel_engine_cs *engine)
 		}
 	} while (head != tail);
 
-	execlists->csb_head = head;
 	set_timeslice(engine);
 
 	/*
@@ -3117,9 +3141,18 @@ static void execlists_submission_tasklet(unsigned long data)
 	process_csb(engine);
 
 	if (unlikely(READ_ONCE(engine->execlists.error_interrupt))) {
+		const char *msg;
+
+		/* Generate the error message in priority wrt to the user! */
+		if (engine->execlists.error_interrupt & GENMASK(15, 0))
+			msg = "CS error"; /* thrown by a user payload */
+		else if (engine->execlists.error_interrupt & ERROR_CSB)
+			msg = "invalid CSB event";
+		else
+			msg = "internal error";
+
 		engine->execlists.error_interrupt = 0;
-		if (ENGINE_READ(engine, RING_ESR)) /* confirm the error */
-			execlists_reset(engine, "CS error");
+		execlists_reset(engine, msg);
 	}
 
 	if (!READ_ONCE(engine->execlists.pending[0]) || timeout) {
@@ -3422,7 +3455,7 @@ __execlists_update_reg_state(const struct intel_context *ce,
 	/* RPCS */
 	if (engine->class == RENDER_CLASS) {
 		regs[CTX_R_PWR_CLK_STATE] =
-			intel_sseu_make_rpcs(engine->i915, &ce->sseu);
+			intel_sseu_make_rpcs(engine->gt, &ce->sseu);
 
 		i915_oa_init_reg_state(ce, engine);
 	}
@@ -3880,7 +3913,6 @@ static int intel_init_workaround_bb(struct intel_engine_cs *engine)
 	struct i915_wa_ctx_bb *wa_bb[2] = { &wa_ctx->indirect_ctx,
 					    &wa_ctx->per_ctx };
 	wa_bb_func_t wa_bb_fn[2];
-	struct page *page;
 	void *batch, *batch_ptr;
 	unsigned int i;
 	int ret;
@@ -3916,14 +3948,14 @@ static int intel_init_workaround_bb(struct intel_engine_cs *engine)
 		return ret;
 	}
 
-	page = i915_gem_object_get_dirty_page(wa_ctx->vma->obj, 0);
-	batch = batch_ptr = kmap_atomic(page);
+	batch = i915_gem_object_pin_map(wa_ctx->vma->obj, I915_MAP_WB);
 
 	/*
 	 * Emit the two workaround batch buffers, recording the offset from the
 	 * start of the workaround batch buffer object for each and their
 	 * respective sizes.
 	 */
+	batch_ptr = batch;
 	for (i = 0; i < ARRAY_SIZE(wa_bb_fn); i++) {
 		wa_bb[i]->offset = batch_ptr - batch;
 		if (GEM_DEBUG_WARN_ON(!IS_ALIGNED(wa_bb[i]->offset,
@@ -3935,10 +3967,10 @@ static int intel_init_workaround_bb(struct intel_engine_cs *engine)
 			batch_ptr = wa_bb_fn[i](engine, batch_ptr);
 		wa_bb[i]->size = batch_ptr - (batch + wa_bb[i]->offset);
 	}
+	GEM_BUG_ON(batch_ptr - batch > CTX_WA_BB_OBJ_SIZE);
 
-	BUG_ON(batch_ptr - batch > CTX_WA_BB_OBJ_SIZE);
-
-	kunmap_atomic(batch);
+	__i915_gem_object_flush_map(wa_ctx->vma->obj, 0, batch_ptr - batch);
+	__i915_gem_object_release_map(wa_ctx->vma->obj);
 	if (ret)
 		lrc_destroy_wa_ctx(engine);
 
