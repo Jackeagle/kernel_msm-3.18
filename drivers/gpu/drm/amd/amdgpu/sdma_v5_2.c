@@ -417,7 +417,6 @@ static void sdma_v5_2_ring_emit_hdp_flush(struct amdgpu_ring *ring)
 static void sdma_v5_2_ring_emit_fence(struct amdgpu_ring *ring, u64 addr, u64 seq,
 				      unsigned flags)
 {
-	struct amdgpu_device *adev = ring->adev;
 	bool write64bit = flags & AMDGPU_FENCE_FLAG_64BIT;
 	/* write the fence */
 	amdgpu_ring_write(ring, SDMA_PKT_HEADER_OP(SDMA_OP_FENCE) |
@@ -440,8 +439,7 @@ static void sdma_v5_2_ring_emit_fence(struct amdgpu_ring *ring, u64 addr, u64 se
 		amdgpu_ring_write(ring, upper_32_bits(seq));
 	}
 
-	/* Interrupt not work fine on GFX10.1 model yet. Use fallback instead */
-	if ((flags & AMDGPU_FENCE_FLAG_INT) && adev->pdev->device != 0x50) {
+	if (flags & AMDGPU_FENCE_FLAG_INT) {
 		/* generate an interrupt */
 		amdgpu_ring_write(ring, SDMA_PKT_HEADER_OP(SDMA_OP_TRAP));
 		amdgpu_ring_write(ring, SDMA_PKT_TRAP_INT_CONTEXT_INT_CONTEXT(0));
@@ -1572,7 +1570,7 @@ static void sdma_v5_2_get_clockgating_state(void *handle, u32 *flags)
 		*flags = 0;
 
 	/* AMD_CG_SUPPORT_SDMA_LS */
-	data = RREG32(sdma_v5_2_get_reg_offset(adev, 0, mmSDMA0_POWER_CNTL));
+	data = RREG32_KIQ(sdma_v5_2_get_reg_offset(adev, 0, mmSDMA0_POWER_CNTL));
 	if (data & SDMA0_POWER_CNTL__MEM_POWER_OVERRIDE_MASK)
 		*flags |= AMD_CG_SUPPORT_SDMA_LS;
 }

@@ -978,6 +978,9 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
 	/* Update the actual used number of crtc */
 	adev->mode_info.num_crtc = adev->dm.display_indexes_num;
 
+	/* create fake encoders for MST */
+	dm_dp_create_fake_mst_encoders(adev);
+
 	/* TODO: Add_display_info? */
 
 	/* TODO use dynamic cursor width */
@@ -1001,6 +1004,12 @@ error:
 
 static void amdgpu_dm_fini(struct amdgpu_device *adev)
 {
+	int i;
+
+	for (i = 0; i < adev->dm.display_indexes_num; i++) {
+		drm_encoder_cleanup(&adev->dm.mst_encoders[i].base);
+	}
+
 	amdgpu_dm_audio_fini(adev);
 
 	amdgpu_dm_destroy_drm_device(&adev->dm);
@@ -4556,24 +4565,20 @@ create_stream_for_sink(struct amdgpu_dm_connector *aconnector,
 
 	if (stream->signal == SIGNAL_TYPE_HDMI_TYPE_A)
 		mod_build_hf_vsif_infopacket(stream, &stream->vsp_infopacket, false, false);
-	if (stream->link->psr_settings.psr_feature_enabled)	{
-		struct dc  *core_dc = stream->link->ctx->dc;
-
-		if (dc_is_dmcu_initialized(core_dc)) {
-			//
-			// should decide stream support vsc sdp colorimetry capability
-			// before building vsc info packet
-			//
-			stream->use_vsc_sdp_for_colorimetry = false;
-			if (aconnector->dc_sink->sink_signal == SIGNAL_TYPE_DISPLAY_PORT_MST) {
-				stream->use_vsc_sdp_for_colorimetry =
-					aconnector->dc_sink->is_vsc_sdp_colorimetry_supported;
-			} else {
-				if (stream->link->dpcd_caps.dprx_feature.bits.VSC_SDP_COLORIMETRY_SUPPORTED)
-					stream->use_vsc_sdp_for_colorimetry = true;
-			}
-			mod_build_vsc_infopacket(stream, &stream->vsc_infopacket);
+	if (stream->link->psr_settings.psr_feature_enabled) {
+		//
+		// should decide stream support vsc sdp colorimetry capability
+		// before building vsc info packet
+		//
+		stream->use_vsc_sdp_for_colorimetry = false;
+		if (aconnector->dc_sink->sink_signal == SIGNAL_TYPE_DISPLAY_PORT_MST) {
+			stream->use_vsc_sdp_for_colorimetry =
+				aconnector->dc_sink->is_vsc_sdp_colorimetry_supported;
+		} else {
+			if (stream->link->dpcd_caps.dprx_feature.bits.VSC_SDP_COLORIMETRY_SUPPORTED)
+				stream->use_vsc_sdp_for_colorimetry = true;
 		}
+		mod_build_vsc_infopacket(stream, &stream->vsc_infopacket);
 	}
 finish:
 	dc_sink_release(sink);
@@ -5866,6 +5871,7 @@ static int amdgpu_dm_plane_init(struct amdgpu_display_manager *dm,
 	uint32_t formats[32];
 	int num_formats;
 	int res = -EPERM;
+	unsigned int supported_rotations;
 
 	num_formats = get_plane_formats(plane, plane_cap, formats,
 					ARRAY_SIZE(formats));
@@ -5899,6 +5905,13 @@ static int amdgpu_dm_plane_init(struct amdgpu_display_manager *dm,
 			BIT(DRM_COLOR_YCBCR_FULL_RANGE),
 			DRM_COLOR_YCBCR_BT709, DRM_COLOR_YCBCR_LIMITED_RANGE);
 	}
+
+	supported_rotations =
+		DRM_MODE_ROTATE_0 | DRM_MODE_ROTATE_90 |
+		DRM_MODE_ROTATE_180 | DRM_MODE_ROTATE_270;
+
+	drm_plane_create_rotation_property(plane, DRM_MODE_ROTATE_0,
+					   supported_rotations);
 
 	drm_plane_helper_add(plane, &dm_plane_helper_funcs);
 
