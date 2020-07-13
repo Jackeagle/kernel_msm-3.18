@@ -88,11 +88,19 @@ void blk_abort_request(struct request *req)
 }
 EXPORT_SYMBOL_GPL(blk_abort_request);
 
+/*
+ * Just a rough estimate, we don't care about specific values for timeouts.
+ */
+static inline unsigned long blk_round_jiffies(unsigned long j)
+{
+	return (j + CONFIG_HZ_ROUGH_MASK) + 1;
+}
+
 unsigned long blk_rq_timeout(unsigned long timeout)
 {
 	unsigned long maxt;
 
-	maxt = round_jiffies_up(jiffies + BLK_MAX_TIMEOUT);
+	maxt = blk_round_jiffies(jiffies + BLK_MAX_TIMEOUT);
 	if (time_after(timeout, maxt))
 		timeout = maxt;
 
@@ -129,7 +137,7 @@ void blk_add_timer(struct request *req)
 	 * than an existing one, modify the timer. Round up to next nearest
 	 * second.
 	 */
-	expiry = blk_rq_timeout(round_jiffies_up(expiry));
+	expiry = blk_rq_timeout(blk_round_jiffies(expiry));
 
 	if (!timer_pending(&q->timeout) ||
 	    time_before(expiry, q->timeout.expires)) {

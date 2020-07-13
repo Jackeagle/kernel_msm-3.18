@@ -55,5 +55,11 @@ config HZ
 	default 300 if HZ_300
 	default 1000 if HZ_1000
 
+config HZ_ROUGH_MASK
+	int
+	default 127 if HZ_100
+	default 255 if HZ_250 || HZ_300
+	default 1023 if HZ_1000
+
 config SCHED_HRTICK
 	def_bool HIGH_RES_TIMERS
