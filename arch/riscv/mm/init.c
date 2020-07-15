@@ -546,7 +546,6 @@ void __init resource_init(void)
 void __init paging_init(void)
 {
 	setup_vm_final();
-	memblocks_present();
 	sparse_init();
 	setup_zero_page();
 	zone_sizes_init();
