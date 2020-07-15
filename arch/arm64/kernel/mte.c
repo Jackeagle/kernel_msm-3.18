@@ -227,7 +227,7 @@ static int __access_remote_tags(struct task_struct *tsk, struct mm_struct *mm,
 		void *maddr;
 		struct page *page = NULL;
 
-		ret = get_user_pages_remote(tsk, mm, addr, 1, gup_flags,
+		ret = get_user_pages_remote(mm, addr, 1, gup_flags,
 					    &page, &vma, NULL);
 		if (ret <= 0)
 			break;
