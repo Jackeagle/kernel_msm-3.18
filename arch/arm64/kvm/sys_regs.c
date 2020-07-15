@@ -2158,7 +2158,7 @@ static const struct sys_reg_desc *find_reg(const struct sys_reg_params *params,
 	return bsearch((void *)pval, table, num, sizeof(table[0]), match_sys_reg);
 }
 
-int kvm_handle_cp14_load_store(struct kvm_vcpu *vcpu, struct kvm_run *run)
+int kvm_handle_cp14_load_store(struct kvm_vcpu *vcpu)
 {
 	kvm_inject_undefined(vcpu);
 	return 1;
@@ -2337,7 +2337,7 @@ static int kvm_handle_cp_32(struct kvm_vcpu *vcpu,
 	return 1;
 }
 
-int kvm_handle_cp15_64(struct kvm_vcpu *vcpu, struct kvm_run *run)
+int kvm_handle_cp15_64(struct kvm_vcpu *vcpu)
 {
 	const struct sys_reg_desc *target_specific;
 	size_t num;
@@ -2348,7 +2348,7 @@ int kvm_handle_cp15_64(struct kvm_vcpu *vcpu, struct kvm_run *run)
 				target_specific, num);
 }
 
-int kvm_handle_cp15_32(struct kvm_vcpu *vcpu, struct kvm_run *run)
+int kvm_handle_cp15_32(struct kvm_vcpu *vcpu)
 {
 	const struct sys_reg_desc *target_specific;
 	size_t num;
@@ -2359,14 +2359,14 @@ int kvm_handle_cp15_32(struct kvm_vcpu *vcpu, struct kvm_run *run)
 				target_specific, num);
 }
 
-int kvm_handle_cp14_64(struct kvm_vcpu *vcpu, struct kvm_run *run)
+int kvm_handle_cp14_64(struct kvm_vcpu *vcpu)
 {
 	return kvm_handle_cp_64(vcpu,
 				cp14_64_regs, ARRAY_SIZE(cp14_64_regs),
 				NULL, 0);
 }
 
-int kvm_handle_cp14_32(struct kvm_vcpu *vcpu, struct kvm_run *run)
+int kvm_handle_cp14_32(struct kvm_vcpu *vcpu)
 {
 	return kvm_handle_cp_32(vcpu,
 				cp14_regs, ARRAY_SIZE(cp14_regs),
@@ -2418,9 +2418,8 @@ static void reset_sys_reg_descs(struct kvm_vcpu *vcpu,
 /**
  * kvm_handle_sys_reg -- handles a mrs/msr trap on a guest sys_reg access
  * @vcpu: The VCPU pointer
- * @run:  The kvm_run struct
  */
-int kvm_handle_sys_reg(struct kvm_vcpu *vcpu, struct kvm_run *run)
+int kvm_handle_sys_reg(struct kvm_vcpu *vcpu)
 {
 	struct sys_reg_params params;
 	unsigned long esr = kvm_vcpu_get_hsr(vcpu);
