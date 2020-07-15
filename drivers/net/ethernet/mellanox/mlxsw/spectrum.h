@@ -120,6 +120,7 @@ struct mlxsw_sp_kvdl;
 struct mlxsw_sp_nve;
 struct mlxsw_sp_kvdl_ops;
 struct mlxsw_sp_mr_tcam_ops;
+struct mlxsw_sp_acl_rulei_ops;
 struct mlxsw_sp_acl_tcam_ops;
 struct mlxsw_sp_nve_ops;
 struct mlxsw_sp_sb_vals;
@@ -164,6 +165,7 @@ struct mlxsw_sp {
 	const struct mlxsw_afa_ops *afa_ops;
 	const struct mlxsw_afk_ops *afk_ops;
 	const struct mlxsw_sp_mr_tcam_ops *mr_tcam_ops;
+	const struct mlxsw_sp_acl_rulei_ops *acl_rulei_ops;
 	const struct mlxsw_sp_acl_tcam_ops *acl_tcam_ops;
 	const struct mlxsw_sp_nve_ops **nve_ops_arr;
 	const struct mlxsw_sp_rif_ops **rif_ops_arr;
@@ -174,6 +176,39 @@ struct mlxsw_sp {
 	const struct mlxsw_listener *listeners;
 	size_t listeners_count;
 	u32 lowest_shaper_bs;
+};
+
+struct mlxsw_sp_ptp_ops {
+	struct mlxsw_sp_ptp_clock *
+		(*clock_init)(struct mlxsw_sp *mlxsw_sp, struct device *dev);
+	void (*clock_fini)(struct mlxsw_sp_ptp_clock *clock);
+
+	struct mlxsw_sp_ptp_state *(*init)(struct mlxsw_sp *mlxsw_sp);
+	void (*fini)(struct mlxsw_sp_ptp_state *ptp_state);
+
+	/* Notify a driver that a packet that might be PTP was received. Driver
+	 * is responsible for freeing the passed-in SKB.
+	 */
+	void (*receive)(struct mlxsw_sp *mlxsw_sp, struct sk_buff *skb,
+			u8 local_port);
+
+	/* Notify a driver that a timestamped packet was transmitted. Driver
+	 * is responsible for freeing the passed-in SKB.
+	 */
+	void (*transmitted)(struct mlxsw_sp *mlxsw_sp, struct sk_buff *skb,
+			    u8 local_port);
+
+	int (*hwtstamp_get)(struct mlxsw_sp_port *mlxsw_sp_port,
+			    struct hwtstamp_config *config);
+	int (*hwtstamp_set)(struct mlxsw_sp_port *mlxsw_sp_port,
+			    struct hwtstamp_config *config);
+	void (*shaper_work)(struct work_struct *work);
+	int (*get_ts_info)(struct mlxsw_sp *mlxsw_sp,
+			   struct ethtool_ts_info *info);
+	int (*get_stats_count)(void);
+	void (*get_stats_strings)(u8 **p);
+	void (*get_stats)(struct mlxsw_sp_port *mlxsw_sp_port,
+			  u64 *data, int data_index);
 };
 
 static inline struct mlxsw_sp_upper *
@@ -391,6 +426,13 @@ enum mlxsw_sp_flood_type {
 	MLXSW_SP_FLOOD_TYPE_MC,
 };
 
+int mlxsw_sp_port_headroom_set(struct mlxsw_sp_port *mlxsw_sp_port,
+			       int mtu, bool pause_en);
+int mlxsw_sp_port_get_stats_raw(struct net_device *dev, int grp,
+				int prio, char *ppcnt_pl);
+int mlxsw_sp_port_admin_status_set(struct mlxsw_sp_port *mlxsw_sp_port,
+				   bool is_up);
+
 /* spectrum_buffers.c */
 int mlxsw_sp_buffers_init(struct mlxsw_sp *mlxsw_sp);
 void mlxsw_sp_buffers_fini(struct mlxsw_sp *mlxsw_sp);
@@ -497,7 +539,6 @@ int mlxsw_sp_flow_counter_alloc(struct mlxsw_sp *mlxsw_sp,
 				unsigned int *p_counter_index);
 void mlxsw_sp_flow_counter_free(struct mlxsw_sp *mlxsw_sp,
 				unsigned int counter_index);
-u32 mlxsw_sp_span_buffsize_get(struct mlxsw_sp *mlxsw_sp, int mtu, u32 speed);
 bool mlxsw_sp_port_dev_check(const struct net_device *dev);
 struct mlxsw_sp *mlxsw_sp_lower_get(struct net_device *dev);
 struct mlxsw_sp_port *mlxsw_sp_port_dev_lower_find(struct net_device *dev);
@@ -669,7 +710,6 @@ struct mlxsw_sp_flow_block {
 
 struct mlxsw_sp_flow_block_binding {
 	struct list_head list;
-	struct net_device *dev;
 	struct mlxsw_sp_port *mlxsw_sp_port;
 	bool ingress;
 };
@@ -727,8 +767,9 @@ mlxsw_sp_flow_block_is_mixed_bound(const struct mlxsw_sp_flow_block *block)
 struct mlxsw_sp_flow_block *mlxsw_sp_flow_block_create(struct mlxsw_sp *mlxsw_sp,
 						       struct net *net);
 void mlxsw_sp_flow_block_destroy(struct mlxsw_sp_flow_block *block);
-int mlxsw_sp_setup_tc_block(struct mlxsw_sp_port *mlxsw_sp_port,
-			    struct flow_block_offload *f);
+int mlxsw_sp_setup_tc_block_clsact(struct mlxsw_sp_port *mlxsw_sp_port,
+				   struct flow_block_offload *f,
+				   bool ingress);
 
 /* spectrum_acl.c */
 struct mlxsw_sp_acl_ruleset;
@@ -854,6 +895,17 @@ void mlxsw_sp_acl_fini(struct mlxsw_sp *mlxsw_sp);
 u32 mlxsw_sp_acl_region_rehash_intrvl_get(struct mlxsw_sp *mlxsw_sp);
 int mlxsw_sp_acl_region_rehash_intrvl_set(struct mlxsw_sp *mlxsw_sp, u32 val);
 
+struct mlxsw_sp_acl_mangle_action;
+
+struct mlxsw_sp_acl_rulei_ops {
+	int (*act_mangle_field)(struct mlxsw_sp *mlxsw_sp, struct mlxsw_sp_acl_rule_info *rulei,
+				struct mlxsw_sp_acl_mangle_action *mact, u32 val,
+				struct netlink_ext_ack *extack);
+};
+
+extern struct mlxsw_sp_acl_rulei_ops mlxsw_sp1_acl_rulei_ops;
+extern struct mlxsw_sp_acl_rulei_ops mlxsw_sp2_acl_rulei_ops;
+
 /* spectrum_acl_tcam.c */
 struct mlxsw_sp_acl_tcam;
 struct mlxsw_sp_acl_tcam_region;
@@ -909,6 +961,30 @@ extern const struct mlxsw_afk_ops mlxsw_sp1_afk_ops;
 extern const struct mlxsw_afk_ops mlxsw_sp2_afk_ops;
 
 /* spectrum_matchall.c */
+enum mlxsw_sp_mall_action_type {
+	MLXSW_SP_MALL_ACTION_TYPE_MIRROR,
+	MLXSW_SP_MALL_ACTION_TYPE_SAMPLE,
+	MLXSW_SP_MALL_ACTION_TYPE_TRAP,
+};
+
+struct mlxsw_sp_mall_mirror_entry {
+	const struct net_device *to_dev;
+	int span_id;
+};
+
+struct mlxsw_sp_mall_entry {
+	struct list_head list;
+	unsigned long cookie;
+	unsigned int priority;
+	enum mlxsw_sp_mall_action_type type;
+	bool ingress;
+	union {
+		struct mlxsw_sp_mall_mirror_entry mirror;
+		struct mlxsw_sp_port_sample sample;
+	};
+	struct rcu_head rcu;
+};
+
 int mlxsw_sp_mall_replace(struct mlxsw_sp *mlxsw_sp,
 			  struct mlxsw_sp_flow_block *block,
 			  struct tc_cls_matchall_offload *f);
@@ -955,6 +1031,8 @@ int mlxsw_sp_setup_tc_tbf(struct mlxsw_sp_port *mlxsw_sp_port,
 			  struct tc_tbf_qopt_offload *p);
 int mlxsw_sp_setup_tc_fifo(struct mlxsw_sp_port *mlxsw_sp_port,
 			   struct tc_fifo_qopt_offload *p);
+int mlxsw_sp_setup_tc_block_qevent_early_drop(struct mlxsw_sp_port *mlxsw_sp_port,
+					      struct flow_block_offload *f);
 
 /* spectrum_fid.c */
 bool mlxsw_sp_fid_is_dummy(struct mlxsw_sp *mlxsw_sp, u16 fid_index);
@@ -1112,5 +1190,10 @@ static inline struct net *mlxsw_sp_net(struct mlxsw_sp *mlxsw_sp)
 {
 	return mlxsw_core_net(mlxsw_sp->core);
 }
+
+/* spectrum_ethtool.c */
+extern const struct ethtool_ops mlxsw_sp_port_ethtool_ops;
+extern const struct mlxsw_sp_port_type_speed_ops mlxsw_sp1_port_type_speed_ops;
+extern const struct mlxsw_sp_port_type_speed_ops mlxsw_sp2_port_type_speed_ops;
 
 #endif
