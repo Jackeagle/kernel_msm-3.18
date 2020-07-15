@@ -978,6 +978,9 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
 	/* Update the actual used number of crtc */
 	adev->mode_info.num_crtc = adev->dm.display_indexes_num;
 
+	/* create fake encoders for MST */
+	dm_dp_create_fake_mst_encoders(adev);
+
 	/* TODO: Add_display_info? */
 
 	/* TODO use dynamic cursor width */
@@ -1001,6 +1004,12 @@ error:
 
 static void amdgpu_dm_fini(struct amdgpu_device *adev)
 {
+	int i;
+
+	for (i = 0; i < adev->dm.display_indexes_num; i++) {
+		drm_encoder_cleanup(&adev->dm.mst_encoders[i].base);
+	}
+
 	amdgpu_dm_audio_fini(adev);
 
 	amdgpu_dm_destroy_drm_device(&adev->dm);
@@ -2019,11 +2028,16 @@ static void update_connector_ext_caps(struct amdgpu_dm_connector *aconnector)
 	struct amdgpu_display_manager *dm;
 	struct drm_connector *conn_base;
 	struct amdgpu_device *adev;
+	struct dc_link *link = NULL;
 	static const u8 pre_computed_values[] = {
 		50, 51, 52, 53, 55, 56, 57, 58, 59, 61, 62, 63, 65, 66, 68, 69,
 		71, 72, 74, 75, 77, 79, 81, 82, 84, 86, 88, 90, 92, 94, 96, 98};
 
 	if (!aconnector || !aconnector->dc_link)
+		return;
+
+	link = aconnector->dc_link;
+	if (link->connector_signal != SIGNAL_TYPE_EDP)
 		return;
 
 	conn_base = &aconnector->base;
@@ -4556,24 +4570,20 @@ create_stream_for_sink(struct amdgpu_dm_connector *aconnector,
 
 	if (stream->signal == SIGNAL_TYPE_HDMI_TYPE_A)
 		mod_build_hf_vsif_infopacket(stream, &stream->vsp_infopacket, false, false);
-	if (stream->link->psr_settings.psr_feature_enabled)	{
-		struct dc  *core_dc = stream->link->ctx->dc;
-
-		if (dc_is_dmcu_initialized(core_dc)) {
-			//
-			// should decide stream support vsc sdp colorimetry capability
-			// before building vsc info packet
-			//
-			stream->use_vsc_sdp_for_colorimetry = false;
-			if (aconnector->dc_sink->sink_signal == SIGNAL_TYPE_DISPLAY_PORT_MST) {
-				stream->use_vsc_sdp_for_colorimetry =
-					aconnector->dc_sink->is_vsc_sdp_colorimetry_supported;
-			} else {
-				if (stream->link->dpcd_caps.dprx_feature.bits.VSC_SDP_COLORIMETRY_SUPPORTED)
-					stream->use_vsc_sdp_for_colorimetry = true;
-			}
-			mod_build_vsc_infopacket(stream, &stream->vsc_infopacket);
+	if (stream->link->psr_settings.psr_feature_enabled) {
+		//
+		// should decide stream support vsc sdp colorimetry capability
+		// before building vsc info packet
+		//
+		stream->use_vsc_sdp_for_colorimetry = false;
+		if (aconnector->dc_sink->sink_signal == SIGNAL_TYPE_DISPLAY_PORT_MST) {
+			stream->use_vsc_sdp_for_colorimetry =
+				aconnector->dc_sink->is_vsc_sdp_colorimetry_supported;
+		} else {
+			if (stream->link->dpcd_caps.dprx_feature.bits.VSC_SDP_COLORIMETRY_SUPPORTED)
+				stream->use_vsc_sdp_for_colorimetry = true;
 		}
+		mod_build_vsc_infopacket(stream, &stream->vsc_infopacket);
 	}
 finish:
 	dc_sink_release(sink);
@@ -4641,7 +4651,6 @@ dm_crtc_duplicate_state(struct drm_crtc *crtc)
 	}
 
 	state->active_planes = cur->active_planes;
-	state->interrupts_enabled = cur->interrupts_enabled;
 	state->vrr_params = cur->vrr_params;
 	state->vrr_infopacket = cur->vrr_infopacket;
 	state->abm_level = cur->abm_level;
@@ -5302,29 +5311,19 @@ static int count_crtc_active_planes(struct drm_crtc_state *new_crtc_state)
 	return num_active;
 }
 
-/*
- * Sets whether interrupts should be enabled on a specific CRTC.
- * We require that the stream be enabled and that there exist active
- * DC planes on the stream.
- */
-static void
-dm_update_crtc_interrupt_state(struct drm_crtc *crtc,
-			       struct drm_crtc_state *new_crtc_state)
+static void dm_update_crtc_active_planes(struct drm_crtc *crtc,
+					 struct drm_crtc_state *new_crtc_state)
 {
 	struct dm_crtc_state *dm_new_crtc_state =
 		to_dm_crtc_state(new_crtc_state);
 
 	dm_new_crtc_state->active_planes = 0;
-	dm_new_crtc_state->interrupts_enabled = false;
 
 	if (!dm_new_crtc_state->stream)
 		return;
 
 	dm_new_crtc_state->active_planes =
 		count_crtc_active_planes(new_crtc_state);
-
-	dm_new_crtc_state->interrupts_enabled =
-		dm_new_crtc_state->active_planes > 0;
 }
 
 static int dm_crtc_helper_atomic_check(struct drm_crtc *crtc,
@@ -5335,13 +5334,7 @@ static int dm_crtc_helper_atomic_check(struct drm_crtc *crtc,
 	struct dm_crtc_state *dm_crtc_state = to_dm_crtc_state(state);
 	int ret = -EINVAL;
 
-	/*
-	 * Update interrupt state for the CRTC. This needs to happen whenever
-	 * the CRTC has changed or whenever any of its planes have changed.
-	 * Atomic check satisfies both of these requirements since the CRTC
-	 * is added to the state by DRM during drm_atomic_helper_check_planes.
-	 */
-	dm_update_crtc_interrupt_state(crtc, state);
+	dm_update_crtc_active_planes(crtc, state);
 
 	if (unlikely(!dm_crtc_state->stream &&
 		     modeset_required(state, NULL, dm_crtc_state->stream))) {
@@ -5866,6 +5859,7 @@ static int amdgpu_dm_plane_init(struct amdgpu_display_manager *dm,
 	uint32_t formats[32];
 	int num_formats;
 	int res = -EPERM;
+	unsigned int supported_rotations;
 
 	num_formats = get_plane_formats(plane, plane_cap, formats,
 					ARRAY_SIZE(formats));
@@ -5899,6 +5893,13 @@ static int amdgpu_dm_plane_init(struct amdgpu_display_manager *dm,
 			BIT(DRM_COLOR_YCBCR_FULL_RANGE),
 			DRM_COLOR_YCBCR_BT709, DRM_COLOR_YCBCR_LIMITED_RANGE);
 	}
+
+	supported_rotations =
+		DRM_MODE_ROTATE_0 | DRM_MODE_ROTATE_90 |
+		DRM_MODE_ROTATE_180 | DRM_MODE_ROTATE_270;
+
+	drm_plane_create_rotation_property(plane, DRM_MODE_ROTATE_0,
+					   supported_rotations);
 
 	drm_plane_helper_add(plane, &dm_plane_helper_funcs);
 
@@ -6444,8 +6445,10 @@ static void manage_dm_interrupts(struct amdgpu_device *adev,
 				 bool enable)
 {
 	/*
-	 * this is not correct translation but will work as soon as VBLANK
-	 * constant is the same as PFLIP
+	 * We have no guarantee that the frontend index maps to the same
+	 * backend index - some even map to more than one.
+	 *
+	 * TODO: Use a different interrupt or check DC itself for the mapping.
 	 */
 	int irq_type =
 		amdgpu_display_crtc_idx_to_irq_type(
@@ -6466,6 +6469,19 @@ static void manage_dm_interrupts(struct amdgpu_device *adev,
 			irq_type);
 		drm_crtc_vblank_off(&acrtc->base);
 	}
+}
+
+static void dm_update_pflip_irq_state(struct amdgpu_device *adev,
+				      struct amdgpu_crtc *acrtc)
+{
+	int irq_type =
+		amdgpu_display_crtc_idx_to_irq_type(adev, acrtc->crtc_id);
+
+	/**
+	 * This reads the current state for the IRQ and force reapplies
+	 * the setting to hardware.
+	 */
+	amdgpu_irq_update(adev, &adev->pageflip_irq, irq_type);
 }
 
 static bool
@@ -7052,7 +7068,16 @@ static void amdgpu_dm_commit_planes(struct drm_atomic_state *state,
 			usleep_range(1000, 1100);
 		}
 
-		if (acrtc_attach->base.state->event) {
+		/**
+		 * Prepare the flip event for the pageflip interrupt to handle.
+		 *
+		 * This only works in the case where we've already turned on the
+		 * appropriate hardware blocks (eg. HUBP) so in the transition case
+		 * from 0 -> n planes we have to skip a hardware generated event
+		 * and rely on sending it from software.
+		 */
+		if (acrtc_attach->base.state->event &&
+		    acrtc_state->active_planes > 0) {
 			drm_crtc_vblank_get(pcrtc);
 
 			spin_lock_irqsave(&pcrtc->dev->event_lock, flags);
@@ -7120,6 +7145,24 @@ static void amdgpu_dm_commit_planes(struct drm_atomic_state *state,
 						     acrtc_state->stream,
 						     &bundle->stream_update,
 						     dc_state);
+
+		/**
+		 * Enable or disable the interrupts on the backend.
+		 *
+		 * Most pipes are put into power gating when unused.
+		 *
+		 * When power gating is enabled on a pipe we lose the
+		 * interrupt enablement state when power gating is disabled.
+		 *
+		 * So we need to update the IRQ control state in hardware
+		 * whenever the pipe turns on (since it could be previously
+		 * power gated) or off (since some pipes can't be power gated
+		 * on some ASICs).
+		 */
+		if (dm_old_crtc_state->active_planes != acrtc_state->active_planes)
+			dm_update_pflip_irq_state(
+				(struct amdgpu_device *)dev->dev_private,
+				acrtc_attach);
 
 		if ((acrtc_state->update_type > UPDATE_TYPE_FAST) &&
 				acrtc_state->stream->link->psr_settings.psr_version != DC_PSR_VERSION_UNSUPPORTED &&
@@ -7222,64 +7265,6 @@ static void amdgpu_dm_commit_audio(struct drm_device *dev,
 }
 
 /*
- * Enable interrupts on CRTCs that are newly active, undergone
- * a modeset, or have active planes again.
- *
- * Done in two passes, based on the for_modeset flag:
- * Pass 1: For CRTCs going through modeset
- * Pass 2: For CRTCs going from 0 to n active planes
- *
- * Interrupts can only be enabled after the planes are programmed,
- * so this requires a two-pass approach since we don't want to
- * just defer the interrupts until after commit planes every time.
- */
-static void amdgpu_dm_enable_crtc_interrupts(struct drm_device *dev,
-					     struct drm_atomic_state *state,
-					     bool for_modeset)
-{
-	struct amdgpu_device *adev = dev->dev_private;
-	struct drm_crtc *crtc;
-	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
-	int i;
-#ifdef CONFIG_DEBUG_FS
-	enum amdgpu_dm_pipe_crc_source source;
-#endif
-
-	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state,
-				      new_crtc_state, i) {
-		struct amdgpu_crtc *acrtc = to_amdgpu_crtc(crtc);
-		struct dm_crtc_state *dm_new_crtc_state =
-			to_dm_crtc_state(new_crtc_state);
-		struct dm_crtc_state *dm_old_crtc_state =
-			to_dm_crtc_state(old_crtc_state);
-		bool modeset = drm_atomic_crtc_needs_modeset(new_crtc_state);
-		bool run_pass;
-
-		run_pass = (for_modeset && modeset) ||
-			   (!for_modeset && !modeset &&
-			    !dm_old_crtc_state->interrupts_enabled);
-
-		if (!run_pass)
-			continue;
-
-		if (!dm_new_crtc_state->interrupts_enabled)
-			continue;
-
-		manage_dm_interrupts(adev, acrtc, true);
-
-#ifdef CONFIG_DEBUG_FS
-		/* The stream has changed so CRC capture needs to re-enabled. */
-		source = dm_new_crtc_state->crc_src;
-		if (amdgpu_dm_is_valid_crc_source(source)) {
-			amdgpu_dm_crtc_configure_crc_source(
-				crtc, dm_new_crtc_state,
-				dm_new_crtc_state->crc_src);
-		}
-#endif
-	}
-}
-
-/*
  * amdgpu_dm_crtc_copy_transient_flags - copy mirrored flags from DRM to DC
  * @crtc_state: the DRM CRTC state
  * @stream_state: the DC stream state.
@@ -7318,12 +7303,10 @@ static int amdgpu_dm_atomic_commit(struct drm_device *dev,
 	 * in atomic check.
 	 */
 	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
-		struct dm_crtc_state *dm_old_crtc_state = to_dm_crtc_state(old_crtc_state);
-		struct dm_crtc_state *dm_new_crtc_state = to_dm_crtc_state(new_crtc_state);
 		struct amdgpu_crtc *acrtc = to_amdgpu_crtc(crtc);
 
-		if (dm_old_crtc_state->interrupts_enabled &&
-		    (!dm_new_crtc_state->interrupts_enabled ||
+		if (old_crtc_state->active &&
+		    (!new_crtc_state->active ||
 		     drm_atomic_crtc_needs_modeset(new_crtc_state)))
 			manage_dm_interrupts(adev, acrtc, false);
 	}
@@ -7602,8 +7585,34 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
 						dm_new_crtc_state);
 	}
 
-	/* Enable interrupts for CRTCs going through a modeset. */
-	amdgpu_dm_enable_crtc_interrupts(dev, state, true);
+	/**
+	 * Enable interrupts for CRTCs that are newly enabled or went through
+	 * a modeset. It was intentionally deferred until after the front end
+	 * state was modified to wait until the OTG was on and so the IRQ
+	 * handlers didn't access stale or invalid state.
+	 */
+	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
+		struct amdgpu_crtc *acrtc = to_amdgpu_crtc(crtc);
+
+		if (new_crtc_state->active &&
+		    (!old_crtc_state->active ||
+		     drm_atomic_crtc_needs_modeset(new_crtc_state))) {
+			manage_dm_interrupts(adev, acrtc, true);
+#ifdef CONFIG_DEBUG_FS
+			/**
+			 * Frontend may have changed so reapply the CRC capture
+			 * settings for the stream.
+			 */
+			dm_new_crtc_state = to_dm_crtc_state(new_crtc_state);
+
+			if (amdgpu_dm_is_valid_crc_source(dm_new_crtc_state->crc_src)) {
+				amdgpu_dm_crtc_configure_crc_source(
+					crtc, dm_new_crtc_state,
+					dm_new_crtc_state->crc_src);
+			}
+#endif
+		}
+	}
 
 	for_each_new_crtc_in_state(state, crtc, new_crtc_state, j)
 		if (new_crtc_state->async_flip)
@@ -7617,9 +7626,6 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
 			amdgpu_dm_commit_planes(state, dc_state, dev,
 						dm, crtc, wait_for_vblank);
 	}
-
-	/* Enable interrupts for CRTCs going from 0 to n active planes. */
-	amdgpu_dm_enable_crtc_interrupts(dev, state, false);
 
 	/* Update audio instances for each connector. */
 	amdgpu_dm_commit_audio(dev, state);
